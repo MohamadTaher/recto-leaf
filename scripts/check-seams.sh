@@ -57,9 +57,9 @@ gradle/build-logic/src/main/kotlin/mihon/gradle/BuildConfig.kt
 "
 
 BUILD_ENV="
-gradle/libs.versions.toml
 settings.gradle.kts
 gradle/gradle-daemon-jvm.properties
+.gitignore
 "
 
 # The schema surface D12 claims. Everything else under data/src/main/sqldelight/ must stay
