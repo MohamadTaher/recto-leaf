@@ -69,6 +69,16 @@ data/src/main/sqldelight/tachiyomi/data/mangas.sq
 data/src/main/sqldelight/tachiyomi/migrations/15.sqm
 "
 
+# Upstream migrations we have renumbered because the fork already owns their number.
+# The CONTENT is upstream's; only the filename differs, so they show as a permanent diff and must
+# be listed somewhere. Add to this list in the same commit as the rename.
+#
+# When upstream lands its own 15.sqm this list is where its renamed copy goes. Renumber THEIRS,
+# never ours — a device that ran our 15.sqm records user_version 16, so a renumbered copy of ours
+# would re-run while upstream's would be skipped forever. See plans/06.
+RENUMBERED="
+"
+
 # Fork-owned trees. New files here never conflict, so they are outside the contract entirely.
 FORK_TREES='^plans/|^progress/|^scripts/|(^|/)leaf/'
 
@@ -86,8 +96,11 @@ listed() {
     printf '%s' "$1" | grep -v '^[[:space:]]*$' || true
 }
 
+# Tracked differences against upstream, PLUS files that exist only here and have never been
+# committed. git diff cannot see untracked files, so without the second half a new file dropped
+# into an upstream directory passes every check until someone commits it.
 changed_files() {
-    git diff --name-only "$UPSTREAM"
+    { git diff --name-only "$UPSTREAM"; git ls-files --others --exclude-standard; } | sort -u
 }
 
 if ! git rev-parse --verify --quiet "$UPSTREAM" >/dev/null; then
@@ -101,7 +114,7 @@ printf 'Checking the fork surface against %s\n\n' "$UPSTREAM"
 # C1 — every changed upstream file is accounted for
 # ---------------------------------------------------------------------------------------------
 
-ALLOWED="$(listed "$SEAMS"; listed "$REBRAND"; listed "$BUILD_ENV")"
+ALLOWED="$(listed "$SEAMS"; listed "$REBRAND"; listed "$BUILD_ENV"; listed "$RENUMBERED")"
 UNACCOUNTED="$(changed_files | grep -Ev "$FORK_TREES" | grep -Fxv "$ALLOWED" || true)"
 
 if [ -n "$UNACCOUNTED" ]; then
@@ -120,9 +133,13 @@ fi
 # upstream's would be skipped forever. See plans/06.
 # ---------------------------------------------------------------------------------------------
 
-SCHEMA="$(git diff --name-only "$UPSTREAM" -- data/src/main/sqldelight/ | grep -Fxv "$(listed "$SCHEMA_OWNED")" || true)"
+SCHEMA="$(changed_files | grep '^data/src/main/sqldelight/' | grep -Fxv "$(listed "$SCHEMA_OWNED"; listed "$RENUMBERED")" || true)"
 if [ -n "$SCHEMA" ]; then
     fail 'C2 schema files changed that D12 does not claim:'
+    printf '        A renumbered upstream migration belongs in RENUMBERED above, added in the
+'
+    printf '        same commit as the rename. Never renumber OUR 15.sqm - see plans/06.
+'
     printf '%s\n' "$SCHEMA" | sed 's/^/          /'
 else
     pass 'C2 only the two schema files D12 claims differ'
@@ -156,7 +173,7 @@ fi
 # C5 — translations are Weblate's, not ours
 # ---------------------------------------------------------------------------------------------
 
-TRANSLATIONS="$(git diff --name-only "$UPSTREAM" -- i18n/src/commonMain/moko-resources/ \
+TRANSLATIONS="$(changed_files | grep '^i18n/src/commonMain/moko-resources/' \
     | grep -v '^i18n/src/commonMain/moko-resources/base/strings.xml$' || true)"
 if [ -n "$TRANSLATIONS" ]; then
     fail 'C5 a Weblate-managed translation was edited — it will be overwritten:'
