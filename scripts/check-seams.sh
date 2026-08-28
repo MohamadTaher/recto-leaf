@@ -35,6 +35,15 @@ app/src/main/AndroidManifest.xml
 i18n/src/commonMain/moko-resources/base/strings.xml
 app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/BrowseSourceScreen.kt
 app/src/main/java/eu/kanade/domain/source/interactor/GetEnabledSources.kt
+data/src/main/sqldelight/tachiyomi/data/mangas.sq
+data/src/main/sqldelight/tachiyomi/migrations/15.sqm
+domain/src/main/java/tachiyomi/domain/manga/model/Manga.kt
+domain/src/main/java/tachiyomi/domain/manga/model/MangaUpdate.kt
+data/src/main/java/tachiyomi/data/manga/MangaMapper.kt
+data/src/main/java/tachiyomi/data/manga/MangaRepositoryImpl.kt
+app/src/main/java/eu/kanade/tachiyomi/data/backup/models/BackupManga.kt
+app/src/main/java/eu/kanade/tachiyomi/data/backup/create/creators/MangaBackupCreator.kt
+app/src/main/java/eu/kanade/tachiyomi/data/backup/restore/restorers/MangaRestorer.kt
 "
 
 REBRAND="
@@ -51,6 +60,13 @@ BUILD_ENV="
 gradle/libs.versions.toml
 settings.gradle.kts
 gradle/gradle-daemon-jvm.properties
+"
+
+# The schema surface D12 claims. Everything else under data/src/main/sqldelight/ must stay
+# byte-identical to upstream.
+SCHEMA_OWNED="
+data/src/main/sqldelight/tachiyomi/data/mangas.sq
+data/src/main/sqldelight/tachiyomi/migrations/15.sqm
 "
 
 # Fork-owned trees. New files here never conflict, so they are outside the contract entirely.
@@ -97,23 +113,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
-# C2 / C4 — no schema surface (D1). An untouched migrations directory is an untouched
-# Database.Schema.version, since SQLDelight derives the version from the highest .sqm.
+# C2 / C4 — the fork owns exactly two schema files (D12, superseding D1). SQLDelight derives
+# Database.Schema.version from the highest .sqm, so 15.sqm deliberately puts us one ahead of
+# upstream. When upstream lands its own 15.sqm, renumber THEIRS upward, never ours: a device that
+# already ran our 15.sqm records user_version 16, so a renumbered copy of ours would re-run and
+# upstream's would be skipped forever. See plans/06.
 # ---------------------------------------------------------------------------------------------
 
-SCHEMA="$(git diff --name-only "$UPSTREAM" -- data/src/main/sqldelight/ || true)"
+SCHEMA="$(git diff --name-only "$UPSTREAM" -- data/src/main/sqldelight/ | grep -Fxv "$(listed "$SCHEMA_OWNED")" || true)"
 if [ -n "$SCHEMA" ]; then
-    fail 'C2 the database schema changed — D1 says never:'
+    fail 'C2 schema files changed that D12 does not claim:'
     printf '%s\n' "$SCHEMA" | sed 's/^/          /'
 else
-    pass 'C2 no .sq or .sqm file differs, so the schema version still tracks upstream'
+    pass 'C2 only the two schema files D12 claims differ'
 fi
 
 # ---------------------------------------------------------------------------------------------
 # C3 — markers and seams agree in both directions
 # ---------------------------------------------------------------------------------------------
 
-MARKED="$(grep -rl '\[recto-leaf\]' --include='*.kt' --include='*.xml' \
+MARKED="$(grep -rl '\[recto-leaf\]' --include='*.kt' --include='*.xml' --include='*.sq' --include='*.sqm' \
     --exclude-dir=build --exclude-dir=.git . 2>/dev/null \
     | sed 's|^\./||' | grep -Ev "$FORK_TREES" | sort || true)"
 EXPECTED="$(listed "$SEAMS" | sort)"
