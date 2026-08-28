@@ -56,7 +56,6 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import leaf.novel.data.isNovel
 import logcat.LogPriority
 import mihon.domain.chapter.interactor.FilterChaptersForDownload
 import mihon.domain.source.interactor.UpdateMangaFromRemote
@@ -544,7 +543,7 @@ class MangaViewModel(
 
     private fun List<Chapter>.toChapterListItems(manga: Manga): List<ChapterList.Item> {
         // [recto-leaf] Novels have no page list, so they behave like local entries here — see plans/05.
-        val isLocal = manga.isLocal() || manga.isNovel()
+        val isLocal = manga.isLocal() || manga.isNovel
         return map { chapter ->
             val activeDownload = if (isLocal) {
                 null
@@ -1181,7 +1180,7 @@ class MangaViewModel(
              */
             private fun List<ChapterList.Item>.applyFilters(manga: Manga): Sequence<ChapterList.Item> {
                 // [recto-leaf] see plans/05
-                val isLocalManga = manga.isLocal() || manga.isNovel()
+                val isLocalManga = manga.isLocal() || manga.isNovel
                 val unreadFilter = manga.unreadFilter
                 val downloadedFilter = manga.downloadedFilter
                 val bookmarkedFilter = manga.bookmarkedFilter

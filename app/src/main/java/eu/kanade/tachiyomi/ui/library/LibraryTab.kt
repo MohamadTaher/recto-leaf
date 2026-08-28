@@ -50,7 +50,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import leaf.novel.data.isNovel
 import leaf.novel.library.LibraryContentTypeRow
 import mihon.feature.migration.config.MigrationConfigScreen
 import tachiyomi.core.common.i18n.stringResource
@@ -158,7 +157,7 @@ data object LibraryTab : Tab {
                     onMarkAsUnreadClicked = { viewModel.markReadSelection(false) },
                     onDownloadClicked = viewModel::performDownloadAction
                         // [recto-leaf] Novels have no page list, so they can never be downloaded.
-                        .takeIf { state.selectedManga.fastAll { !it.isLocal() && !it.isNovel() } },
+                        .takeIf { state.selectedManga.fastAll { !it.isLocal() && !it.isNovel } },
                     onDeleteClicked = viewModel::openDeleteMangaDialog,
                     onMigrateClicked = {
                         val selection = state.selection
