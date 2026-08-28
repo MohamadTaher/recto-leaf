@@ -194,6 +194,12 @@ class LibraryViewModel(
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5.seconds), State())
 
+    // [recto-leaf] Maintains the content-type selector's cached flag, which the toolbar reads
+    // before the library flow first emits. See plans/03.
+    init {
+        libraryContentTypeFilter.keepPreferencesCurrent(viewModelScope)
+    }
+
     private data class DisplayPreferences(
         val showCategoryTabs: Boolean,
         val showMangaCount: Boolean,
