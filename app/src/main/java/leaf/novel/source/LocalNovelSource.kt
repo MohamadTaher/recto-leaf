@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.source.model.UpdateStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
+import leaf.novel.LOCAL_NOVEL_SOURCE_ID
 import leaf.novel.epub.NovelEpubReader
 import leaf.novel.epub.novelEpubReader
 import leaf.novel.io.NOVEL_BOOK_FILE
@@ -209,12 +210,8 @@ class LocalNovelSource(
         substringAfterLast('/').substringAfterLast('\\').substringBeforeLast('.')
 
     companion object {
-        /**
-         * Extension source ids are the first 64 bits of an MD5 with the sign bit cleared, so a
-         * negative id can never collide. `0L` is LocalSource and `-1L` is used as an invalid-id
-         * sentinel elsewhere. See plans/02 (D7).
-         */
-        const val ID = -2L
+        /** See [leaf.novel.LOCAL_NOVEL_SOURCE_ID], which `:data` also needs. */
+        const val ID = LOCAL_NOVEL_SOURCE_ID
     }
 }
 
