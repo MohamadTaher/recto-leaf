@@ -6,7 +6,6 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.runBlocking
-import leaf.novel.data.isNovel
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.interactor.GetManga
@@ -44,7 +43,7 @@ class NovelReaderRouter(
             .onFailure { logcat(LogPriority.ERROR, it) { "Novel routing lookup failed for $mangaId" } }
             .getOrNull()
             ?: return null
-        if (!manga.isNovel()) return null
+        if (!manga.isNovel) return null
 
         val chapterId = intent.extras?.getLong(EXTRA_CHAPTER, INVALID_ID) ?: INVALID_ID
         return NovelReaderActivity.newIntent(

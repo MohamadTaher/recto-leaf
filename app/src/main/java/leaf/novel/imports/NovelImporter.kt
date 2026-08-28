@@ -15,8 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.serialization.json.Json
-import leaf.novel.data.markAsNovel
-import leaf.novel.data.withNovelMemo
 import leaf.novel.epub.NovelEpubException
 import leaf.novel.epub.NovelEpubFailure
 import leaf.novel.epub.novelEpubReader
@@ -35,8 +33,6 @@ import tachiyomi.core.metadata.tachiyomi.MangaDetails
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.manga.model.MangaUpdate
-import java.security.DigestInputStream
-import java.security.MessageDigest
 
 /** How to proceed when a novel folder of the same name already exists. */
 enum class NovelImportConflict {
@@ -151,28 +147,28 @@ class NovelImporter(
         val temporary = baseDirectory.createDirectory(folderName + NOVEL_TMP_SUFFIX)
             ?: return NovelImportResult.Failure(NovelImportFailure.WRITE_FAILED)
 
-        // Null means the folder never made it to its final name, whatever the reason.
-        val hash = try {
+        // False means the folder never made it to its final name, whatever the reason.
+        val imported = try {
             val book = temporary.createFile(NOVEL_BOOK_FILE)
             if (book == null) {
-                null
+                false
             } else {
-                val computed = copyWithHash(sourceFile, book)
+                copyBook(sourceFile, book)
                 extractCover(book, temporary)
                 distinctTitle?.let { writeDetailsOverride(temporary, it) }
                 DiskUtil.createNoMediaFile(temporary, context)
-                computed.takeIf { temporary.renameTo(folderName) }
+                temporary.renameTo(folderName)
             }
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "Error importing novel into $folderName" }
-            null
+            false
         }
 
-        if (hash == null) {
+        if (!imported) {
             temporary.delete()
             return NovelImportResult.Failure(NovelImportFailure.WRITE_FAILED)
         }
-        return registerNovel(folderName, hash)
+        return registerNovel(folderName)
     }
 
     /**
@@ -184,54 +180,53 @@ class NovelImporter(
         val temporaryBook = folder.createFile(temporaryName)
             ?: return NovelImportResult.Failure(NovelImportFailure.WRITE_FAILED)
 
-        val hash = try {
-            val computed = copyWithHash(sourceFile, temporaryBook)
+        val replaced = try {
+            copyBook(sourceFile, temporaryBook)
 
             // Keep the old book until the new one is in place: the user's imported original is the
             // only copy the library has, and losing it is the worst outcome available (risk L3).
             val previous = folder.findFile(NOVEL_BOOK_FILE)
             when {
-                previous != null && !previous.renameTo(NOVEL_BOOK_FILE + PREVIOUS_SUFFIX) -> null
+                previous != null && !previous.renameTo(NOVEL_BOOK_FILE + PREVIOUS_SUFFIX) -> false
                 !temporaryBook.renameTo(NOVEL_BOOK_FILE) -> {
                     folder.findFile(NOVEL_BOOK_FILE + PREVIOUS_SUFFIX)?.renameTo(NOVEL_BOOK_FILE)
-                    null
+                    false
                 }
                 else -> {
                     folder.findFile(NOVEL_BOOK_FILE + PREVIOUS_SUFFIX)?.delete()
-                    computed
+                    true
                 }
             }
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "Error replacing book.epub in $folderName" }
-            null
+            false
         }
 
-        if (hash == null) {
+        if (!replaced) {
             folder.findFile(temporaryName)?.delete()
             return NovelImportResult.Failure(NovelImportFailure.WRITE_FAILED)
         }
 
         folder.findFile(NOVEL_BOOK_FILE)?.let { extractCover(it, folder, overwrite = false) }
-        return registerNovel(folderName, hash)
+        return registerNovel(folderName)
     }
 
     /**
-     * Inserts the row if it is new, stamps the current EPUB hash either way, then pulls details and
+     * Inserts the row if it is new, flags it as a novel either way, then pulls details and
      * chapters in.
      *
      * The refresh is not optional: `MangaViewModel` only fetches on its own when the row is
      * uninitialised or has no chapters, so replacing `book.epub` on a novel that is already in the
      * library would otherwise show none of its new chapters until a manual pull-to-refresh.
      */
-    private suspend fun registerNovel(folderName: String, epubHash: String): NovelImportResult {
+    private suspend fun registerNovel(folderName: String): NovelImportResult {
         val sManga = SManga.create().apply {
             url = folderName
             title = folderName
             update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
-            markAsNovel(epubHash)
         }
         val manga = networkToLocalManga(sManga.toDomainManga(LocalNovelSource.ID))
-        updateManga.await(MangaUpdate(id = manga.id, memo = manga.memo.withNovelMemo(epubHash)))
+        updateManga.await(MangaUpdate(id = manga.id, isNovel = true))
 
         updateMangaFromRemote(manga, fetchDetails = true, fetchChapters = true, manualFetch = true)
             .onFailure { logcat(LogPriority.WARN, it) { "Could not refresh $folderName after import" } }
@@ -257,14 +252,10 @@ class NovelImporter(
         }
     }
 
-    private fun copyWithHash(source: UniFile, target: UniFile): String {
-        val digest = MessageDigest.getInstance("MD5")
+    private fun copyBook(source: UniFile, target: UniFile) {
         source.openInputStream().use { input ->
-            DigestInputStream(input, digest).use { hashing ->
-                target.openOutputStream().use { output -> hashing.copyTo(output) }
-            }
+            target.openOutputStream().use { output -> input.copyTo(output) }
         }
-        return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
     }
 
     private fun buildFolderName(title: String): String = DiskUtil.buildValidFilename(

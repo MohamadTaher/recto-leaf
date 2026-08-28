@@ -16,7 +16,6 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.source.model.UpdateStrategy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
-import leaf.novel.data.markAsNovel
 import leaf.novel.epub.NovelEpubReader
 import leaf.novel.epub.novelEpubReader
 import leaf.novel.io.NOVEL_BOOK_FILE
@@ -106,7 +105,6 @@ class LocalNovelSource(
                 url = folderName
                 update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
                 coverManager.find(folderName)?.let { thumbnail_url = it.uri.toString() }
-                markAsNovel()
             }
         }
 
@@ -119,10 +117,9 @@ class LocalNovelSource(
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate = withIOContext {
-        // Re-assert the novel flag and the update strategy on every refresh, whatever was asked for:
-        // UpdateMangaFromRemote writes memo and update_strategy back regardless of the flags.
+        // Re-assert the update strategy on every refresh, whatever was asked for:
+        // UpdateMangaFromRemote writes update_strategy back regardless of the flags.
         manga.update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
-        manga.markAsNovel()
 
         val bookFile = fileSystem.getBookFile(manga.url)
             ?: return@withIOContext SMangaUpdate(manga, chapters)
