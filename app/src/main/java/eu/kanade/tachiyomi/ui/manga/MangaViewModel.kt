@@ -542,7 +542,8 @@ class MangaViewModel(
     }
 
     private fun List<Chapter>.toChapterListItems(manga: Manga): List<ChapterList.Item> {
-        val isLocal = manga.isLocal()
+        // [recto-leaf] Novels have no page list, so they behave like local entries here — see plans/05.
+        val isLocal = manga.isLocal() || manga.isNovel
         return map { chapter ->
             val activeDownload = if (isLocal) {
                 null
@@ -1178,7 +1179,8 @@ class MangaViewModel(
              * @return an observable of the list of chapters filtered and sorted.
              */
             private fun List<ChapterList.Item>.applyFilters(manga: Manga): Sequence<ChapterList.Item> {
-                val isLocalManga = manga.isLocal()
+                // [recto-leaf] see plans/05
+                val isLocalManga = manga.isLocal() || manga.isNovel
                 val unreadFilter = manga.unreadFilter
                 val downloadedFilter = manga.downloadedFilter
                 val bookmarkedFilter = manga.bookmarkedFilter

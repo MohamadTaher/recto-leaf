@@ -781,7 +781,8 @@ private fun LazyListScope.sharedChapterItems(
                     read = item.chapter.read,
                     bookmark = item.chapter.bookmark,
                     selected = item.selected,
-                    downloadIndicatorEnabled = !isAnyChapterSelected && !manga.isLocal(),
+                    // [recto-leaf] see plans/05
+                    downloadIndicatorEnabled = !isAnyChapterSelected && !manga.isLocal() && !manga.isNovel,
                     downloadStateProvider = { item.downloadState },
                     downloadProgressProvider = { item.downloadProgress },
                     chapterSwipeStartAction = chapterSwipeStartAction,

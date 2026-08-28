@@ -46,6 +46,8 @@ class BackupManga(
     @ProtoNumber(110) var notes: String = "",
     @ProtoNumber(111) var initialized: Boolean = false,
     @ProtoNumber(112) var memo: ByteArray = JsonObjectEmptyBytes,
+    // [recto-leaf] see plans/02 (D12)
+    @ProtoNumber(113) var isNovel: Boolean = false,
 ) {
     fun getMangaImpl(): Manga {
         return Manga.create().copy(
@@ -69,6 +71,7 @@ class BackupManga(
             notes = this@BackupManga.notes,
             initialized = this@BackupManga.initialized,
             memo = MemoColumnAdapter.decode(this@BackupManga.memo),
+            isNovel = this@BackupManga.isNovel,
         )
     }
 }
