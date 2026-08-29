@@ -1,32 +1,14 @@
 package leaf.novel.reader
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.NavigateBefore
-import androidx.compose.material.icons.automirrored.outlined.NavigateNext
-import androidx.compose.material.icons.outlined.Bookmark
-import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,11 +23,13 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.reader.ReaderContentOverlay
+import eu.kanade.presentation.reader.ReaderPageIndicator
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.system.readerBackgroundColor
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import leaf.novel.api.NovelChapterContent
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.i18n.MR
@@ -70,10 +54,25 @@ fun NovelReaderScreen(
     val uriHandler = LocalUriHandler.current
 
     val readerTheme by viewModel.readerPreferences.readerTheme.collectAsState()
+    val showPageNumber by viewModel.readerPreferences.showPageNumber.collectAsState()
     val fontSize by viewModel.novelReaderPreferences.fontSize.collectAsState()
     val backgroundColor = remember(readerTheme) { context.readerBackgroundColor(readerTheme) }
 
     var showSettings by remember { mutableStateOf(false) }
+
+    val chapter = state.currentChapter
+
+    // Where the reader currently is, seeded from the stored position and updated as it scrolls.
+    // Changing font size or theme rebuilds the document, and the reload restores from *this* rather
+    // than from the database, so adjusting type size does not throw the reader back to where it was
+    // when the chapter opened. It sits this high up because the chapter slider both displays it and
+    // drives it.
+    var livePercent by remember(chapter?.id) {
+        mutableIntStateOf(chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0)
+    }
+    val seekRequests = remember {
+        MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    }
 
     Box(
         modifier = Modifier
@@ -93,13 +92,15 @@ fun NovelReaderScreen(
                 )
             }
             else -> {
-                val chapter = state.currentChapter
                 if (chapter != null) {
                     ChapterContent(
                         viewModel = viewModel,
                         chapter = chapter,
                         fontSize = fontSize,
                         backgroundColor = backgroundColor,
+                        percentRead = livePercent,
+                        onPercentChange = { livePercent = it },
+                        seekRequests = seekRequests,
                         onTap = viewModel::toggleMenu,
                         onExternalLink = { uriHandler.openUri(it) },
                     )
@@ -107,21 +108,34 @@ fun NovelReaderScreen(
             }
         }
 
+        // Where in the *book* the reader is. The slider below says where in the chapter, so the two
+        // never say the same thing twice.
+        if (!state.menuVisible && showPageNumber) {
+            ReaderPageIndicator(
+                currentPage = state.currentIndex + 1,
+                totalPages = state.chapters.size,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding(),
+            )
+        }
+
         ContentOverlay(state = state, readerPreferences = viewModel.readerPreferences)
 
-        NovelReaderChrome(
+        NovelReaderAppBars(
             visible = state.menuVisible,
-            title = state.manga?.title.orEmpty(),
-            chapter = state.currentChapter,
-            position = state.currentIndex + 1,
-            total = state.chapters.size,
-            hasPrevious = state.currentIndex > 0,
-            hasNext = state.currentIndex < state.chapters.lastIndex,
-            onBack = onBack,
-            onPrevious = { viewModel.setCurrentChapter(state.currentIndex - 1) },
-            onNext = { viewModel.setCurrentChapter(state.currentIndex + 1) },
-            onToggleBookmark = viewModel::toggleBookmark,
-            onSettings = { showSettings = true },
+            novelTitle = state.manga?.title,
+            chapterTitle = chapter?.name,
+            navigateUp = onBack,
+            bookmarked = chapter?.bookmark == true,
+            onToggleBookmarked = viewModel::toggleBookmark,
+            onPreviousChapter = { viewModel.setCurrentChapter(state.currentIndex - 1) },
+            enabledPrevious = state.currentIndex > 0,
+            onNextChapter = { viewModel.setCurrentChapter(state.currentIndex + 1) },
+            enabledNext = state.currentIndex < state.chapters.lastIndex,
+            percentRead = livePercent,
+            onPercentChange = { seekRequests.tryEmit(it) },
+            onClickSettings = { showSettings = true },
         )
     }
 
@@ -140,6 +154,9 @@ private fun ChapterContent(
     chapter: Chapter,
     fontSize: Int,
     backgroundColor: Int,
+    percentRead: Int,
+    onPercentChange: (Int) -> Unit,
+    seekRequests: Flow<Int>,
     onTap: () -> Unit,
     onExternalLink: (String) -> Unit,
 ) {
@@ -147,14 +164,6 @@ private fun ChapterContent(
 
     val content by produceState<Result<NovelChapterContent>?>(initialValue = null, chapter.id) {
         value = viewModel.chapterContent(chapter)
-    }
-
-    // Where the reader currently is, seeded from the stored position and updated as it scrolls.
-    // Changing font size or theme rebuilds the document, and the reload restores from *this* rather
-    // than from the database, so adjusting type size does not throw the reader back to where it was
-    // when the chapter opened.
-    var livePercent by remember(chapter.id) {
-        mutableIntStateOf(chapter.lastPageRead.toInt().coerceIn(0, 100))
     }
 
     val result = content
@@ -182,11 +191,12 @@ private fun ChapterContent(
             NovelChapterWebView(
                 document = document,
                 baseUrl = chapterContent.baseUrl.orEmpty(),
-                initialPercent = livePercent,
+                initialPercent = percentRead,
+                seekRequests = seekRequests,
                 assetServer = assetServer,
                 backgroundColor = backgroundColor,
                 onProgress = {
-                    livePercent = it
+                    onPercentChange(it)
                     viewModel.reportProgress(chapter.id, it)
                 },
                 onTap = onTap,
@@ -219,116 +229,6 @@ private fun ContentOverlay(
         color = colorOverlay.takeIf { colorOverlayEnabled },
         colorBlendMode = colorOverlayBlendMode,
     )
-}
-
-@Composable
-private fun NovelReaderChrome(
-    visible: Boolean,
-    title: String,
-    chapter: Chapter?,
-    position: Int,
-    total: Int,
-    hasPrevious: Boolean,
-    hasNext: Boolean,
-    onBack: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onToggleBookmark: () -> Unit,
-    onSettings: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = slideInVertically { -it },
-            exit = slideOutVertically { -it },
-        ) {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(text = title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (chapter != null) {
-                            Text(
-                                text = chapter.name,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = stringResource(MR.strings.action_close),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onToggleBookmark) {
-                        Icon(
-                            imageVector = if (chapter?.bookmark == true) {
-                                Icons.Outlined.Bookmark
-                            } else {
-                                Icons.Outlined.BookmarkBorder
-                            },
-                            contentDescription = stringResource(
-                                if (chapter?.bookmark == true) {
-                                    MR.strings.action_remove_bookmark
-                                } else {
-                                    MR.strings.action_bookmark
-                                },
-                            ),
-                        )
-                    }
-                },
-            )
-        }
-
-        Box(modifier = Modifier.weight(1f))
-
-        AnimatedVisibility(
-            visible = visible,
-            enter = slideInVertically { it },
-            exit = slideOutVertically { it },
-        ) {
-            Surface(tonalElevation = 3.dp) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = MaterialTheme.padding.small),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    IconButton(onClick = onPrevious, enabled = hasPrevious) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.NavigateBefore,
-                            contentDescription = stringResource(MR.strings.leaf_novel_reader_previous_chapter),
-                        )
-                    }
-                    Text(
-                        text = stringResource(MR.strings.leaf_novel_reader_chapter_position, position, total),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                    Row {
-                        IconButton(onClick = onSettings) {
-                            Icon(
-                                imageVector = Icons.Outlined.Settings,
-                                contentDescription = stringResource(MR.strings.action_settings),
-                            )
-                        }
-                        IconButton(onClick = onNext, enabled = hasNext) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.NavigateNext,
-                                contentDescription = stringResource(MR.strings.leaf_novel_reader_next_chapter),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable

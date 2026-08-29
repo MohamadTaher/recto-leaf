@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
@@ -36,6 +37,9 @@ private class NovelWebView(context: Context) : WebView(context) {
     var onScroll: ((scrollY: Int, range: Int) -> Unit)? = null
 
     val verticalScrollRange: Int get() = computeVerticalScrollRange()
+
+    /** The furthest the content can scroll, which is what a stored percent is a fraction of. */
+    val maxScroll: Int get() = (verticalScrollRange - height).coerceAtLeast(0)
 
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
@@ -54,12 +58,17 @@ private class NovelWebView(context: Context) : WebView(context) {
  * through [rememberUpdatedState]. The view is built once by `AndroidView`'s factory, so a callback
  * that closed over a keyed `remember` would keep reading the value from the composition that created
  * it — which silently breaks the reload path when the font size or theme changes.
+ *
+ * [seekRequests] is a stream of events rather than a percent parameter on purpose. The view reports
+ * its own position back through [onProgress], so a state parameter would feed every scroll straight
+ * back in as a seek and pin the reader in place.
  */
 @Composable
 fun NovelChapterWebView(
     document: String,
     baseUrl: String,
     initialPercent: Int,
+    seekRequests: Flow<Int>,
     assetServer: NovelEpubAssetServer?,
     backgroundColor: Int,
     onProgress: (Int) -> Unit,
@@ -120,14 +129,25 @@ fun NovelChapterWebView(
         // still settling — so restoring there lands in the wrong place on a long chapter (risk T6).
         val maxScroll = view.awaitStableMaxScroll()
         if (maxScroll > 0 && initialPercent > 0) {
-            view.scrollTo(0, (maxScroll * initialPercent / 100f).roundToInt().coerceIn(0, maxScroll))
+            view.scrollTo(0, view.scrollTargetOf(initialPercent))
         }
         restored.value = true
 
         // A chapter shorter than the viewport can never be scrolled, so it is complete on sight.
         if (maxScroll <= 0) currentOnProgress(100)
     }
+
+    LaunchedEffect(webView, seekRequests) {
+        val view = webView ?: return@LaunchedEffect
+        seekRequests.collect { percent ->
+            if (view.maxScroll > 0) view.scrollTo(0, view.scrollTargetOf(percent))
+        }
+    }
 }
+
+/** Turns a percent through the chapter into the pixel offset that shows it. */
+private fun NovelWebView.scrollTargetOf(percent: Int): Int =
+    (maxScroll * percent / 100f).roundToInt().coerceIn(0, maxScroll)
 
 /** Scroll position as a percent, guarding the division for content shorter than the viewport. */
 internal fun percentOf(scrollY: Int, range: Int, viewportHeight: Int): Int {
@@ -144,11 +164,11 @@ private suspend fun NovelWebView.awaitStableMaxScroll(): Int {
     var previous = -1
     repeat(MAX_HEIGHT_POLLS) {
         val range = verticalScrollRange
-        if (range > 0 && range == previous) return (range - height).coerceAtLeast(0)
+        if (range > 0 && range == previous) return maxScroll
         previous = range
         delay(HEIGHT_POLL_INTERVAL_MS)
     }
-    return (verticalScrollRange - height).coerceAtLeast(0)
+    return maxScroll
 }
 
 @SuppressLint("SetJavaScriptEnabled")
