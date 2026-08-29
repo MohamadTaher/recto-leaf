@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Shared by every novel extension; each supplies extensionName and extensionClass through
+      manifestPlaceholders in its own build file.
+
+      ExtensionLoader.isPackageAnExtension gates on this feature being requested. Without it the
+      package is invisible to the app no matter what else the manifest says.
+    -->
+    <uses-feature
+        android:name="tachiyomi.extension"
+        android:required="true" />
+
+    <application
+        android:icon="@drawable/ic_extension"
+        android:label="${extensionName}">
+
+        <!-- Resolved against the package name because of the leading dot. -->
+        <meta-data
+            android:name="tachiyomi.extension.class"
+            android:value="${extensionClass}" />
+
+        <meta-data
+            android:name="tachiyomix.extensionLib"
+            android:value="1.6" />
+
+        <meta-data
+            android:name="tachiyomix.name"
+            android:value="${extensionName}" />
+
+    </application>
+
+</manifest>
