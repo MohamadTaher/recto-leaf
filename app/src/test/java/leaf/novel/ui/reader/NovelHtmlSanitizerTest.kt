@@ -7,6 +7,11 @@ import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
 import org.junit.jupiter.api.Test
 
+/**
+ * The boundary between an extension's output and the reader's WebView, so both directions are
+ * pinned here: what the safelist drops is a security property, and what it keeps is the difference
+ * between a chapter and a blank page.
+ */
 class NovelHtmlSanitizerTest {
 
     private val base = "https://example.test/novel/book/chapter-1"

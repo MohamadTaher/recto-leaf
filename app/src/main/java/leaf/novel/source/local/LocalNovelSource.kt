@@ -215,6 +215,14 @@ class LocalNovelSource(
     }
 }
 
+/**
+ * Mirrors Mihon's own `isLocal()`, and exists in two flavours for the same reason it does: the
+ * catalogue is built from [Source] and filtered from [DomainSource].
+ *
+ * The local novel source has no language, so `GetEnabledSources` would drop it along with the
+ * disabled ones if this did not except it explicitly.
+ */
 fun Source.isNovelSource(): Boolean = id == LocalNovelSource.ID
 
+/** The [DomainSource] half of the pair above. */
 fun DomainSource.isNovelSource(): Boolean = id == LocalNovelSource.ID
