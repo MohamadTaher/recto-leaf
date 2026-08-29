@@ -31,4 +31,8 @@ data class NovelReaderStyle(
     val lineSpacing: Int,
     val fontSpacing: Int,
     val fontScale: Int,
+    val marginLeft: Int,
+    val marginRight: Int,
+    val marginTop: Int,
+    val marginBottom: Int,
 )

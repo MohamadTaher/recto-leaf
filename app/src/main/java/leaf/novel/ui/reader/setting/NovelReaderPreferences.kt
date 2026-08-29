@@ -58,6 +58,19 @@ class NovelReaderPreferences(
 
     // endregion
 
+    // region Margins
+
+    /** Page padding in CSS pixels, which the viewport meta tag makes equivalent to dp. */
+    val marginLeft: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_left", 14)
+
+    val marginRight: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_right", 10)
+
+    val marginTop: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_top", 3)
+
+    val marginBottom: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_bottom", 3)
+
+    // endregion
+
     companion object {
         const val DEFAULT_FONT_SIZE = 18
         const val MIN_FONT_SIZE = 10
@@ -67,5 +80,6 @@ class NovelReaderPreferences(
         val LINE_SPACING_RANGE = -5..20
         val FONT_SPACING_RANGE = -4..20
         val FONT_SCALE_RANGE = -4..20
+        val MARGIN_RANGE = 0..200
     }
 }

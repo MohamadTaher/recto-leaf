@@ -16,8 +16,6 @@ import leaf.novel.ui.reader.setting.NovelReaderStyle
  */
 object NovelReaderCss {
 
-    const val SIDE_MARGIN_PX = 16
-    const val TOP_MARGIN_PX = 24
     const val FIRST_LINE_INDENT_EM = 0.0
 
     /**
@@ -63,7 +61,7 @@ object NovelReaderCss {
               letter-spacing: ${letterSpacing}em;
               line-height: $lineHeight;
               margin: 0;
-              padding: ${TOP_MARGIN_PX}px ${SIDE_MARGIN_PX}px;
+              padding: ${style.marginTop}px ${style.marginRight}px ${style.marginBottom}px ${style.marginLeft}px;
               text-align: ${if (style.justified) "justify" else "left"};
               hyphens: ${if (style.hyphenation) "auto" else "manual"};
               word-break: break-word;
