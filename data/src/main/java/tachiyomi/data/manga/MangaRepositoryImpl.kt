@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
+import leaf.novel.api.NovelSource
 import leaf.novel.isNovelSourceId
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -26,6 +27,7 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.manga.model.MangaWithChapterCount
 import tachiyomi.domain.manga.repository.MangaRepository
+import tachiyomi.domain.source.service.SourceManager
 import kotlin.time.Clock
 
 @Inject
@@ -33,6 +35,9 @@ import kotlin.time.Clock
 @ContributesBinding(AppScope::class)
 class MangaRepositoryImpl(
     private val database: Database,
+    // [recto-leaf] Only for typing novels on insert, below. Lazy so this repository can never be
+    // part of a cycle through the source graph. See plans/02 (D12).
+    private val sourceManager: Lazy<SourceManager>,
 ) : MangaRepository {
 
     override suspend fun getMangaById(id: Long): Manga {
@@ -181,8 +186,12 @@ class MangaRepositoryImpl(
                     version = it.version,
                     memo = it.memo,
                     // [recto-leaf] Browse and global search insert rows through here too, so the
-                    // flag is derived at the one boundary every insert passes. See plans/02 (D12).
-                    isNovel = it.isNovel || isNovelSourceId(it.source),
+                    // flag is derived at the one boundary every insert passes. An extension's source
+                    // id is an MD5 and cannot be recognised by value, so the interface is the test;
+                    // the id test beside it covers LocalNovelSource. See plans/02 (D12).
+                    isNovel = it.isNovel ||
+                        sourceManager.value.get(it.source) is NovelSource ||
+                        isNovelSourceId(it.source),
                     updateTitle = it.title.isNotBlank(),
                     updateCover = !it.thumbnailUrl.isNullOrBlank(),
                     updateDetails = it.initialized,
