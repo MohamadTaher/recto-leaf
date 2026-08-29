@@ -277,6 +277,10 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val antialias by preferences.antialias.collectAsState()
     val justified by preferences.justified.collectAsState()
     val hyphenation by preferences.hyphenation.collectAsState()
+    val paragraphSpacing by preferences.paragraphSpacing.collectAsState()
+    val lineSpacing by preferences.lineSpacing.collectAsState()
+    val fontSpacing by preferences.fontSpacing.collectAsState()
+    val fontScale by preferences.fontScale.collectAsState()
 
     return NovelReaderStyle(
         fontSizePx = fontSize,
@@ -287,5 +291,9 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         antialias = antialias,
         justified = justified,
         hyphenation = hyphenation,
+        paragraphSpacing = paragraphSpacing,
+        lineSpacing = lineSpacing,
+        fontSpacing = fontSpacing,
+        fontScale = fontScale,
     )
 }

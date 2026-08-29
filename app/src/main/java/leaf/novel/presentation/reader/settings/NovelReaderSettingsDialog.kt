@@ -142,6 +142,42 @@ private fun ColumnScope.VisualPage(
         pref = novelReaderPreferences.hyphenation,
     )
 
+    HeadingItem(MR.strings.leaf_novel_reader_heading_spacing)
+
+    val paragraphSpacing by novelReaderPreferences.paragraphSpacing.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_paragraph_spacing),
+        value = paragraphSpacing,
+        valueRange = NovelReaderPreferences.PARAGRAPH_SPACING_RANGE,
+        // Two hundred stops would draw two hundred ticks; this range reads as continuous.
+        steps = 0,
+        onChange = { novelReaderPreferences.paragraphSpacing.set(it) },
+    )
+
+    val lineSpacing by novelReaderPreferences.lineSpacing.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_line_spacing),
+        value = lineSpacing,
+        valueRange = NovelReaderPreferences.LINE_SPACING_RANGE,
+        onChange = { novelReaderPreferences.lineSpacing.set(it) },
+    )
+
+    val fontSpacing by novelReaderPreferences.fontSpacing.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_font_spacing),
+        value = fontSpacing,
+        valueRange = NovelReaderPreferences.FONT_SPACING_RANGE,
+        onChange = { novelReaderPreferences.fontSpacing.set(it) },
+    )
+
+    val fontScale by novelReaderPreferences.fontScale.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_font_scale),
+        value = fontScale,
+        valueRange = NovelReaderPreferences.FONT_SCALE_RANGE,
+        onChange = { novelReaderPreferences.fontScale.set(it) },
+    )
+
     val readerTheme by readerPreferences.readerTheme.collectAsState()
     SettingsChipRow(MR.strings.pref_reader_theme) {
         themes.map { (labelRes, value) ->

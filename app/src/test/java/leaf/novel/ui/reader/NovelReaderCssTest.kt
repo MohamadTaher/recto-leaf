@@ -18,6 +18,10 @@ private fun style(
     antialias: Boolean = true,
     justified: Boolean = false,
     hyphenation: Boolean = false,
+    paragraphSpacing: Int = 60,
+    lineSpacing: Int = 4,
+    fontSpacing: Int = 0,
+    fontScale: Int = 0,
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
     bold = bold,
@@ -27,6 +31,10 @@ private fun style(
     antialias = antialias,
     justified = justified,
     hyphenation = hyphenation,
+    paragraphSpacing = paragraphSpacing,
+    lineSpacing = lineSpacing,
+    fontSpacing = fontSpacing,
+    fontScale = fontScale,
 )
 
 /**
@@ -161,5 +169,43 @@ class NovelReaderCssTest {
 
         doc.contains("text-align: justify") shouldBe true
         doc.contains("h1, h2, h3, h4, h5, h6 { text-align: left") shouldBe true
+    }
+
+    @Test
+    fun `maps line spacing across its range`() {
+        fun doc(v: Int) = NovelReaderCss.document(content, style(lineSpacing = v), backgroundColor = WHITE)
+
+        doc(-5).contains("line-height: 0.7") shouldBe true
+        doc(4).contains("line-height: 1.6") shouldBe true
+        doc(20).contains("line-height: 3.2") shouldBe true
+    }
+
+    @Test
+    fun `maps paragraph spacing across its range`() {
+        fun doc(v: Int) = NovelReaderCss.document(content, style(paragraphSpacing = v), backgroundColor = WHITE)
+
+        doc(0).contains("margin: 0 0 0.00em") shouldBe true
+        doc(60).contains("margin: 0 0 0.60em") shouldBe true
+        doc(200).contains("margin: 0 0 2.00em") shouldBe true
+    }
+
+    /** Font spacing goes below zero to tighten, so the sign has to survive the formatting. */
+    @Test
+    fun `maps font spacing across its range, negatives included`() {
+        fun doc(v: Int) = NovelReaderCss.document(content, style(fontSpacing = v), backgroundColor = WHITE)
+
+        doc(-4).contains("letter-spacing: -0.04em") shouldBe true
+        doc(0).contains("letter-spacing: 0.00em") shouldBe true
+        doc(20).contains("letter-spacing: 0.20em") shouldBe true
+    }
+
+    @Test
+    fun `font scale nudges the chosen size and at zero leaves it alone`() {
+        fun doc(scale: Int) =
+            NovelReaderCss.document(content, style(fontScale = scale), backgroundColor = WHITE)
+
+        doc(0).contains("font-size: 18px") shouldBe true
+        doc(-4).contains("font-size: 16px") shouldBe true
+        doc(20).contains("font-size: 27px") shouldBe true
     }
 }
