@@ -135,7 +135,7 @@ class MangaRestorer(
             isSyncing = 1,
             notes = manga.notes,
             memo = manga.memo.let(MemoColumnAdapter::encode),
-            // [recto-leaf] pre-D12 backups have no isNovel field; derive it once here.
+            // [recto-leaf] older backups have no isNovel field; derive it once here.
             isNovel = manga.isNovel || manga.source == LocalNovelSource.ID,
         )
         return manga
@@ -269,7 +269,7 @@ class MangaRestorer(
             version = manga.version,
             notes = manga.notes,
             memo = manga.memo,
-            // [recto-leaf] pre-D12 backups have no isNovel field; derive it once here.
+            // [recto-leaf] older backups have no isNovel field; derive it once here.
             isNovel = manga.isNovel || manga.source == LocalNovelSource.ID,
         )
             .awaitAsOne()

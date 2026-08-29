@@ -190,7 +190,7 @@ data class BrowseSourceScreen(
                                 },
                             )
                         }
-                        // [recto-leaf] EPUB import lives on the novel source's browse screen — see plans/04.
+                        // [recto-leaf] EPUB import lives on the novel source's browse screen.
                         if (viewModel.source is LocalNovelSource) {
                             NovelImportAction(
                                 snackbarHostState = snackbarHostState,

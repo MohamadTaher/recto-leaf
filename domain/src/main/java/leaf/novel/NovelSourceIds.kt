@@ -10,11 +10,10 @@ import tachiyomi.domain.manga.model.Manga
  *
  * Extension source ids are the first 64 bits of an MD5 with the sign bit cleared, so a negative id
  * can never collide. `0L` is LocalSource and `-1L` is an invalid-id sentinel elsewhere.
- * See plans/02 (D7).
  */
 const val LOCAL_NOVEL_SOURCE_ID = -2L
 
-/** True for any source whose titles are novels. See plans/02 (D12). */
+/** True for any source whose titles are novels. */
 fun isNovelSourceId(sourceId: Long): Boolean = sourceId == LOCAL_NOVEL_SOURCE_ID
 
 /**

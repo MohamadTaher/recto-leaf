@@ -44,7 +44,7 @@ data class SpineItem(
  *
  * [mihon.core.archive.EpubReader] parses the same structure but only to collect `<img>` tags, so it
  * cannot serve a text reader; wrapping [ArchiveReader] here costs the same code and touches no
- * upstream file. See plans/04.
+ * upstream file.
  *
  * Every entry name is indexed once on open. [ArchiveReader.getInputStream] scans the archive from
  * the start on every call, so unguarded lookups over a novel with hundreds of spine items are

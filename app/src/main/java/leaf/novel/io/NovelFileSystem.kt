@@ -16,7 +16,6 @@ const val NOVEL_TMP_SUFFIX = ".tmp"
  * Mirror of [tachiyomi.source.local.io.LocalSourceFileSystem] pointed at the `novels/` root.
  *
  * Novels cannot share `local/` because `Format.valueOf` claims `.epub` for the image reader.
- * See plans/04 (D2).
  */
 @Inject
 @SingleIn(AppScope::class)

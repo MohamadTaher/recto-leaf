@@ -94,7 +94,7 @@ class LibraryViewModel(
     private val downloadManager: DownloadManager,
     private val downloadCache: DownloadCache,
     private val trackerManager: TrackerManager,
-    // [recto-leaf] see plans/03
+    // [recto-leaf] narrows the library to the selected content type
     private val libraryContentTypeFilter: LibraryContentTypeFilter,
 ) : ViewModel() {
 
@@ -135,7 +135,7 @@ class LibraryViewModel(
     private val library = combine(
         searchQuery.debounce(0.25.seconds),
         getCategories.subscribe(),
-        // [recto-leaf] Narrow to the selected content type before anything else runs — see plans/03.
+        // [recto-leaf] Narrow to the selected content type before anything else runs.
         libraryContentTypeFilter.apply(getFavoritesFlow()),
         combine(getTracksPerManga.subscribe(), getTrackingFiltersFlow(), ::Pair),
         getLibraryItemPreferencesFlow(),
@@ -195,7 +195,7 @@ class LibraryViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5.seconds), State())
 
     // [recto-leaf] Maintains the content-type selector's cached flag, which the toolbar reads
-    // before the library flow first emits. See plans/03.
+    // before the library flow first emits.
     init {
         libraryContentTypeFilter.keepPreferencesCurrent(viewModelScope)
     }

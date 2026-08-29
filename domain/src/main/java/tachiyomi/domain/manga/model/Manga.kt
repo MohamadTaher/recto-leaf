@@ -42,7 +42,7 @@ data class Manga(
     val version: Long,
     val notes: String,
     val memo: JsonObject,
-    // [recto-leaf] see plans/02 (D12)
+    // [recto-leaf] novels are ordinary manga rows distinguished by this flag
     val isNovel: Boolean,
 ) : JavaSerializable {
 

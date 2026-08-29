@@ -27,7 +27,7 @@ class GetEnabledSources(
             repository.getSources(),
         ) { pinnedSourceIds, enabledLanguages, disabledSources, lastUsedSource, sources ->
             sources
-                // [recto-leaf] The novel source is language-agnostic like the local one — see plans/04.
+                // [recto-leaf] The novel source is language-agnostic like the local one.
                 .filter { it.lang in enabledLanguages || it.isLocal() || it.isNovelSource() }
                 .filterNot { it.id.toString() in disabledSources }
                 .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })

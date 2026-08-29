@@ -7,11 +7,11 @@ import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 
 /**
- * The reader's only new preference (D4).
+ * The reader's only new preference.
  *
  * Theme, brightness, colour filter, grayscale, inverted colours, keep-screen-on and fullscreen are
  * all read from the existing [eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences], so there is
- * no second settings system and no duplicated keys. See plans/05.
+ * no second settings system and no duplicated keys.
  */
 @Inject
 @SingleIn(AppScope::class)

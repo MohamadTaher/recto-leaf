@@ -40,7 +40,7 @@ const val NOVEL_DETAILS_FILE = "details.json"
  * `local/`. One folder is one novel; one EPUB spine item is one chapter.
  *
  * Novels cannot come from `LocalSource` because `Format.valueOf` classifies `.epub` as an image
- * format and hands it to the image reader. See plans/04 (D2, D7).
+ * format and hands it to the image reader.
  */
 @Inject
 @SingleIn(AppScope::class)

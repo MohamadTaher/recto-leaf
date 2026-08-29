@@ -40,7 +40,7 @@ private data class PendingConflict(val uri: Uri, val title: String)
  * "Import EPUB" affordance for the novel source's browse screen, plus the dialogs it needs.
  *
  * Mihon has no import UI to reuse, so this owns its own file picker, duplicate prompt and progress
- * dialog; the caller only supplies its snackbar host and where to go afterwards. See plans/04.
+ * dialog; the caller only supplies its snackbar host and where to go afterwards.
  */
 @Composable
 fun NovelImportAction(
@@ -134,7 +134,7 @@ fun NovelImportAction(
 
 /**
  * The specific type first, with a wildcard behind it: several file providers mistype EPUBs, and a
- * picker that hides the user's file is worse than one that shows too much. See plans/04 (Q10).
+ * picker that hides the user's file is worse than one that shows too much.
  */
 private val EPUB_MIME_TYPES = arrayOf("application/epub+zip", "*/*")
 

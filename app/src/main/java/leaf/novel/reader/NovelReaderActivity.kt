@@ -28,7 +28,7 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Reached only through [NovelReaderRouter]'s redirect out of `ReaderActivity`, so every existing and
  * future entry point — manga screen, library, History, Updates, notifications, deep links — routes
- * here without any of them knowing it exists. See plans/05 (D8).
+ * here without any of them knowing it exists.
  */
 class NovelReaderActivity : BaseActivity() {
 
@@ -98,7 +98,7 @@ class NovelReaderActivity : BaseActivity() {
     /**
      * The novel reader's equivalent of `ReaderActivity.ReaderConfig`. It cannot reuse that class —
      * it is a private inner class bound to the image reader's binding — but it reads exactly the
-     * same preference objects, which is the reuse that matters (D4).
+     * same preference objects, which is the reuse that matters.
      */
     private fun applyReaderConfig() {
         readerPreferences.keepScreenOn.changes()

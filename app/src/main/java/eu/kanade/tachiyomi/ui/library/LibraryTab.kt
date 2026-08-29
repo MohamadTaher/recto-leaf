@@ -118,7 +118,7 @@ data object LibraryTab : Tab {
                     page = state.coercedActiveCategoryIndex,
                 )
                 // [recto-leaf] The selector rides in topBar so LibraryContent, LibraryTabs,
-                // LibraryPager and LibraryToolbar all stay untouched — see plans/03 (D3).
+                // LibraryPager and LibraryToolbar all stay untouched.
                 Column {
                     LibraryToolbar(
                         hasActiveFilters = state.hasActiveFilters,

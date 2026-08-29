@@ -347,7 +347,6 @@ class Downloader(
             // [recto-leaf] A novel chapter is one text document, not a page list, so only this
             // innermost step differs; the queue, cache, notifications and directory layout above and
             // below are shared with manga. Inside the try so failures report the same way.
-            // See plans/07.
             if (download.source is NovelSource) {
                 NovelChapterDownloader(context, cache).download(download, mangaDir, tmpDir, chapterDirname)
                 return

@@ -126,7 +126,7 @@ fun NovelChapterWebView(
         pageFinished.first { it }
 
         // Content height is not final at onPageFinished — images and the book's own stylesheet are
-        // still settling — so restoring there lands in the wrong place on a long chapter (risk T6).
+        // still settling — so restoring there lands in the wrong place on a long chapter.
         val maxScroll = view.awaitStableMaxScroll()
         if (maxScroll > 0 && initialPercent > 0) {
             view.scrollTo(0, view.scrollTargetOf(initialPercent))
@@ -174,7 +174,7 @@ private suspend fun NovelWebView.awaitStableMaxScroll(): Int {
 @SuppressLint("SetJavaScriptEnabled")
 private fun WebView.configure(backgroundColor: Int) {
     with(settings) {
-        // Nothing in the reader needs scripting, and a book is not trusted content (risk T10).
+        // Nothing in the reader needs scripting, and a book is not trusted content.
         javaScriptEnabled = false
         domStorageEnabled = false
         // Everything the page may load comes through shouldInterceptRequest.

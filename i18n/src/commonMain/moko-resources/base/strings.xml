@@ -1081,7 +1081,7 @@
     <string name="donationCampaign.contactPlatform">Discord</string>
     <string name="donationCampaign.dismiss">Dismiss</string>
 
-    <!-- [recto-leaf] Fork strings. Keep them in this one block at the end of the file so upstream merges take both sides. See plans/06. -->
+    <!-- [recto-leaf] Fork strings. Keep them in this one block at the end of the file so upstream merges take both sides. -->
     <string name="leaf_novel_source">Novels</string>
     <string name="leaf_action_import_epub">Import EPUB</string>
     <string name="leaf_novel_import_in_progress">Importing EPUB…</string>
