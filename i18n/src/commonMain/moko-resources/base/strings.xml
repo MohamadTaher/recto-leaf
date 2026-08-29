@@ -1080,4 +1080,30 @@
     <string name="donationCampaign.paragraph3">Regardless, Mihon will continue to be maintained by me and the volunteers, and it will stay open source.</string>
     <string name="donationCampaign.contactPlatform">Discord</string>
     <string name="donationCampaign.dismiss">Dismiss</string>
+
+    <!-- [recto-leaf] Fork strings. Keep them in this one block at the end of the file so upstream merges take both sides. See plans/06. -->
+    <string name="leaf_novel_source">Novels</string>
+    <string name="leaf_action_import_epub">Import EPUB</string>
+    <string name="leaf_novel_import_in_progress">Importing EPUB…</string>
+    <string name="leaf_novel_import_duplicate_title">Novel already exists</string>
+    <string name="leaf_novel_import_duplicate_body">“%1$s” is already in your novels folder. Replacing keeps its categories and reading progress.</string>
+    <string name="leaf_novel_import_action_replace">Replace</string>
+    <string name="leaf_novel_import_action_keep_both">Keep both</string>
+    <string name="leaf_novel_import_error_unreadable">This file could not be read as an EPUB</string>
+    <string name="leaf_novel_import_error_missing_package">This EPUB is missing its package document</string>
+    <string name="leaf_novel_import_error_empty_spine">This EPUB contains no readable chapters</string>
+    <string name="leaf_novel_import_error_drm">This EPUB is DRM-protected and cannot be imported</string>
+    <string name="leaf_novel_import_error_write">The EPUB could not be copied. Nothing was added to your library</string>
+    <string name="leaf_label_content_type_all">All</string>
+    <string name="leaf_label_content_type_manga">Manga</string>
+    <string name="leaf_label_content_type_novels">Novels</string>
+    <string name="leaf_novel_reader_font_size">Font size: %1$d</string>
+    <string name="leaf_novel_reader_chapter_position">%1$d / %2$d</string>
+    <string name="leaf_novel_reader_previous_chapter">Previous chapter</string>
+    <string name="leaf_novel_reader_next_chapter">Next chapter</string>
+    <string name="leaf_novel_reader_error_not_found">This novel is no longer in your library</string>
+    <string name="leaf_novel_reader_error_book_missing">book.epub is missing from this novel\'s folder</string>
+    <string name="leaf_novel_reader_error_book_unreadable">This novel\'s book.epub could not be read</string>
+    <string name="leaf_novel_reader_error_no_chapters">This novel has no chapters yet. Refresh it from its entry screen</string>
+    <string name="leaf_novel_reader_error_chapter_missing">This chapter is missing from the EPUB</string>
 </resources>

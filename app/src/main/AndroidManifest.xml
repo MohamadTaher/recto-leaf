@@ -164,6 +164,12 @@
                 android:resource="@xml/s_pen_actions" />
         </activity>
 
+        <!-- [recto-leaf] Novel text reader, reached only by redirect from ReaderActivity. See plans/05. -->
+        <activity
+            android:name="leaf.novel.reader.NovelReaderActivity"
+            android:exported="false"
+            android:launchMode="singleTask" />
+
         <activity
             android:name=".ui.security.UnlockActivity"
             android:exported="false"

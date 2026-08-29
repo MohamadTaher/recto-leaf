@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
+import leaf.novel.isNovelSourceId
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.data.Database
@@ -179,6 +180,9 @@ class MangaRepositoryImpl(
                     updateStrategy = it.updateStrategy,
                     version = it.version,
                     memo = it.memo,
+                    // [recto-leaf] Browse and global search insert rows through here too, so the
+                    // flag is derived at the one boundary every insert passes. See plans/02 (D12).
+                    isNovel = it.isNovel || isNovelSourceId(it.source),
                     updateTitle = it.title.isNotBlank(),
                     updateCover = !it.thumbnailUrl.isNullOrBlank(),
                     updateDetails = it.initialized,
@@ -217,6 +221,7 @@ class MangaRepositoryImpl(
                     isSyncing = 0,
                     notes = value.notes,
                     memo = value.memo?.let(MemoColumnAdapter::encode),
+                    isNovel = value.isNovel,
                 )
             }
         }

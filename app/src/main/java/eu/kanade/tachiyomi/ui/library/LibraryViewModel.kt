@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import leaf.novel.library.LibraryContentTypeFilter
 import mihon.core.common.utils.mutate
 import mihon.domain.library.model.search.QueryNode
 import mihon.feature.library.matches
@@ -93,6 +94,8 @@ class LibraryViewModel(
     private val downloadManager: DownloadManager,
     private val downloadCache: DownloadCache,
     private val trackerManager: TrackerManager,
+    // [recto-leaf] see plans/03
+    private val libraryContentTypeFilter: LibraryContentTypeFilter,
 ) : ViewModel() {
 
     private val searchQuery = MutableStateFlow<String?>(null)
@@ -132,7 +135,8 @@ class LibraryViewModel(
     private val library = combine(
         searchQuery.debounce(0.25.seconds),
         getCategories.subscribe(),
-        getFavoritesFlow(),
+        // [recto-leaf] Narrow to the selected content type before anything else runs — see plans/03.
+        libraryContentTypeFilter.apply(getFavoritesFlow()),
         combine(getTracksPerManga.subscribe(), getTrackingFiltersFlow(), ::Pair),
         getLibraryItemPreferencesFlow(),
     ) { searchQuery, categories, favorites, (tracksMap, trackingFilters), itemPreferences ->
@@ -189,6 +193,12 @@ class LibraryViewModel(
         )
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5.seconds), State())
+
+    // [recto-leaf] Maintains the content-type selector's cached flag, which the toolbar reads
+    // before the library flow first emits. See plans/03.
+    init {
+        libraryContentTypeFilter.keepPreferencesCurrent(viewModelScope)
+    }
 
     private data class DisplayPreferences(
         val showCategoryTabs: Boolean,
