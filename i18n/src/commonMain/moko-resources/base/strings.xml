@@ -1097,10 +1097,8 @@
     <string name="leaf_label_content_type_all">All</string>
     <string name="leaf_label_content_type_manga">Manga</string>
     <string name="leaf_label_content_type_novels">Novels</string>
-    <string name="leaf_novel_reader_font_size">Font size: %1$d</string>
-    <string name="leaf_novel_reader_chapter_position">%1$d / %2$d</string>
-    <string name="leaf_novel_reader_previous_chapter">Previous chapter</string>
-    <string name="leaf_novel_reader_next_chapter">Next chapter</string>
+    <string name="leaf_novel_reader_tab_text">Text</string>
+    <string name="leaf_novel_reader_font_size">Font size</string>
     <string name="leaf_novel_reader_error_not_found">This novel is no longer in your library</string>
     <string name="leaf_novel_reader_error_source_missing">This novel\'s source is not installed</string>
     <string name="leaf_novel_reader_error_book_missing">book.epub is missing from this novel\'s folder</string>
