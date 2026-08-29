@@ -39,10 +39,10 @@ import eu.kanade.tachiyomi.ui.setting.track.BaseOAuthLoginActivity
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.CrashLogUtil
 import kotlinx.serialization.json.Json
-import leaf.novel.imports.NovelImporter
+import leaf.novel.data.imports.NovelImporter
 import leaf.novel.library.NovelLibraryPreferences
-import leaf.novel.reader.NovelReaderActivity
-import leaf.novel.reader.NovelReaderRouter
+import leaf.novel.ui.reader.NovelReaderActivity
+import leaf.novel.ui.reader.NovelReaderRouter
 import mihon.core.metro.IsDebugBuild
 import mihon.domain.extension.interactor.GetExtensionStoreCountAsFlow
 import tachiyomi.domain.backup.service.BackupPreferences

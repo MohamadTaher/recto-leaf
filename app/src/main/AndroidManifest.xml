@@ -166,7 +166,7 @@
 
         <!-- [recto-leaf] Novel text reader, reached only by redirect from ReaderActivity. -->
         <activity
-            android:name="leaf.novel.reader.NovelReaderActivity"
+            android:name="leaf.novel.ui.reader.NovelReaderActivity"
             android:exported="false"
             android:launchMode="singleTask" />
 
