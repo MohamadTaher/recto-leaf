@@ -337,6 +337,7 @@ private fun NovelReaderErrorMessage(error: NovelReaderError, modifier: Modifier 
         text = stringResource(
             when (error) {
                 NovelReaderError.MANGA_NOT_FOUND -> MR.strings.leaf_novel_reader_error_not_found
+                NovelReaderError.SOURCE_MISSING -> MR.strings.leaf_novel_reader_error_source_missing
                 NovelReaderError.BOOK_MISSING -> MR.strings.leaf_novel_reader_error_book_missing
                 NovelReaderError.BOOK_UNREADABLE -> MR.strings.leaf_novel_reader_error_book_unreadable
                 NovelReaderError.NO_CHAPTERS -> MR.strings.leaf_novel_reader_error_no_chapters
