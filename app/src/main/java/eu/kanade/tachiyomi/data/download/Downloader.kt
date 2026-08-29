@@ -41,6 +41,8 @@ import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import leaf.novel.api.NovelSource
+import leaf.novel.download.NovelChapterDownloader
 import logcat.LogPriority
 import mihon.core.archive.ZipWriter
 import nl.adaptivity.xmlutil.serialization.XML
@@ -342,6 +344,15 @@ class Downloader(
         val tmpDir = mangaDir.createDirectory(chapterDirname + TMP_DIR_SUFFIX)!!
 
         try {
+            // [recto-leaf] A novel chapter is one text document, not a page list, so only this
+            // innermost step differs; the queue, cache, notifications and directory layout above and
+            // below are shared with manga. Inside the try so failures report the same way.
+            // See plans/07.
+            if (download.source is NovelSource) {
+                NovelChapterDownloader(context, cache).download(download, mangaDir, tmpDir, chapterDirname)
+                return
+            }
+
             // If the page list already exists, start from the file
             val pageList = download.pages ?: run {
                 // Otherwise, pull page list from network and add them to download object
