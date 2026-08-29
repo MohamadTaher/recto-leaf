@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.system.readerBackgroundColor
+import leaf.novel.api.NovelChapterContent
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
@@ -336,6 +337,7 @@ private fun NovelReaderErrorMessage(error: NovelReaderError, modifier: Modifier 
         text = stringResource(
             when (error) {
                 NovelReaderError.MANGA_NOT_FOUND -> MR.strings.leaf_novel_reader_error_not_found
+                NovelReaderError.SOURCE_MISSING -> MR.strings.leaf_novel_reader_error_source_missing
                 NovelReaderError.BOOK_MISSING -> MR.strings.leaf_novel_reader_error_book_missing
                 NovelReaderError.BOOK_UNREADABLE -> MR.strings.leaf_novel_reader_error_book_unreadable
                 NovelReaderError.NO_CHAPTERS -> MR.strings.leaf_novel_reader_error_no_chapters

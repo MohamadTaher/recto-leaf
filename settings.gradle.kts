@@ -46,3 +46,9 @@ include(":presentation-widget")
 include(":source-api")
 include(":source-local")
 include(":telemetry")
+
+// [recto-leaf] Novel extensions. They are separate application modules, not dependencies of :app,
+// so building the app does not build them. See plans/07.
+include(":novel-api")
+include(":novel-extensions:freewebnovel")
+include(":novel-extensions:novelbuddy")

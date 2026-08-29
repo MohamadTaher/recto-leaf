@@ -30,6 +30,7 @@ app/src/main/java/eu/kanade/tachiyomi/ui/library/LibraryViewModel.kt
 app/src/main/java/eu/kanade/tachiyomi/ui/library/LibraryTab.kt
 app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaViewModel.kt
 app/src/main/java/eu/kanade/presentation/manga/MangaScreen.kt
+app/src/main/java/eu/kanade/tachiyomi/data/download/Downloader.kt
 app/src/main/java/mihon/app/di/AppGraph.kt
 app/src/main/AndroidManifest.xml
 i18n/src/commonMain/moko-resources/base/strings.xml
@@ -44,10 +45,12 @@ data/src/main/java/tachiyomi/data/manga/MangaRepositoryImpl.kt
 app/src/main/java/eu/kanade/tachiyomi/data/backup/models/BackupManga.kt
 app/src/main/java/eu/kanade/tachiyomi/data/backup/create/creators/MangaBackupCreator.kt
 app/src/main/java/eu/kanade/tachiyomi/data/backup/restore/restorers/MangaRestorer.kt
+settings.gradle.kts
+app/build.gradle.kts
+data/build.gradle.kts
 "
 
 REBRAND="
-app/build.gradle.kts
 app/google-services.json
 app/src/main/res/drawable/ic_launcher_background.xml
 app/src/main/res/drawable/ic_launcher_foreground.xml
@@ -57,7 +60,6 @@ gradle/build-logic/src/main/kotlin/mihon/gradle/BuildConfig.kt
 "
 
 BUILD_ENV="
-settings.gradle.kts
 gradle/gradle-daemon-jvm.properties
 .gitignore
 "
@@ -80,7 +82,7 @@ RENUMBERED="
 "
 
 # Fork-owned trees. New files here never conflict, so they are outside the contract entirely.
-FORK_TREES='^plans/|^progress/|^scripts/|(^|/)leaf/'
+FORK_TREES='^plans/|^progress/|^scripts/|^CLAUDE.md$|^novel-api/|^novel-extensions/|(^|/)leaf/'
 
 fail() {
     printf '  FAIL  %s\n' "$1"
@@ -149,7 +151,7 @@ fi
 # C3 — markers and seams agree in both directions
 # ---------------------------------------------------------------------------------------------
 
-MARKED="$(grep -rl '\[recto-leaf\]' --include='*.kt' --include='*.xml' --include='*.sq' --include='*.sqm' \
+MARKED="$(grep -rl '\[recto-leaf\]' --include='*.kt' --include='*.xml' --include='*.sq' --include='*.sqm' --include='*.kts' \
     --exclude-dir=build --exclude-dir=.git . 2>/dev/null \
     | sed 's|^\./||' | grep -Ev "$FORK_TREES" | sort || true)"
 EXPECTED="$(listed "$SEAMS" | sort)"

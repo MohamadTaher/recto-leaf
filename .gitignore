@@ -21,3 +21,6 @@ local.properties
 # The // [recto-leaf] comments in the code reference plans/ by number.
 /plans/
 /progress/
+
+# Local agent instructions
+CLAUDE.md
