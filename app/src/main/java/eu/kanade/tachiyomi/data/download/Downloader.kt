@@ -42,7 +42,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import leaf.novel.api.NovelSource
-import leaf.novel.download.NovelChapterDownloader
+import leaf.novel.data.download.NovelChapterDownloader
 import logcat.LogPriority
 import mihon.core.archive.ZipWriter
 import nl.adaptivity.xmlutil.serialization.XML

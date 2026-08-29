@@ -50,8 +50,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import leaf.novel.isLocalNovel
-import leaf.novel.library.LibraryContentTypeRow
+import leaf.novel.presentation.library.LibraryContentTypeRow
+import leaf.novel.source.isLocalNovel
 import mihon.feature.migration.config.MigrationConfigScreen
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
