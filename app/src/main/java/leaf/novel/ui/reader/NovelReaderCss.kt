@@ -16,7 +16,6 @@ object NovelReaderCss {
     const val SIDE_MARGIN_PX = 16
     const val TOP_MARGIN_PX = 24
     const val PARAGRAPH_SPACING_EM = 0.8
-    const val TEXT_ALIGN = "justify"
     const val FIRST_LINE_INDENT_EM = 0.0
 
     /**
@@ -49,11 +48,16 @@ object NovelReaderCss {
               background: $background !important;
               color: $foreground !important;
               font-size: ${style.fontSizePx}px;
+              font-weight: ${if (style.bold) "bold" else "normal"};
+              font-style: ${if (style.italic) "italic" else "normal"};
+              text-decoration: ${if (style.underline) "underline" else "none"};
+              text-shadow: ${if (style.shadow) TEXT_SHADOW else "none"};
+              -webkit-font-smoothing: ${if (style.antialias) "antialiased" else "auto"};
               line-height: $LINE_HEIGHT;
               margin: 0;
               padding: ${TOP_MARGIN_PX}px ${SIDE_MARGIN_PX}px;
-              text-align: $TEXT_ALIGN;
-              hyphens: auto;
+              text-align: ${if (style.justified) "justify" else "left"};
+              hyphens: ${if (style.hyphenation) "auto" else "manual"};
               word-break: break-word;
               overflow-wrap: break-word;
             }
@@ -96,6 +100,9 @@ object NovelReaderCss {
 
     private fun Int.toCssColor(): String =
         "rgba(${red()}, ${green()}, ${blue()}, ${alpha() / 255f})"
+
+    /** Soft enough to lift text off the page without smearing it at small sizes. */
+    private const val TEXT_SHADOW = "0 1px 2px rgba(0, 0, 0, 0.35)"
 
     private const val ACCENT_ALPHA = 168
     private const val DARK_LUMINANCE_THRESHOLD = 128

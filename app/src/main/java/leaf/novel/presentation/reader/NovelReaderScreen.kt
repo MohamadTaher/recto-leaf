@@ -63,7 +63,7 @@ fun NovelReaderScreen(
 
     val readerTheme by viewModel.readerPreferences.readerTheme.collectAsState()
     val showPageNumber by viewModel.readerPreferences.showPageNumber.collectAsState()
-    val style = rememberNovelReaderStyle(viewModel.novelReaderPreferences)
+    val style = novelReaderStyle(viewModel.novelReaderPreferences)
     val backgroundColor = remember(readerTheme) { context.readerBackgroundColor(readerTheme) }
 
     var settingsTab by remember { mutableStateOf<NovelReaderSettingsTab?>(null) }
@@ -263,11 +263,29 @@ private fun NovelReaderErrorMessage(error: NovelReaderError, modifier: Modifier 
 /**
  * Collects the settings the stylesheet needs into one value.
  *
- * The typography stages add a preference here and a field to [NovelReaderStyle]; nothing else in
- * the screen has to change, and the document keeps keying on a single value.
+ * The typography stages add a preference here and a field to [NovelReaderStyle], which has no
+ * defaults, so a field left unwired fails to compile. No remember: the style compares by content,
+ * so the document below it re-keys only when a value actually changed.
  */
 @Composable
-private fun rememberNovelReaderStyle(preferences: NovelReaderPreferences): NovelReaderStyle {
+private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderStyle {
     val fontSize by preferences.fontSize.collectAsState()
-    return remember(fontSize) { NovelReaderStyle(fontSizePx = fontSize) }
+    val bold by preferences.bold.collectAsState()
+    val italic by preferences.italic.collectAsState()
+    val underline by preferences.underline.collectAsState()
+    val shadow by preferences.shadow.collectAsState()
+    val antialias by preferences.antialias.collectAsState()
+    val justified by preferences.justified.collectAsState()
+    val hyphenation by preferences.hyphenation.collectAsState()
+
+    return NovelReaderStyle(
+        fontSizePx = fontSize,
+        bold = bold,
+        italic = italic,
+        underline = underline,
+        shadow = shadow,
+        antialias = antialias,
+        justified = justified,
+        hyphenation = hyphenation,
+    )
 }
