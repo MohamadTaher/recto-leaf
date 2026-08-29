@@ -126,7 +126,8 @@ class NovelReaderViewModel(
 
     private var provider: NovelContentProvider? = null
 
-    private val incognitoMode: Boolean by lazy { getIncognitoState.await(state.value.manga?.source) }
+    // Resolved in load(): the incognito check is suspend, so it cannot be a lazy property.
+    private var incognitoMode: Boolean = false
 
     /** Latest reported scroll percent per chapter, flushed on pause and on chapter change. */
     private val pendingProgress = ConcurrentHashMap<Long, Int>()
@@ -166,6 +167,8 @@ class NovelReaderViewModel(
             mutableState.update { it.copy(isLoading = false, error = NovelReaderError.MANGA_NOT_FOUND) }
             return
         }
+
+        incognitoMode = getIncognitoState.await(manga.source)
 
         val chapters = getChaptersByMangaId.await(manga.id, applyScanlatorFilter = true)
             // Ascending reading order, the same ordering `GetNextChapters` uses.
