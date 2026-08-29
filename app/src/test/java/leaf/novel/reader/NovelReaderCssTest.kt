@@ -1,6 +1,7 @@
 package leaf.novel.reader
 
 import io.kotest.matchers.shouldBe
+import leaf.novel.api.NovelChapterContent
 import org.junit.jupiter.api.Test
 
 private const val WHITE = 0xFFFFFFFF.toInt()

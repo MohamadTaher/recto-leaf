@@ -46,3 +46,7 @@ include(":presentation-widget")
 include(":source-api")
 include(":source-local")
 include(":telemetry")
+
+// [recto-leaf] The novel source contract, shared by the app and the novel extensions.
+// See plans/07.
+include(":novel-api")

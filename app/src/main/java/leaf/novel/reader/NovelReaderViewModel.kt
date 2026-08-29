@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import leaf.novel.api.NovelChapterContent
 import leaf.novel.epub.NovelEpubException
 import leaf.novel.epub.novelEpubReader
 import leaf.novel.io.NovelFileSystem
