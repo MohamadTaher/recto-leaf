@@ -20,6 +20,7 @@ local.properties
 # The fork is a public repo; these are working documents, not deliverables.
 /plans/
 /progress/
+/LocalFiles/
 
 # Local agent instructions
 CLAUDE.md

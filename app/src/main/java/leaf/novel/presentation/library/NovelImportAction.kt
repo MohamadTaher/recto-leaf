@@ -5,8 +5,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -30,6 +28,8 @@ import leaf.novel.data.imports.NovelImportConflict
 import leaf.novel.data.imports.NovelImportFailure
 import leaf.novel.data.imports.NovelImportResult
 import mihon.app.di.appGraph
+import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.Folder
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -84,7 +84,7 @@ fun NovelImportAction(
         onClick = { picker.launch(EPUB_MIME_TYPES) },
         leadingIcon = {
             Icon(
-                imageVector = Icons.Outlined.FileUpload,
+                imageVector = MaterialSymbols.Rounded.Folder,
                 contentDescription = null,
                 modifier = Modifier.size(AssistChipDefaults.IconSize),
             )
