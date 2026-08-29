@@ -42,7 +42,7 @@ class StorageManager(
                 baseDir?.let { parent ->
                     parent.createDirectory(AUTOMATIC_BACKUPS_PATH)
                     parent.createDirectory(LOCAL_SOURCE_PATH)
-                    // [recto-leaf] Imported novels get their own root — see plans/04 (D2).
+                    // [recto-leaf] Imported novels get their own root.
                     parent.createDirectory(NOVELS_PATH)
                     parent.createDirectory(DOWNLOADS_PATH).also {
                         DiskUtil.createNoMediaFile(it, context)
@@ -70,7 +70,7 @@ class StorageManager(
         return baseDir?.createDirectory(LOCAL_SOURCE_PATH)
     }
 
-    // [recto-leaf] Imported novels get their own root — see plans/04 (D2).
+    // [recto-leaf] Imported novels get their own root.
     fun getNovelsDirectory(): UniFile? {
         return baseDir?.createDirectory(NOVELS_PATH)
     }
@@ -80,5 +80,5 @@ private const val AUTOMATIC_BACKUPS_PATH = "autobackup"
 private const val DOWNLOADS_PATH = "downloads"
 private const val LOCAL_SOURCE_PATH = "local"
 
-// [recto-leaf] see plans/04 (D2)
+// [recto-leaf] imported novels get their own root beside local
 private const val NOVELS_PATH = "novels"

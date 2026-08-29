@@ -1,6 +1,6 @@
 package leaf.novel.library
 
-/** What the Library screen is currently showing. Orthogonal to categories. See plans/03 (D3). */
+/** What the Library screen is currently showing. Orthogonal to categories. */
 enum class LibraryContentType {
     ALL,
     MANGA,

@@ -29,7 +29,7 @@ kotlin {
 }
 
 dependencies {
-    // [recto-leaf] The novel source contract. See plans/07.
+    // [recto-leaf] The novel source contract.
     implementation(projects.novelApi)
     implementation(projects.sourceApi)
     implementation(projects.domain)

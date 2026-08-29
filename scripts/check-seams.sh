@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 #
-# Enforces the upstream-compatibility contract in plans/06-upstream-compatibility.md.
+# Enforces the fork's upstream-compatibility contract.
 #
 # Run it before and after every upstream merge. It compares the working tree against upstream and
 # fails if the fork has grown a surface the contract does not describe.
@@ -16,7 +16,7 @@ UPSTREAM="${1:-upstream/main}"
 FAILURES=0
 
 # ---------------------------------------------------------------------------------------------
-# The contract. plans/06's seam table is the human-readable version of SEAMS; keep them in step.
+# The contract: every upstream file the fork is allowed to touch.
 #
 # Three lists, not one: the fork legitimately changes upstream files for three different reasons,
 # and only the first is the novel feature. Separating them lets C1 stay strict about that one.
@@ -64,7 +64,7 @@ gradle/gradle-daemon-jvm.properties
 .gitignore
 "
 
-# The schema surface D12 claims. Everything else under data/src/main/sqldelight/ must stay
+# The schema surface the fork claims. Everything else under data/src/main/sqldelight/ must stay
 # byte-identical to upstream.
 SCHEMA_OWNED="
 data/src/main/sqldelight/tachiyomi/data/mangas.sq
@@ -77,12 +77,12 @@ data/src/main/sqldelight/tachiyomi/migrations/15.sqm
 #
 # When upstream lands its own 15.sqm this list is where its renamed copy goes. Renumber THEIRS,
 # never ours — a device that ran our 15.sqm records user_version 16, so a renumbered copy of ours
-# would re-run while upstream's would be skipped forever. See plans/06.
+# would re-run while upstream's would be skipped forever.
 RENUMBERED="
 "
 
 # Fork-owned trees. New files here never conflict, so they are outside the contract entirely.
-FORK_TREES='^plans/|^progress/|^scripts/|^CLAUDE.md$|^novel-api/|^novel-extensions/|(^|/)leaf/'
+FORK_TREES='^scripts/|^CLAUDE.md$|^novel-api/|^novel-extensions/|(^|/)leaf/'
 
 fail() {
     printf '  FAIL  %s\n' "$1"
@@ -122,29 +122,29 @@ UNACCOUNTED="$(changed_files | grep -Ev "$FORK_TREES" | grep -Fxv "$ALLOWED" || 
 if [ -n "$UNACCOUNTED" ]; then
     fail 'C1 upstream files changed that no list accounts for:'
     printf '%s\n' "$UNACCOUNTED" | sed 's/^/          /'
-    printf '        Either the change is wrong, or plans/06 and this script need updating together.\n'
+    printf '        Either the change is wrong, or this script needs a new entry.\n'
 else
     pass 'C1 every changed upstream file is on a list'
 fi
 
 # ---------------------------------------------------------------------------------------------
-# C2 / C4 — the fork owns exactly two schema files (D12, superseding D1). SQLDelight derives
+# C2 / C4 — the fork owns exactly two schema files. SQLDelight derives
 # Database.Schema.version from the highest .sqm, so 15.sqm deliberately puts us one ahead of
 # upstream. When upstream lands its own 15.sqm, renumber THEIRS upward, never ours: a device that
 # already ran our 15.sqm records user_version 16, so a renumbered copy of ours would re-run and
-# upstream's would be skipped forever. See plans/06.
+# upstream's would be skipped forever.
 # ---------------------------------------------------------------------------------------------
 
 SCHEMA="$(changed_files | grep '^data/src/main/sqldelight/' | grep -Fxv "$(listed "$SCHEMA_OWNED"; listed "$RENUMBERED")" || true)"
 if [ -n "$SCHEMA" ]; then
-    fail 'C2 schema files changed that D12 does not claim:'
+    fail 'C2 schema files changed that the fork does not claim:'
     printf '        A renumbered upstream migration belongs in RENUMBERED above, added in the
 '
-    printf '        same commit as the rename. Never renumber OUR 15.sqm - see plans/06.
+    printf '        same commit as the rename. Never renumber OUR 15.sqm.
 '
     printf '%s\n' "$SCHEMA" | sed 's/^/          /'
 else
-    pass 'C2 only the two schema files D12 claims differ'
+    pass 'C2 only the two schema files the fork claims differ'
 fi
 
 # ---------------------------------------------------------------------------------------------

@@ -27,7 +27,7 @@ data class MangaUpdate(
     val version: Long? = null,
     val notes: String? = null,
     val memo: JsonObject? = null,
-    // [recto-leaf] see plans/02 (D12)
+    // [recto-leaf] novels are ordinary manga rows distinguished by this flag
     val isNovel: Boolean? = null,
 )
 

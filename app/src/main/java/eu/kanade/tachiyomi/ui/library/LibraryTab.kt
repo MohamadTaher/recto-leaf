@@ -50,8 +50,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import leaf.novel.isLocalNovel
-import leaf.novel.library.LibraryContentTypeRow
+import leaf.novel.presentation.library.LibraryContentTypeRow
+import leaf.novel.source.isLocalNovel
 import mihon.feature.migration.config.MigrationConfigScreen
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
@@ -118,7 +118,7 @@ data object LibraryTab : Tab {
                     page = state.coercedActiveCategoryIndex,
                 )
                 // [recto-leaf] The selector rides in topBar so LibraryContent, LibraryTabs,
-                // LibraryPager and LibraryToolbar all stay untouched — see plans/03 (D3).
+                // LibraryPager and LibraryToolbar all stay untouched.
                 Column {
                     LibraryToolbar(
                         hasActiveFilters = state.hasActiveFilters,
