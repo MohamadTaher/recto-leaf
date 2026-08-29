@@ -22,6 +22,10 @@ private fun style(
     lineSpacing: Int = 4,
     fontSpacing: Int = 0,
     fontScale: Int = 0,
+    marginLeft: Int = 14,
+    marginRight: Int = 10,
+    marginTop: Int = 3,
+    marginBottom: Int = 3,
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
     bold = bold,
@@ -35,6 +39,10 @@ private fun style(
     lineSpacing = lineSpacing,
     fontSpacing = fontSpacing,
     fontScale = fontScale,
+    marginLeft = marginLeft,
+    marginRight = marginRight,
+    marginTop = marginTop,
+    marginBottom = marginBottom,
 )
 
 /**
@@ -207,5 +215,38 @@ class NovelReaderCssTest {
         doc(0).contains("font-size: 18px") shouldBe true
         doc(-4).contains("font-size: 16px") shouldBe true
         doc(20).contains("font-size: 27px") shouldBe true
+    }
+
+    /**
+     * CSS shorthand runs top, right, bottom, left. Four distinct values rather than the defaults,
+     * because a swapped pair renders plausibly and is invisible in any test that reuses a number.
+     */
+    @Test
+    fun `lays the four margins out in shorthand order`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(marginLeft = 1, marginRight = 2, marginTop = 3, marginBottom = 4),
+            backgroundColor = WHITE,
+        )
+
+        document.contains("padding: 3px 2px 4px 1px") shouldBe true
+    }
+
+    @Test
+    fun `defaults to the imported asymmetric margins`() {
+        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+
+        document.contains("padding: 3px 10px 3px 14px") shouldBe true
+    }
+
+    @Test
+    fun `allows a margin of zero on every side`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(marginLeft = 0, marginRight = 0, marginTop = 0, marginBottom = 0),
+            backgroundColor = WHITE,
+        )
+
+        document.contains("padding: 0px 0px 0px 0px") shouldBe true
     }
 }

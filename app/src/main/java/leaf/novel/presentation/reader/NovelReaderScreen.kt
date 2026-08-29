@@ -281,6 +281,10 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val lineSpacing by preferences.lineSpacing.collectAsState()
     val fontSpacing by preferences.fontSpacing.collectAsState()
     val fontScale by preferences.fontScale.collectAsState()
+    val marginLeft by preferences.marginLeft.collectAsState()
+    val marginRight by preferences.marginRight.collectAsState()
+    val marginTop by preferences.marginTop.collectAsState()
+    val marginBottom by preferences.marginBottom.collectAsState()
 
     return NovelReaderStyle(
         fontSizePx = fontSize,
@@ -295,5 +299,9 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         lineSpacing = lineSpacing,
         fontSpacing = fontSpacing,
         fontScale = fontScale,
+        marginLeft = marginLeft,
+        marginRight = marginRight,
+        marginTop = marginTop,
+        marginBottom = marginBottom,
     )
 }

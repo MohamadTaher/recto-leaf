@@ -178,6 +178,44 @@ private fun ColumnScope.VisualPage(
         onChange = { novelReaderPreferences.fontScale.set(it) },
     )
 
+    HeadingItem(MR.strings.leaf_novel_reader_heading_margins)
+
+    val marginLeft by novelReaderPreferences.marginLeft.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_margin_left),
+        value = marginLeft,
+        valueRange = NovelReaderPreferences.MARGIN_RANGE,
+        steps = 0,
+        onChange = { novelReaderPreferences.marginLeft.set(it) },
+    )
+
+    val marginRight by novelReaderPreferences.marginRight.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_margin_right),
+        value = marginRight,
+        valueRange = NovelReaderPreferences.MARGIN_RANGE,
+        steps = 0,
+        onChange = { novelReaderPreferences.marginRight.set(it) },
+    )
+
+    val marginTop by novelReaderPreferences.marginTop.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_margin_top),
+        value = marginTop,
+        valueRange = NovelReaderPreferences.MARGIN_RANGE,
+        steps = 0,
+        onChange = { novelReaderPreferences.marginTop.set(it) },
+    )
+
+    val marginBottom by novelReaderPreferences.marginBottom.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_margin_bottom),
+        value = marginBottom,
+        valueRange = NovelReaderPreferences.MARGIN_RANGE,
+        steps = 0,
+        onChange = { novelReaderPreferences.marginBottom.set(it) },
+    )
+
     val readerTheme by readerPreferences.readerTheme.collectAsState()
     SettingsChipRow(MR.strings.pref_reader_theme) {
         themes.map { (labelRes, value) ->
