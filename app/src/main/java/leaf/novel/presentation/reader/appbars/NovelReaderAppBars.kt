@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,20 +19,31 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.reader.appbars.ReaderTopBar
 import eu.kanade.presentation.reader.components.ChapterNavigator
 import eu.kanade.presentation.reader.components.ChapterNavigatorType
+import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.automirroredrounded.Sort
+import mihon.icons.materialsymbols.rounded.Palette
+import mihon.icons.materialsymbols.rounded.ScreenRotation
 import mihon.icons.materialsymbols.rounded.Settings
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
@@ -66,7 +78,8 @@ fun NovelReaderAppBars(
     percentRead: Int,
     onPercentChange: (Int) -> Unit,
 
-    onClickSettings: () -> Unit,
+    onClickSettings: (NovelReaderSettingsTab) -> Unit,
+    onToggleDayNight: () -> Unit,
 ) {
     val backgroundColor = MaterialTheme.colorScheme
         .surfaceColorAtElevation(3.dp)
@@ -118,15 +131,24 @@ fun NovelReaderAppBars(
                         .padding(horizontal = MaterialTheme.padding.small)
                         .windowInsetsPadding(WindowInsets.navigationBars),
                     onClickSettings = onClickSettings,
+                    onToggleDayNight = onToggleDayNight,
                 )
             }
         }
     }
 }
 
+/**
+ * A button per group of settings, and a fourth for the things you can start.
+ *
+ * The icons are the closest the generated Material Symbols set carries. It has no touch or tune
+ * glyph, so the controls group takes the screen-rotation icon — orientation is one of the settings
+ * it holds — and the menu takes the three-line sort one.
+ */
 @Composable
 private fun NovelReaderBottomBar(
-    onClickSettings: () -> Unit,
+    onClickSettings: (NovelReaderSettingsTab) -> Unit,
+    onToggleDayNight: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -135,10 +157,57 @@ private fun NovelReaderBottomBar(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onClickSettings) {
+        IconButton(onClick = { onClickSettings(NovelReaderSettingsTab.VISUAL) }) {
+            Icon(
+                imageVector = MaterialSymbols.Rounded.Palette,
+                contentDescription = stringResource(MR.strings.leaf_novel_reader_tab_visual),
+            )
+        }
+
+        IconButton(onClick = { onClickSettings(NovelReaderSettingsTab.CONTROL) }) {
+            Icon(
+                imageVector = MaterialSymbols.Rounded.ScreenRotation,
+                contentDescription = stringResource(MR.strings.leaf_novel_reader_tab_control),
+            )
+        }
+
+        IconButton(onClick = { onClickSettings(NovelReaderSettingsTab.MISCELLANEOUS) }) {
             Icon(
                 imageVector = MaterialSymbols.Rounded.Settings,
-                contentDescription = stringResource(MR.strings.action_settings),
+                contentDescription = stringResource(MR.strings.leaf_novel_reader_tab_misc),
+            )
+        }
+
+        AdditionalOptionsMenu(onToggleDayNight = onToggleDayNight)
+    }
+}
+
+/**
+ * The menu of things you *start*, as opposed to the three tabs of things you *set*.
+ *
+ * Later stages add one item each — auto scroll, the reading ruler, search, chapters, book
+ * information — so it is a plain list of [DropdownMenuItem]s that grows by one block at a time
+ * without touching the others.
+ */
+@Composable
+private fun AdditionalOptionsMenu(onToggleDayNight: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = MaterialSymbols.AutoMirroredRounded.Sort,
+                contentDescription = stringResource(MR.strings.leaf_novel_reader_additional_options),
+            )
+        }
+
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(MR.strings.leaf_novel_reader_day_night_mode)) },
+                onClick = {
+                    expanded = false
+                    onToggleDayNight()
+                },
             )
         }
     }

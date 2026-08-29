@@ -34,9 +34,12 @@ import leaf.novel.api.NovelChapterContent
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.components.NovelChapterWebView
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsDialog
+import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
+import leaf.novel.ui.reader.setting.NovelReaderPreferences
+import leaf.novel.ui.reader.setting.NovelReaderStyle
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
@@ -60,10 +63,10 @@ fun NovelReaderScreen(
 
     val readerTheme by viewModel.readerPreferences.readerTheme.collectAsState()
     val showPageNumber by viewModel.readerPreferences.showPageNumber.collectAsState()
-    val fontSize by viewModel.novelReaderPreferences.fontSize.collectAsState()
+    val style = rememberNovelReaderStyle(viewModel.novelReaderPreferences)
     val backgroundColor = remember(readerTheme) { context.readerBackgroundColor(readerTheme) }
 
-    var showSettings by remember { mutableStateOf(false) }
+    var settingsTab by remember { mutableStateOf<NovelReaderSettingsTab?>(null) }
 
     val chapter = state.currentChapter
 
@@ -101,7 +104,7 @@ fun NovelReaderScreen(
                     ChapterContent(
                         viewModel = viewModel,
                         chapter = chapter,
-                        fontSize = fontSize,
+                        style = style,
                         backgroundColor = backgroundColor,
                         percentRead = livePercent,
                         onPercentChange = { livePercent = it },
@@ -140,15 +143,17 @@ fun NovelReaderScreen(
             enabledNext = state.currentIndex < state.chapters.lastIndex,
             percentRead = livePercent,
             onPercentChange = { seekRequests.tryEmit(it) },
-            onClickSettings = { showSettings = true },
+            onClickSettings = { settingsTab = it },
+            onToggleDayNight = viewModel::toggleDayNightMode,
         )
     }
 
-    if (showSettings) {
+    settingsTab?.let { tab ->
         NovelReaderSettingsDialog(
-            fontSizePreference = viewModel.novelReaderPreferences.fontSize,
+            initialTab = tab,
+            novelReaderPreferences = viewModel.novelReaderPreferences,
             readerPreferences = viewModel.readerPreferences,
-            onDismissRequest = { showSettings = false },
+            onDismissRequest = { settingsTab = null },
         )
     }
 }
@@ -157,7 +162,7 @@ fun NovelReaderScreen(
 private fun ChapterContent(
     viewModel: NovelReaderViewModel,
     chapter: Chapter,
-    fontSize: Int,
+    style: NovelReaderStyle,
     backgroundColor: Int,
     percentRead: Int,
     onPercentChange: (Int) -> Unit,
@@ -190,8 +195,8 @@ private fun ChapterContent(
             }
         }
         else -> {
-            val document = remember(chapterContent, fontSize, backgroundColor) {
-                NovelReaderCss.document(chapterContent, fontSize, backgroundColor)
+            val document = remember(chapterContent, style, backgroundColor) {
+                NovelReaderCss.document(chapterContent, style, backgroundColor)
             }
             NovelChapterWebView(
                 document = document,
@@ -253,4 +258,16 @@ private fun NovelReaderErrorMessage(error: NovelReaderError, modifier: Modifier 
         color = MaterialTheme.colorScheme.error,
         modifier = modifier,
     )
+}
+
+/**
+ * Collects the settings the stylesheet needs into one value.
+ *
+ * The typography stages add a preference here and a field to [NovelReaderStyle]; nothing else in
+ * the screen has to change, and the document keeps keying on a single value.
+ */
+@Composable
+private fun rememberNovelReaderStyle(preferences: NovelReaderPreferences): NovelReaderStyle {
+    val fontSize by preferences.fontSize.collectAsState()
+    return remember(fontSize) { NovelReaderStyle(fontSizePx = fontSize) }
 }

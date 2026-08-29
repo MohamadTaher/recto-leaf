@@ -1097,7 +1097,11 @@
     <string name="leaf_label_content_type_all">All</string>
     <string name="leaf_label_content_type_manga">Manga</string>
     <string name="leaf_label_content_type_novels">Novels</string>
-    <string name="leaf_novel_reader_tab_text">Text</string>
+    <string name="leaf_novel_reader_tab_visual">Visual</string>
+    <string name="leaf_novel_reader_tab_control">Control</string>
+    <string name="leaf_novel_reader_tab_misc">Misc</string>
+    <string name="leaf_novel_reader_additional_options">Additional options</string>
+    <string name="leaf_novel_reader_day_night_mode">Day/night mode</string>
     <string name="leaf_novel_reader_font_size">Font size</string>
     <string name="leaf_novel_reader_error_not_found">This novel is no longer in your library</string>
     <string name="leaf_novel_reader_error_source_missing">This novel\'s source is not installed</string>
