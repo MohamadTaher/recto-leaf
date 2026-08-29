@@ -39,6 +39,10 @@ import eu.kanade.tachiyomi.ui.setting.track.BaseOAuthLoginActivity
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.CrashLogUtil
 import kotlinx.serialization.json.Json
+import leaf.novel.imports.NovelImporter
+import leaf.novel.library.NovelLibraryPreferences
+import leaf.novel.reader.NovelReaderActivity
+import leaf.novel.reader.NovelReaderRouter
 import mihon.core.metro.IsDebugBuild
 import mihon.domain.extension.interactor.GetExtensionStoreCountAsFlow
 import tachiyomi.domain.backup.service.BackupPreferences
@@ -71,6 +75,9 @@ interface AppGraph : ViewModelGraph {
     fun inject(notificationReceiver: NotificationReceiver)
     fun inject(notificationReceiver: SecureActivityDelegateImpl)
     fun inject(extensionInstallActivity: ExtensionInstallActivity)
+
+    // [recto-leaf] see plans/05
+    fun inject(novelReaderActivity: NovelReaderActivity)
 
     val context: Context
 
@@ -114,6 +121,12 @@ interface AppGraph : ViewModelGraph {
     val insertTrack: InsertTrack
 
     val getExtensionStoreCountAsFlow: GetExtensionStoreCountAsFlow
+
+    // [recto-leaf] Reached from Compose: the browse screen's import action (plans/04) and the
+    // library's content-type selector (plans/03).
+    val novelImporter: NovelImporter
+    val novelLibraryPreferences: NovelLibraryPreferences
+    val novelReaderRouter: NovelReaderRouter
 
     @DependencyGraph.Factory
     fun interface Factory {

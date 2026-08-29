@@ -53,6 +53,8 @@ import eu.kanade.tachiyomi.ui.webview.WebViewScreen
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
+import leaf.novel.source.LocalNovelSource
+import leaf.novel.ui.NovelImportAction
 import mihon.feature.migration.dialog.MigrateMangaDialog
 import mihon.presentation.core.util.collectAsLazyPagingItems
 import tachiyomi.core.common.Constants
@@ -186,6 +188,13 @@ data class BrowseSourceScreen(
                                 label = {
                                     Text(text = stringResource(MR.strings.latest))
                                 },
+                            )
+                        }
+                        // [recto-leaf] EPUB import lives on the novel source's browse screen — see plans/04.
+                        if (viewModel.source is LocalNovelSource) {
+                            NovelImportAction(
+                                snackbarHostState = snackbarHostState,
+                                onImported = { navigator.push(MangaScreen(it, true)) },
                             )
                         }
                         if (state.filters.isNotEmpty()) {

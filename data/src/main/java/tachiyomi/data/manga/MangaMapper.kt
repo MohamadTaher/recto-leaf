@@ -35,6 +35,8 @@ object MangaMapper {
         isSyncing: Long,
         notes: String,
         memo: JsonObject,
+        // [recto-leaf] see plans/02 (D12)
+        isNovel: Boolean,
     ): Manga = Manga(
         id = id,
         source = source,
@@ -61,6 +63,7 @@ object MangaMapper {
         version = version,
         notes = notes,
         memo = memo,
+        isNovel = isNovel,
     )
 
     fun mapLibraryManga(
@@ -90,6 +93,7 @@ object MangaMapper {
         isSyncing: Long,
         notes: String,
         memo: JsonObject,
+        isNovel: Boolean,
         totalCount: Long,
         readCount: Double,
         latestUpload: Long,
@@ -125,6 +129,7 @@ object MangaMapper {
             isSyncing,
             notes,
             memo,
+            isNovel,
         ),
         categories = categories.split(",").map { it.toLong() },
         totalChapters = totalCount,
@@ -162,6 +167,7 @@ object MangaMapper {
         isSyncing: Long,
         notes: String,
         memo: JsonObject,
+        isNovel: Boolean,
         totalCount: Long,
     ): MangaWithChapterCount = MangaWithChapterCount(
         manga = mapManga(
@@ -191,6 +197,7 @@ object MangaMapper {
             isSyncing,
             notes,
             memo,
+            isNovel,
         ),
         chapterCount = totalCount,
     )

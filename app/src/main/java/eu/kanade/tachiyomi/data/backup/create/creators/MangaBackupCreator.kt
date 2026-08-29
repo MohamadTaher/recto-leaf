@@ -109,4 +109,6 @@ private fun Manga.toBackupManga() =
         notes = this.notes,
         initialized = this.initialized,
         memo = MemoColumnAdapter.encode(this.memo),
+        // [recto-leaf] see plans/02 (D12)
+        isNovel = this.isNovel,
     )

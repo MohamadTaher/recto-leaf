@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.models.BackupTracking
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import leaf.novel.source.LocalNovelSource
 import tachiyomi.data.Database
 import tachiyomi.data.MemoColumnAdapter
 import tachiyomi.data.UpdateStrategyColumnAdapter
@@ -134,6 +135,8 @@ class MangaRestorer(
             isSyncing = 1,
             notes = manga.notes,
             memo = manga.memo.let(MemoColumnAdapter::encode),
+            // [recto-leaf] pre-D12 backups have no isNovel field; derive it once here.
+            isNovel = manga.isNovel || manga.source == LocalNovelSource.ID,
         )
         return manga
     }
@@ -266,6 +269,8 @@ class MangaRestorer(
             version = manga.version,
             notes = manga.notes,
             memo = manga.memo,
+            // [recto-leaf] pre-D12 backups have no isNovel field; derive it once here.
+            isNovel = manga.isNovel || manga.source == LocalNovelSource.ID,
         )
             .awaitAsOne()
     }

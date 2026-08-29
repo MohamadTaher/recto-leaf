@@ -1,0 +1,5 @@
+-- [recto-leaf] novels are ordinary manga rows distinguished by this flag; see plans/02 (D12)
+ALTER TABLE mangas ADD COLUMN is_novel INTEGER NOT NULL DEFAULT 0;
+
+-- backfill rows imported before the column existed, when LocalNovelSource.ID was the only marker
+UPDATE mangas SET is_novel = 1 WHERE source = -2;

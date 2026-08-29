@@ -152,6 +152,14 @@ class ReaderActivity : BaseActivity() {
      */
     override fun onCreate(savedInstanceState: Bundle?) {
         graph.inject(this)
+        // [recto-leaf] Novel entries use the text reader. One redirect instead of patching all seven
+        // newIntent call sites, and it covers call sites upstream has not written yet — see plans/05 (D8).
+        graph.novelReaderRouter.novelIntentFor(this, intent)?.let { novelIntent ->
+            super.onCreate(savedInstanceState)
+            startActivity(novelIntent)
+            finish()
+            return
+        }
         registerSecureActivity(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             overrideActivityTransition(
