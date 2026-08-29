@@ -17,7 +17,7 @@ private const val DEFAULT_COVER_NAME = "cover.jpg"
  * Mirror of [tachiyomi.source.local.image.LocalCoverManager] for the `novels/` root.
  *
  * The upstream class resolves paths through `LocalSourceFileSystem`, so it is bound to `local/` and
- * cannot be reused without parameterising an upstream file. See plans/04.
+ * cannot be reused without parameterising an upstream file.
  */
 @Inject
 @SingleIn(AppScope::class)

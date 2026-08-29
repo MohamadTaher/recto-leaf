@@ -70,7 +70,7 @@ sealed interface NovelImportResult {
  *
  * Mihon has no in-app file import anywhere, so there is nothing to reuse here. Everything is
  * written under a temporary name and renamed on success, so an interrupted import is never visible
- * to the scanner. See plans/04 (D2).
+ * to the scanner.
  */
 @Inject
 @SingleIn(AppScope::class)

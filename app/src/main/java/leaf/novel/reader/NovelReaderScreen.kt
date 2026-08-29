@@ -40,9 +40,8 @@ import tachiyomi.presentation.core.util.collectAsState
 /**
  * The reader screen: one chapter at a time in a WebView, with menu-on-tap chrome over it.
  *
- * A single WebView rather than a pager over all chapters — see progress/03. It bounds memory
- * absolutely (risk T4) and keeps the WebView's vertical scrolling from fighting a horizontal pager
- * for the same drag.
+ * A single WebView rather than a pager over all chapters. It bounds memory absolutely and keeps
+ * the WebView's vertical scrolling from fighting a horizontal pager for the same drag.
  */
 @Composable
 fun NovelReaderScreen(

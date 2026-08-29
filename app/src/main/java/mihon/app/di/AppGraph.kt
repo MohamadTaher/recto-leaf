@@ -76,7 +76,7 @@ interface AppGraph : ViewModelGraph {
     fun inject(notificationReceiver: SecureActivityDelegateImpl)
     fun inject(extensionInstallActivity: ExtensionInstallActivity)
 
-    // [recto-leaf] see plans/05
+    // [recto-leaf] the novel text reader
     fun inject(novelReaderActivity: NovelReaderActivity)
 
     val context: Context
@@ -122,8 +122,8 @@ interface AppGraph : ViewModelGraph {
 
     val getExtensionStoreCountAsFlow: GetExtensionStoreCountAsFlow
 
-    // [recto-leaf] Reached from Compose: the browse screen's import action (plans/04) and the
-    // library's content-type selector (plans/03).
+    // [recto-leaf] Reached from Compose: the browse screen's import action and the
+    // library's content-type selector.
     val novelImporter: NovelImporter
     val novelLibraryPreferences: NovelLibraryPreferences
     val novelReaderRouter: NovelReaderRouter

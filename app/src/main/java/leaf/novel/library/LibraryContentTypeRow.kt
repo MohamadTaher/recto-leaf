@@ -30,7 +30,6 @@ private val options = listOf(
  *
  * Not rendered at all until the library holds a novel, which is what keeps a novel-free library
  * pixel-identical to upstream. Hidden during selection mode too, matching the toolbar swap.
- * See plans/03 (D3).
  */
 @Composable
 fun LibraryContentTypeRow(selectionMode: Boolean) {

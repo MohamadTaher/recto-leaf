@@ -23,7 +23,7 @@ object NovelReaderCss {
      *
      * The book's own `<head>` styles come first so its structure and emphasis survive; ours comes
      * after and marks colour `!important`, because a book that hardcodes black text is otherwise
-     * unreadable on a black reader theme and D10 leaves no per-book override to fix it with.
+     * unreadable on a black reader theme, and there is no per-book override to fix it with.
      */
     fun document(
         content: NovelChapterContent,

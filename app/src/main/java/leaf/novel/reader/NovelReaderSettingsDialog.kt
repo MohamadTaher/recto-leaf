@@ -37,7 +37,7 @@ private val themes = listOf(
  * [TabbedDialog] and setting items so it is the same dialog, with the image-only tabs left out.
  *
  * Everything but the font size is a key [ReaderPreferences] already owns, so there is no second
- * settings system (D4). Reading mode, orientation and crop borders have no text equivalent;
+ * settings system. Reading mode, orientation and crop borders have no text equivalent;
  * brightness and the colour filter apply but are still reached from the app's reader settings.
  */
 @Composable

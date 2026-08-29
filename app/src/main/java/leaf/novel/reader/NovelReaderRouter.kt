@@ -14,7 +14,7 @@ import tachiyomi.domain.manga.interactor.GetManga
  * Decides whether an incoming reader intent belongs to the text reader.
  *
  * `ReaderActivity.newIntent` has seven call sites and upstream adds more over time, so the fork
- * redirects once inside `ReaderActivity.onCreate` rather than patching each caller. See plans/05 (D8).
+ * redirects once inside `ReaderActivity.onCreate` rather than patching each caller.
  */
 @Inject
 @SingleIn(AppScope::class)
@@ -29,7 +29,7 @@ class NovelReaderRouter(
      * This runs on the main thread before `super.onCreate`, so it is one indexed single-row read on
      * a bundled, mmap'd SQLite driver — sub-millisecond in practice. If it ever shows up in a trace,
      * the fix is to have the call sites that already hold a `Manga` pass a boolean extra and keep
-     * this as the fallback (risk T2).
+     * this as the fallback.
      */
     fun novelIntentFor(context: Context, intent: Intent): Intent? {
         val mangaId = intent.extras?.getLong(EXTRA_MANGA, INVALID_ID) ?: return null

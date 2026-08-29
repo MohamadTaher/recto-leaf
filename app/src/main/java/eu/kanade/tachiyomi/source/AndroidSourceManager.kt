@@ -32,7 +32,7 @@ class AndroidSourceManager(
     private val extensionManager: ExtensionManager,
     private val sourceRepository: StubSourceRepository,
     private val localSource: LocalSource,
-    // [recto-leaf] The novel source must be seeded too, or getOrStub reports it as missing — see plans/02 (D7).
+    // [recto-leaf] The novel source must be seeded too, or getOrStub reports it as missing.
     private val localNovelSource: LocalNovelSource,
     private val downloadManager: Lazy<DownloadManager>,
 ) : SourceManager {
@@ -53,7 +53,7 @@ class AndroidSourceManager(
             extensionManager.installedExtensionsFlow
                 .collectLatest { extensions ->
                     val mutableMap = ConcurrentHashMap<Long, Source>(
-                        // [recto-leaf] LocalNovelSource added here — see plans/02 (D7).
+                        // [recto-leaf] LocalNovelSource added here.
                         mapOf(LocalSource.ID to localSource, LocalNovelSource.ID to localNovelSource),
                     )
                     extensions.forEach { extension ->
