@@ -109,6 +109,6 @@ private fun Manga.toBackupManga() =
         notes = this.notes,
         initialized = this.initialized,
         memo = MemoColumnAdapter.encode(this.memo),
-        // [recto-leaf] see plans/02 (D12)
+        // [recto-leaf] novels are manga rows distinguished by this flag; without it they restore as manga
         isNovel = this.isNovel,
     )

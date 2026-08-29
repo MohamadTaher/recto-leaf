@@ -62,7 +62,7 @@ import eu.kanade.tachiyomi.source.getNameForMangaInfo
 import eu.kanade.tachiyomi.ui.manga.ChapterList
 import eu.kanade.tachiyomi.ui.manga.MangaViewModel
 import eu.kanade.tachiyomi.util.system.copyToClipboard
-import leaf.novel.isLocalNovel
+import leaf.novel.source.isLocalNovel
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.chapter.service.missingChaptersCount
 import tachiyomi.domain.library.service.LibraryPreferences
@@ -782,7 +782,7 @@ private fun LazyListScope.sharedChapterItems(
                     read = item.chapter.read,
                     bookmark = item.chapter.bookmark,
                     selected = item.selected,
-                    // [recto-leaf] see plans/05
+                    // [recto-leaf] an imported novel has nothing to download, like a local entry
                     downloadIndicatorEnabled = !isAnyChapterSelected && !manga.isLocal() && !manga.isLocalNovel(),
                     downloadStateProvider = { item.downloadState },
                     downloadProgressProvider = { item.downloadProgress },

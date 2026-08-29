@@ -18,7 +18,6 @@ local.properties
 
 # [recto-leaf] Design notes and build log — kept local, deliberately not published.
 # The fork is a public repo; these are working documents, not deliverables.
-# The // [recto-leaf] comments in the code reference plans/ by number.
 /plans/
 /progress/
 

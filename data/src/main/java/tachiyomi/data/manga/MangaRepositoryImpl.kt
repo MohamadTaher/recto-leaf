@@ -12,7 +12,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import leaf.novel.api.NovelSource
-import leaf.novel.isNovelSourceId
+import leaf.novel.source.isNovelSourceId
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.data.Database
@@ -36,7 +36,7 @@ import kotlin.time.Clock
 class MangaRepositoryImpl(
     private val database: Database,
     // [recto-leaf] Only for typing novels on insert, below. Lazy so this repository can never be
-    // part of a cycle through the source graph. See plans/02 (D12).
+    // part of a cycle through the source graph.
     private val sourceManager: Lazy<SourceManager>,
 ) : MangaRepository {
 
@@ -188,7 +188,7 @@ class MangaRepositoryImpl(
                     // [recto-leaf] Browse and global search insert rows through here too, so the
                     // flag is derived at the one boundary every insert passes. An extension's source
                     // id is an MD5 and cannot be recognised by value, so the interface is the test;
-                    // the id test beside it covers LocalNovelSource. See plans/02 (D12).
+                    // the id test beside it covers LocalNovelSource.
                     isNovel = it.isNovel ||
                         sourceManager.value.get(it.source) is NovelSource ||
                         isNovelSourceId(it.source),

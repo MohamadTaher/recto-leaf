@@ -19,9 +19,9 @@ import tachiyomi.data.subscribeToOne
  * It hangs off `LibraryViewModel.getFavoritesFlow()` because that is the one place the *unfiltered*
  * favourites exist as a flow. Filtering there means `applyFilters`, the search DSL, `applyGrouping`
  * and `applySort` all run on the narrowed list, so category tabs, count badges, select-all and the
- * empty state stay consistent for free. See plans/03.
+ * empty state stay consistent for free.
  *
- * Since D12 made `is_novel` a real column, "does the library hold a novel?" is a SQL question rather
+ * Since `is_novel` is a real column, "does the library hold a novel?" is a SQL question rather
  * than a scan of the emitted list, so [apply] is a pure transform and the preference writes it used
  * to perform as a side effect now live in [keepPreferencesCurrent].
  */
