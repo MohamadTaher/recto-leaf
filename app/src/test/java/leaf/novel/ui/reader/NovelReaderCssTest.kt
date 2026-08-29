@@ -9,7 +9,25 @@ private const val WHITE = 0xFFFFFFFF.toInt()
 private const val BLACK = 0xFF000000.toInt()
 private const val MIHON_GRAY = 0xFF2B2B2B.toInt()
 
-private fun style(fontSizePx: Int = 18) = NovelReaderStyle(fontSizePx = fontSizePx)
+private fun style(
+    fontSizePx: Int = 18,
+    bold: Boolean = false,
+    italic: Boolean = false,
+    underline: Boolean = false,
+    shadow: Boolean = false,
+    antialias: Boolean = true,
+    justified: Boolean = false,
+    hyphenation: Boolean = false,
+) = NovelReaderStyle(
+    fontSizePx = fontSizePx,
+    bold = bold,
+    italic = italic,
+    underline = underline,
+    shadow = shadow,
+    antialias = antialias,
+    justified = justified,
+    hyphenation = hyphenation,
+)
 
 /**
  * The reader's stylesheet has to win the cascade against whatever the book brought with it without
@@ -90,5 +108,58 @@ class NovelReaderCssTest {
     fun `embeds the chapter body`() {
         val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
         document.contains("<p>text</p>") shouldBe true
+    }
+
+    @Test
+    fun `emits every text styling flag when it is on`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(
+                bold = true,
+                italic = true,
+                underline = true,
+                shadow = true,
+                justified = true,
+                hyphenation = true,
+            ),
+            backgroundColor = WHITE,
+        )
+
+        document.contains("font-weight: bold") shouldBe true
+        document.contains("font-style: italic") shouldBe true
+        document.contains("text-decoration: underline") shouldBe true
+        document.contains("text-shadow: 0 1px 2px") shouldBe true
+        document.contains("text-align: justify") shouldBe true
+        document.contains("hyphens: auto") shouldBe true
+    }
+
+    @Test
+    fun `emits the off value for every text styling flag by default`() {
+        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+
+        document.contains("font-weight: normal") shouldBe true
+        document.contains("font-style: normal") shouldBe true
+        document.contains("text-decoration: none") shouldBe true
+        document.contains("text-shadow: none") shouldBe true
+        document.contains("text-align: left") shouldBe true
+        document.contains("hyphens: manual") shouldBe true
+    }
+
+    @Test
+    fun `smooths text by default and stops when asked`() {
+        NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+            .contains("-webkit-font-smoothing: antialiased") shouldBe true
+
+        NovelReaderCss.document(content, style(antialias = false), backgroundColor = WHITE)
+            .contains("-webkit-font-smoothing: auto") shouldBe true
+    }
+
+    /** Justifying the body must not reach the headings, which the stylesheet aligns itself. */
+    @Test
+    fun `headings keep their own alignment when the body is justified`() {
+        val doc = NovelReaderCss.document(content, style(justified = true), backgroundColor = WHITE)
+
+        doc.contains("text-align: justify") shouldBe true
+        doc.contains("h1, h2, h3, h4, h5, h6 { text-align: left") shouldBe true
     }
 }

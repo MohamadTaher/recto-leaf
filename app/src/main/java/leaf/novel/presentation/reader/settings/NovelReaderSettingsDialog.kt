@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.CheckboxItem
+import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.SettingsChipRow
 import tachiyomi.presentation.core.components.SliderItem
 import tachiyomi.presentation.core.i18n.stringResource
@@ -102,6 +103,43 @@ private fun ColumnScope.VisualPage(
         value = fontSize,
         valueRange = NovelReaderPreferences.MIN_FONT_SIZE..NovelReaderPreferences.MAX_FONT_SIZE,
         onChange = { novelReaderPreferences.fontSize.set(it) },
+    )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_text_styling)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_bold),
+        pref = novelReaderPreferences.bold,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_italic),
+        pref = novelReaderPreferences.italic,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_underline),
+        pref = novelReaderPreferences.underline,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_shadow),
+        pref = novelReaderPreferences.shadow,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_antialias),
+        pref = novelReaderPreferences.antialias,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_justified),
+        pref = novelReaderPreferences.justified,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_hyphenation),
+        pref = novelReaderPreferences.hyphenation,
     )
 
     val readerTheme by readerPreferences.readerTheme.collectAsState()

@@ -1103,6 +1103,14 @@
     <string name="leaf_novel_reader_additional_options">Additional options</string>
     <string name="leaf_novel_reader_day_night_mode">Day/night mode</string>
     <string name="leaf_novel_reader_font_size">Font size</string>
+    <string name="leaf_novel_reader_heading_text_styling">Text styling</string>
+    <string name="leaf_novel_reader_bold">Bold</string>
+    <string name="leaf_novel_reader_italic">Italic</string>
+    <string name="leaf_novel_reader_underline">Underline</string>
+    <string name="leaf_novel_reader_shadow">Shadow</string>
+    <string name="leaf_novel_reader_antialias">Smooth (anti-alias)</string>
+    <string name="leaf_novel_reader_justified">Justified alignment</string>
+    <string name="leaf_novel_reader_hyphenation">Hyphenation</string>
     <string name="leaf_novel_reader_error_not_found">This novel is no longer in your library</string>
     <string name="leaf_novel_reader_error_source_missing">This novel\'s source is not installed</string>
     <string name="leaf_novel_reader_error_book_missing">book.epub is missing from this novel\'s folder</string>
