@@ -7,6 +7,9 @@ package leaf.novel.ui.reader.setting
  * dozen-plus that text styling, spacing and margins would otherwise add to its signature, and so
  * the document the screen builds keys on a single value that compares by content.
  *
+ * Values are the preferences as stored, not as rendered: the stylesheet owns every mapping from one
+ * to the other, and owns it in one place so it can be tested there.
+ *
  * No property carries a default, deliberately. Every field has to be named where the style is built
  * from preferences, so a field added here and left unwired fails to compile rather than shipping as
  * a setting that quietly does nothing. Test call sites get their defaults from a local helper.
@@ -24,4 +27,8 @@ data class NovelReaderStyle(
     val antialias: Boolean,
     val justified: Boolean,
     val hyphenation: Boolean,
+    val paragraphSpacing: Int,
+    val lineSpacing: Int,
+    val fontSpacing: Int,
+    val fontScale: Int,
 )

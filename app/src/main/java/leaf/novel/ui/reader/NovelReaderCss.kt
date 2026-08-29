@@ -7,15 +7,17 @@ import leaf.novel.ui.reader.setting.NovelReaderStyle
 /**
  * The reader's injected stylesheet.
  *
- * Everything the MVP hardcodes lives here as a named constant, so promoting any of it to a
- * preference later is "expose this", not "find this" — roadmap item R1 depends on that.
+ * What the reader lets you change arrives as a [NovelReaderStyle]; what it does not lives here as a
+ * named constant, so promoting one to a preference later is "expose this", not "find this".
+ *
+ * Every mapping from a preference value to a declaration is integer arithmetic. Preference values
+ * are whole numbers and the steps are exact fractions of one, so doing it in doubles would put
+ * `1.6000000000000001` in the stylesheet for no gain.
  */
 object NovelReaderCss {
 
-    const val LINE_HEIGHT = 1.6
     const val SIDE_MARGIN_PX = 16
     const val TOP_MARGIN_PX = 24
-    const val PARAGRAPH_SPACING_EM = 0.8
     const val FIRST_LINE_INDENT_EM = 0.0
 
     /**
@@ -34,6 +36,11 @@ object NovelReaderCss {
         val foreground = foregroundFor(backgroundColor).toCssColor()
         val muted = foregroundFor(backgroundColor).withAlpha(ACCENT_ALPHA).toCssColor()
 
+        val fontSizePx = scaledFontSizePx(style)
+        val lineHeight = tenths(LINE_HEIGHT_BASE_TENTHS + style.lineSpacing)
+        val letterSpacing = hundredths(style.fontSpacing)
+        val paragraphSpacing = hundredths(style.paragraphSpacing)
+
         return """
             <!DOCTYPE html>
             <html>
@@ -47,13 +54,14 @@ object NovelReaderCss {
             body {
               background: $background !important;
               color: $foreground !important;
-              font-size: ${style.fontSizePx}px;
+              font-size: ${fontSizePx}px;
               font-weight: ${if (style.bold) "bold" else "normal"};
               font-style: ${if (style.italic) "italic" else "normal"};
               text-decoration: ${if (style.underline) "underline" else "none"};
               text-shadow: ${if (style.shadow) TEXT_SHADOW else "none"};
               -webkit-font-smoothing: ${if (style.antialias) "antialiased" else "auto"};
-              line-height: $LINE_HEIGHT;
+              letter-spacing: ${letterSpacing}em;
+              line-height: $lineHeight;
               margin: 0;
               padding: ${TOP_MARGIN_PX}px ${SIDE_MARGIN_PX}px;
               text-align: ${if (style.justified) "justify" else "left"};
@@ -63,7 +71,7 @@ object NovelReaderCss {
             }
             /* Descendants only: including `body` here would beat its own background above. */
             body * { color: $foreground !important; background-color: transparent !important; }
-            p { margin: 0 0 ${PARAGRAPH_SPACING_EM}em; text-indent: ${FIRST_LINE_INDENT_EM}em; }
+            p { margin: 0 0 ${paragraphSpacing}em; text-indent: ${FIRST_LINE_INDENT_EM}em; }
             h1, h2, h3, h4, h5, h6 { text-align: left; line-height: 1.3; }
             img, svg, video { max-width: 100%; height: auto; }
             pre, table { overflow-x: auto; display: block; max-width: 100%; }
@@ -89,6 +97,33 @@ object NovelReaderCss {
         return luminance < DARK_LUMINANCE_THRESHOLD
     }
 
+    /**
+     * The chosen size nudged by the fine scale, resolved to the one number the stylesheet needs.
+     *
+     * Done in per-mille so it stays integral, and rounded half-up. A scale of zero multiplies by
+     * exactly one, so leaving the fine control alone leaves the chosen size alone.
+     */
+    private fun scaledFontSizePx(style: NovelReaderStyle): Int =
+        (style.fontSizePx * (PER_MILLE + style.fontScale * FONT_SCALE_STEP) + PER_MILLE / 2) / PER_MILLE
+
+    /**
+     * Tenths as a plain decimal, for the unitless line height.
+     *
+     * Unitless rather than a percentage on purpose: a number is inherited as a number and recomputed
+     * against each descendant's own font size, where a percentage would inherit one fixed length and
+     * crowd any text the book sets larger.
+     *
+     * Only ever called with the line-height range, which cannot reach zero, so no sign handling.
+     */
+    private fun tenths(value: Int): String = "${value / 10}.${value % 10}"
+
+    /** Hundredths as a plain decimal, for the em lengths. Letter spacing may be negative. */
+    private fun hundredths(value: Int): String {
+        val magnitude = if (value < 0) -value else value
+        val sign = if (value < 0) "-" else ""
+        return "$sign${magnitude / 100}.${(magnitude % 100).toString().padStart(2, '0')}"
+    }
+
     // The same arithmetic android.graphics.Color performs, done here so the whole object stays
     // free of Android types and therefore testable on the JVM.
     private fun Int.alpha(): Int = (this ushr 24) and 0xFF
@@ -103,6 +138,13 @@ object NovelReaderCss {
 
     /** Soft enough to lift text off the page without smearing it at small sizes. */
     private const val TEXT_SHADOW = "0 1px 2px rgba(0, 0, 0, 0.35)"
+
+    /** A line spacing of 0 is single-spaced; the imported default of 4 lands on 1.6. */
+    private const val LINE_HEIGHT_BASE_TENTHS = 12
+
+    /** One step of the fine font scale, in per-mille: 2.5% of the chosen size. */
+    private const val FONT_SCALE_STEP = 25
+    private const val PER_MILLE = 1000
 
     private const val ACCENT_ALPHA = 168
     private const val DARK_LUMINANCE_THRESHOLD = 128

@@ -42,9 +42,30 @@ class NovelReaderPreferences(
 
     // endregion
 
+    // region Spacing and scale
+
+    /** Space below each paragraph, in hundredths of an em. */
+    val paragraphSpacing: Preference<Int> = preferenceStore.getInt("leaf_novel_paragraph_spacing", 60)
+
+    /** Steps of a tenth added to a single-spaced line. The default lands on the familiar 1.6. */
+    val lineSpacing: Preference<Int> = preferenceStore.getInt("leaf_novel_line_spacing", 4)
+
+    /** Space between letters, in hundredths of an em. Negative tightens. */
+    val fontSpacing: Preference<Int> = preferenceStore.getInt("leaf_novel_font_spacing", 0)
+
+    /** Fine adjustment to [fontSize], in steps of 2.5%, for sizes between its whole numbers. */
+    val fontScale: Preference<Int> = preferenceStore.getInt("leaf_novel_font_scale", 0)
+
+    // endregion
+
     companion object {
         const val DEFAULT_FONT_SIZE = 18
         const val MIN_FONT_SIZE = 10
         const val MAX_FONT_SIZE = 32
+
+        val PARAGRAPH_SPACING_RANGE = 0..200
+        val LINE_SPACING_RANGE = -5..20
+        val FONT_SPACING_RANGE = -4..20
+        val FONT_SCALE_RANGE = -4..20
     }
 }
