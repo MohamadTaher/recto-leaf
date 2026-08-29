@@ -18,6 +18,7 @@ enum class NovelEpubFailure {
     DRM_PROTECTED,
 }
 
+/** Carries a [NovelEpubFailure] as its message, so a log line names the reason without unwrapping. */
 class NovelEpubException(val failure: NovelEpubFailure) : Exception(failure.name)
 
 /** Dublin Core metadata lifted from the OPF package document. */

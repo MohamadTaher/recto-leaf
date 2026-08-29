@@ -8,6 +8,11 @@ private const val WHITE = 0xFFFFFFFF.toInt()
 private const val BLACK = 0xFF000000.toInt()
 private const val MIHON_GRAY = 0xFF2B2B2B.toInt()
 
+/**
+ * The reader's stylesheet has to win the cascade against whatever the book brought with it without
+ * discarding it, and pick a foreground its text stays legible against. Both are ordering and
+ * arithmetic rather than layout, so they are checked here instead of on screen.
+ */
 class NovelReaderCssTest {
 
     private val content = NovelChapterContent(html = "<p>text</p>", head = "", baseUrl = null)

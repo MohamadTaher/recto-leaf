@@ -56,6 +56,10 @@ enum class NovelImportFailure {
     WRITE_FAILED,
 }
 
+/**
+ * The outcome of one import. [Conflict] is a question rather than a failure: the same import
+ * succeeds if it is re-run with a [NovelImportConflict] that says how to resolve it.
+ */
 sealed interface NovelImportResult {
     data class Success(val mangaId: Long, val title: String) : NovelImportResult
 

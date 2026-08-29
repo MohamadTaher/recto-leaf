@@ -3,6 +3,11 @@ package leaf.novel.ui.reader.loader
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 
+/**
+ * Every resource the WebView asks for is routed by these three decisions. A URL [NovelEpubAssetServer.pathFor] declines
+ * is either blocked outright or handed back to the WebView, so the null cases decide as much as the
+ * hits do.
+ */
 class NovelEpubAssetServerTest {
 
     @Test

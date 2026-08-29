@@ -68,6 +68,18 @@ enum class NovelReaderError {
     CHAPTER_MISSING,
 }
 
+/**
+ * Owns one reading session: the chapter list, which chapter is open, and how far through it the
+ * reader has scrolled.
+ *
+ * It deliberately does not know how a chapter's text is fetched. [NovelContentProvider] hides that,
+ * because a web novel streams from its extension while an imported one is read out of an archive,
+ * and only [load] has to tell the two apart.
+ *
+ * Positions are not written on every scroll. They accumulate in [pendingProgress] and are flushed
+ * on a debounce, and again on pause, on chapter change and on close, so a long chapter that is
+ * never left still records where the reader got to.
+ */
 @AssistedInject
 class NovelReaderViewModel(
     @Assisted private val savedState: SavedStateHandle,
