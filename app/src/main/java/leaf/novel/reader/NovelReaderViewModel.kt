@@ -17,6 +17,7 @@ import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactoryKey
 import eu.kanade.domain.source.interactor.GetIncognitoState
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
+import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,6 +29,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import leaf.novel.api.NovelChapterContent
+import leaf.novel.api.NovelSource
 import leaf.novel.epub.NovelEpubException
 import leaf.novel.epub.novelEpubReader
 import leaf.novel.io.NovelFileSystem
@@ -44,6 +47,7 @@ import tachiyomi.domain.history.interactor.UpsertHistory
 import tachiyomi.domain.history.model.HistoryUpdate
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.domain.source.service.SourceManager
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
@@ -51,6 +55,7 @@ import kotlin.time.Clock
 /** Why the reader could not show something. The first four are fatal; the last is per-chapter. */
 enum class NovelReaderError {
     MANGA_NOT_FOUND,
+    SOURCE_MISSING,
     BOOK_MISSING,
     BOOK_UNREADABLE,
     NO_CHAPTERS,
@@ -69,6 +74,8 @@ class NovelReaderViewModel(
     private val trackPreferences: TrackPreferences,
     private val getIncognitoState: GetIncognitoState,
     private val fileSystem: NovelFileSystem,
+    private val downloadProvider: DownloadProvider,
+    private val sourceManager: SourceManager,
     val readerPreferences: ReaderPreferences,
     val novelReaderPreferences: NovelReaderPreferences,
 ) : ViewModel() {
@@ -150,24 +157,38 @@ class NovelReaderViewModel(
             return
         }
 
-        val bookFile = fileSystem.getBookFile(manga.url)
-        if (bookFile == null) {
-            mutableState.update { it.copy(manga = manga, isLoading = false, error = NovelReaderError.BOOK_MISSING) }
+        // A web novel streams its chapters from the source; an imported one is read out of its
+        // archive. LocalNovelSource is not a NovelSource and correctly takes the EPUB path.
+        val contentProvider: NovelContentProvider
+        val source = sourceManager.get(manga.source)
+        if (source == null) {
+            // A web novel whose extension has been uninstalled. Without this it would fall through
+            // to the EPUB branch and report a missing book file, which names the wrong cause.
+            mutableState.update { it.copy(manga = manga, isLoading = false, error = NovelReaderError.SOURCE_MISSING) }
             return
         }
-
-        val opened = withIOContext {
-            runCatching { EpubContentProvider(bookFile.novelEpubReader(context), manga.url) }
-        }
-        val contentProvider = opened.getOrElse { failure ->
-            logcat(LogPriority.ERROR, failure) { "Could not open book.epub for ${manga.url}" }
-            val reason = if (failure is NovelEpubException) {
-                NovelReaderError.BOOK_UNREADABLE
-            } else {
-                NovelReaderError.BOOK_MISSING
+        if (source is NovelSource) {
+            contentProvider = SourceContentProvider(source, manga, downloadProvider)
+        } else {
+            val bookFile = fileSystem.getBookFile(manga.url)
+            if (bookFile == null) {
+                mutableState.update { it.copy(manga = manga, isLoading = false, error = NovelReaderError.BOOK_MISSING) }
+                return
             }
-            mutableState.update { it.copy(manga = manga, isLoading = false, error = reason) }
-            return
+
+            val opened = withIOContext {
+                runCatching { EpubContentProvider(bookFile.novelEpubReader(context), manga.url) }
+            }
+            contentProvider = opened.getOrElse { failure ->
+                logcat(LogPriority.ERROR, failure) { "Could not open book.epub for ${manga.url}" }
+                val reason = if (failure is NovelEpubException) {
+                    NovelReaderError.BOOK_UNREADABLE
+                } else {
+                    NovelReaderError.BOOK_MISSING
+                }
+                mutableState.update { it.copy(manga = manga, isLoading = false, error = reason) }
+                return
+            }
         }
         provider = contentProvider
 

@@ -1,5 +1,6 @@
 package leaf.novel.reader
 
+import leaf.novel.api.NovelChapterContent
 import leaf.novel.epub.NovelEpubReader
 import org.jsoup.Jsoup
 import tachiyomi.core.common.util.lang.withIOContext

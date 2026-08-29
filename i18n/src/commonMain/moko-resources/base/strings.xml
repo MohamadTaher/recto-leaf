@@ -1102,6 +1102,7 @@
     <string name="leaf_novel_reader_previous_chapter">Previous chapter</string>
     <string name="leaf_novel_reader_next_chapter">Next chapter</string>
     <string name="leaf_novel_reader_error_not_found">This novel is no longer in your library</string>
+    <string name="leaf_novel_reader_error_source_missing">This novel\'s source is not installed</string>
     <string name="leaf_novel_reader_error_book_missing">book.epub is missing from this novel\'s folder</string>
     <string name="leaf_novel_reader_error_book_unreadable">This novel\'s book.epub could not be read</string>
     <string name="leaf_novel_reader_error_no_chapters">This novel has no chapters yet. Refresh it from its entry screen</string>

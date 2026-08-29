@@ -1,6 +1,7 @@
 package leaf.novel.reader
 
 import androidx.annotation.ColorInt
+import leaf.novel.api.NovelChapterContent
 
 /**
  * The reader's injected stylesheet.

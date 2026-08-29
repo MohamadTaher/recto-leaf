@@ -29,6 +29,8 @@ kotlin {
 }
 
 dependencies {
+    // [recto-leaf] The novel source contract. See plans/07.
+    implementation(projects.novelApi)
     implementation(projects.sourceApi)
     implementation(projects.domain)
     implementation(projects.core.common)

@@ -212,6 +212,8 @@ dependencies {
     implementation(projects.core.common)
     implementation(projects.core.metro)
     implementation(projects.coreMetadata)
+    // [recto-leaf] The novel source contract. See plans/07.
+    implementation(projects.novelApi)
     implementation(projects.sourceApi)
     implementation(projects.sourceLocal)
     implementation(projects.data)
