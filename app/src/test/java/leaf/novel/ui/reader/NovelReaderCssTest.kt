@@ -2,11 +2,14 @@ package leaf.novel.ui.reader
 
 import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.ui.reader.setting.NovelReaderStyle
 import org.junit.jupiter.api.Test
 
 private const val WHITE = 0xFFFFFFFF.toInt()
 private const val BLACK = 0xFF000000.toInt()
 private const val MIHON_GRAY = 0xFF2B2B2B.toInt()
+
+private fun style(fontSizePx: Int = 18) = NovelReaderStyle(fontSizePx = fontSizePx)
 
 /**
  * The reader's stylesheet has to win the cascade against whatever the book brought with it without
@@ -49,7 +52,7 @@ class NovelReaderCssTest {
      */
     @Test
     fun `the descendant reset does not target body itself`() {
-        val document = NovelReaderCss.document(content, fontSizePx = 18, backgroundColor = BLACK)
+        val document = NovelReaderCss.document(content, style(), backgroundColor = BLACK)
 
         document.contains("body, body *") shouldBe false
         document.contains("body * { color:") shouldBe true
@@ -63,7 +66,7 @@ class NovelReaderCssTest {
             baseUrl = null,
         )
 
-        val document = NovelReaderCss.document(styled, fontSizePx = 18, backgroundColor = BLACK)
+        val document = NovelReaderCss.document(styled, style(), backgroundColor = BLACK)
 
         // The book's stylesheet must survive, but ours has to come after it to win the cascade.
         document.indexOf("<style>body { background: #fff") shouldBe document.indexOf(styled.head)
@@ -72,20 +75,20 @@ class NovelReaderCssTest {
 
     @Test
     fun `renders the requested font size`() {
-        val document = NovelReaderCss.document(content, fontSizePx = 22, backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(fontSizePx = 22), backgroundColor = WHITE)
         document.contains("font-size: 22px") shouldBe true
     }
 
     @Test
     fun `keeps wide content from scrolling the page sideways`() {
-        val document = NovelReaderCss.document(content, fontSizePx = 18, backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
         document.contains("max-width: 100%") shouldBe true
         document.contains("overflow-x: auto") shouldBe true
     }
 
     @Test
     fun `embeds the chapter body`() {
-        val document = NovelReaderCss.document(content, fontSizePx = 18, backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
         document.contains("<p>text</p>") shouldBe true
     }
 }

@@ -41,6 +41,7 @@ import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.SourceContentProvider
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import logcat.LogPriority
+import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
@@ -261,6 +262,16 @@ class NovelReaderViewModel(
 
     fun toggleMenu() = mutableState.update { it.copy(menuVisible = !it.menuVisible) }
 
+    /**
+     * Flips the shared reader theme between its black and white values.
+     *
+     * The theme is a ReaderPreferences key both readers share — the novel reader deliberately has
+     * no settings system of its own — so the image reader changes background with it.
+     */
+    fun toggleDayNightMode() = readerPreferences.readerTheme.getAndSet {
+        if (it == READER_THEME_WHITE) READER_THEME_BLACK else READER_THEME_WHITE
+    }
+
     fun setBrightnessOverlayValue(value: Int) = mutableState.update { it.copy(brightnessOverlayValue = value) }
 
     /** Records how far through [chapterId] the reader has scrolled, as a percent in 0..100. */
@@ -363,6 +374,10 @@ class NovelReaderViewModel(
 
         /** How long the reader must sit still before its position is written. */
         private const val PROGRESS_DEBOUNCE_MS = 400L
+
+        // Upstream stores readerTheme as a bare int with no named constants of its own.
+        private const val READER_THEME_WHITE = 0
+        private const val READER_THEME_BLACK = 1
 
         const val EXTRA_MANGA = "manga"
         const val EXTRA_CHAPTER = "chapter"

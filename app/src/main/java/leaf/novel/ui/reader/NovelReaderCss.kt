@@ -2,6 +2,7 @@ package leaf.novel.ui.reader
 
 import androidx.annotation.ColorInt
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.ui.reader.setting.NovelReaderStyle
 
 /**
  * The reader's injected stylesheet.
@@ -27,7 +28,7 @@ object NovelReaderCss {
      */
     fun document(
         content: NovelChapterContent,
-        fontSizePx: Int,
+        style: NovelReaderStyle,
         @ColorInt backgroundColor: Int,
     ): String {
         val background = backgroundColor.toCssColor()
@@ -47,7 +48,7 @@ object NovelReaderCss {
             body {
               background: $background !important;
               color: $foreground !important;
-              font-size: ${fontSizePx}px;
+              font-size: ${style.fontSizePx}px;
               line-height: $LINE_HEIGHT;
               margin: 0;
               padding: ${TOP_MARGIN_PX}px ${SIDE_MARGIN_PX}px;

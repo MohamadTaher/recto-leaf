@@ -9,6 +9,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -17,13 +18,24 @@ import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
-import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.SettingsChipRow
 import tachiyomi.presentation.core.components.SliderItem
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
+
+/**
+ * The three groups of settings the reader offers, in the order they appear.
+ *
+ * The bottom bar has a button per entry and opens the dialog on it, so the ordinal doubles as the
+ * pager's initial page.
+ */
+enum class NovelReaderSettingsTab {
+    VISUAL,
+    CONTROL,
+    MISCELLANEOUS,
+}
 
 // Same values and same order as the image reader's general page, so the two dialogs read alike.
 private val themes = listOf(
@@ -34,24 +46,27 @@ private val themes = listOf(
 )
 
 /**
- * Font size, plus the shared settings that mean something to text. Built on the image reader's
- * [TabbedDialog] and setting items so it is the same dialog, with the image-only tabs left out.
+ * The reader's settings, grouped the way Moon+ groups them, on the image reader's own
+ * [TabbedDialog] and setting items so the two dialogs are the same dialog.
  *
- * Everything but the font size is a key [ReaderPreferences] already owns, so there is no second
- * settings system. Reading mode, orientation and crop borders have no text equivalent;
- * brightness and the colour filter apply but are still reached from the app's reader settings.
+ * Only the font size is a key of the reader's own; the background colour, brightness, page number,
+ * fullscreen and keep-screen-on are all read from and written to [ReaderPreferences], so there is
+ * no second settings system. Reading mode, orientation and crop borders have no text equivalent
+ * and are not carried over.
  */
 @Composable
 fun NovelReaderSettingsDialog(
-    fontSizePreference: Preference<Int>,
+    initialTab: NovelReaderSettingsTab,
+    novelReaderPreferences: NovelReaderPreferences,
     readerPreferences: ReaderPreferences,
     onDismissRequest: () -> Unit,
 ) {
     val tabTitles = listOf(
-        stringResource(MR.strings.leaf_novel_reader_tab_text),
-        stringResource(MR.strings.pref_category_general),
+        stringResource(MR.strings.leaf_novel_reader_tab_visual),
+        stringResource(MR.strings.leaf_novel_reader_tab_control),
+        stringResource(MR.strings.leaf_novel_reader_tab_misc),
     )
-    val pagerState = rememberPagerState { tabTitles.size }
+    val pagerState = rememberPagerState(initialPage = initialTab.ordinal) { tabTitles.size }
 
     BoxWithConstraints {
         TabbedDialog(
@@ -65,9 +80,11 @@ fun NovelReaderSettingsDialog(
                     .padding(vertical = TabbedDialogPaddings.Vertical)
                     .verticalScroll(rememberScrollState()),
             ) {
-                when (page) {
-                    0 -> TextPage(fontSizePreference)
-                    1 -> GeneralPage(readerPreferences)
+                when (NovelReaderSettingsTab.entries[page]) {
+                    NovelReaderSettingsTab.VISUAL -> VisualPage(novelReaderPreferences, readerPreferences)
+                    // Empty until taps and keys arrive; padding it now would only be removed then.
+                    NovelReaderSettingsTab.CONTROL -> Unit
+                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(readerPreferences)
                 }
             }
         }
@@ -75,21 +92,19 @@ fun NovelReaderSettingsDialog(
 }
 
 @Composable
-private fun ColumnScope.TextPage(fontSizePreference: Preference<Int>) {
-    val fontSize by fontSizePreference.collectAsState()
-
+private fun ColumnScope.VisualPage(
+    novelReaderPreferences: NovelReaderPreferences,
+    readerPreferences: ReaderPreferences,
+) {
+    val fontSize by novelReaderPreferences.fontSize.collectAsState()
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_font_size),
         value = fontSize,
         valueRange = NovelReaderPreferences.MIN_FONT_SIZE..NovelReaderPreferences.MAX_FONT_SIZE,
-        onChange = { fontSizePreference.set(it) },
+        onChange = { novelReaderPreferences.fontSize.set(it) },
     )
-}
 
-@Composable
-private fun ColumnScope.GeneralPage(readerPreferences: ReaderPreferences) {
     val readerTheme by readerPreferences.readerTheme.collectAsState()
-
     SettingsChipRow(MR.strings.pref_reader_theme) {
         themes.map { (labelRes, value) ->
             FilterChip(
@@ -100,6 +115,29 @@ private fun ColumnScope.GeneralPage(readerPreferences: ReaderPreferences) {
         }
     }
 
+    // Both keys are already honoured by NovelReaderActivity; what they have never had is a control.
+    // Range and presentation are the image reader's: below zero the window holds minimum brightness
+    // and the shared content overlay makes up the difference.
+    CheckboxItem(
+        label = stringResource(MR.strings.pref_custom_brightness),
+        pref = readerPreferences.customBrightness,
+    )
+    val customBrightness by readerPreferences.customBrightness.collectAsState()
+    if (customBrightness) {
+        val customBrightnessValue by readerPreferences.customBrightnessValue.collectAsState()
+        SliderItem(
+            value = customBrightnessValue,
+            valueRange = -75..100,
+            steps = 0,
+            label = stringResource(MR.strings.pref_custom_brightness),
+            onChange = { readerPreferences.customBrightnessValue.set(it) },
+            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
+    }
+}
+
+@Composable
+private fun ColumnScope.MiscellaneousPage(readerPreferences: ReaderPreferences) {
     CheckboxItem(
         label = stringResource(MR.strings.pref_show_page_number),
         pref = readerPreferences.showPageNumber,
