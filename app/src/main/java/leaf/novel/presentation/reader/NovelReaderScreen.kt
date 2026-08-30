@@ -2,10 +2,8 @@ package leaf.novel.presentation.reader
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,16 +29,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.reader.ReaderContentOverlay
-import eu.kanade.presentation.reader.ReaderPageIndicator
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.system.readerBackgroundColor
 import kotlinx.coroutines.channels.BufferOverflow
@@ -50,6 +44,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.components.NovelChapterWebView
+import leaf.novel.presentation.reader.components.NovelStatusBar
+import leaf.novel.presentation.reader.components.NovelStatusBarHeight
 import leaf.novel.presentation.reader.components.NovelWebViewController
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsDialog
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
@@ -59,9 +55,12 @@ import leaf.novel.ui.reader.NovelReaderViewModel
 import leaf.novel.ui.reader.NovelReadingReminder
 import leaf.novel.ui.reader.NovelReadingTime
 import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderStyle
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
+import leaf.novel.ui.reader.setting.NovelStatusBarTap
+import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.preference.toggle
@@ -91,9 +90,13 @@ fun NovelReaderScreen(
     val uriHandler = LocalUriHandler.current
 
     val readerTheme by viewModel.readerPreferences.readerTheme.collectAsState()
-    val showPageNumber by viewModel.readerPreferences.showPageNumber.collectAsState()
+    val novelTheme by viewModel.novelReaderPreferences.theme.collectAsState()
     val style = novelReaderStyle(viewModel.novelReaderPreferences)
-    val backgroundColor = remember(readerTheme) { context.readerBackgroundColor(readerTheme) }
+    // Resolved once and handed to the stylesheet, the WebView, the page behind it and the status
+    // bar alike, so none of them can disagree about what colour the page is.
+    val colors = remember(readerTheme, novelTheme) {
+        novelTheme.colors(context.readerBackgroundColor(readerTheme))
+    }
 
     var settingsTab by remember { mutableStateOf<NovelReaderSettingsTab?>(null) }
 
@@ -118,6 +121,7 @@ fun NovelReaderScreen(
             }
             NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
             NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
+            NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
             NovelReaderAction.TEXT_SELECTION -> Unit
@@ -165,6 +169,12 @@ fun NovelReaderScreen(
             }
         }
         return enabled
+    }
+
+    /** Runs whatever one section of the mini status bar is bound to, for a tap or a long tap. */
+    fun performStatusBarPress(placement: NovelStatusPlacement, longPress: Boolean) {
+        val binding = NovelStatusBarTap.of(placement, longPress) ?: return
+        performAction(viewModel.novelReaderPreferences.statusTaps.getValue(binding).get())
     }
 
     fun performPinch(scale: Float) {
@@ -230,7 +240,9 @@ fun NovelReaderScreen(
 
     val autoScrollSpeed by viewModel.novelReaderPreferences.autoScrollSpeed.collectAsState()
     val readingRuler by viewModel.novelReaderPreferences.readingRuler.collectAsState()
-    val showRemainingTime by viewModel.novelReaderPreferences.showRemainingTime.collectAsState()
+    val showStatusBar by viewModel.novelReaderPreferences.showStatusBar.collectAsState()
+    val statusPlacements = viewModel.novelReaderPreferences.statusSlots
+        .mapValues { (_, preference) -> preference.collectAsState().value }
     val disableTouchEdge by viewModel.novelReaderPreferences.disableTouchEdge.collectAsState()
     val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
 
@@ -274,7 +286,7 @@ fun NovelReaderScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(backgroundColor)),
+            .background(Color(colors.background)),
     ) {
         when {
             state.isLoading -> {
@@ -293,8 +305,11 @@ fun NovelReaderScreen(
                     ChapterContent(
                         viewModel = viewModel,
                         chapter = chapter,
+                        // The bar is permanent where the indicators it replaced were a floating
+                        // label, so the page gives up the space rather than running underneath it.
+                        bottomInset = if (showStatusBar) NovelStatusBarHeight else 0.dp,
                         style = style,
-                        backgroundColor = backgroundColor,
+                        colors = colors,
                         percentRead = livePercent,
                         onPercentChange = { livePercent = it },
                         seekRequests = seekRequests,
@@ -316,29 +331,24 @@ fun NovelReaderScreen(
             }
         }
 
-        // Where in the *book* the reader is. The slider below says where in the chapter, so the two
-        // never say the same thing twice.
-        if (!state.menuVisible && (showPageNumber || showRemainingTime)) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding(),
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (showPageNumber) {
-                    ReaderPageIndicator(
-                        currentPage = state.currentIndex + 1,
-                        totalPages = state.chapters.size,
-                    )
-                }
-
-                if (showRemainingTime && state.chapterWords > 0) {
-                    NovelReaderRemainingTime(
-                        minutes = NovelReadingTime.minutesRemaining(state.chapterWords, livePercent),
-                    )
-                }
-            }
+        // The chrome takes this space when it is up, so the bar follows the same rule the floating
+        // indicators it replaced did and stays out of the way of the bottom bar. There has to be a
+        // chapter as well: every item but the clock and the battery would read as zero without one,
+        // under a spinner or an error message.
+        if (showStatusBar && !state.menuVisible && chapter != null) {
+            NovelStatusBar(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                placements = statusPlacements,
+                chapterName = chapter.name,
+                chapterNumber = state.currentIndex + 1,
+                chapterCount = state.chapters.size,
+                chapterPercent = livePercent,
+                screens = webViewController.screens,
+                minutesRemaining = NovelReadingTime.minutesRemaining(state.chapterWords, livePercent),
+                colors = colors,
+                onTap = { performStatusBarPress(it, longPress = false) },
+                onLongTap = { performStatusBarPress(it, longPress = true) },
+            )
         }
 
         ContentOverlay(
@@ -422,8 +432,9 @@ fun NovelReaderScreen(
 private fun ChapterContent(
     viewModel: NovelReaderViewModel,
     chapter: Chapter,
+    bottomInset: Dp,
     style: NovelReaderStyle,
-    backgroundColor: Int,
+    colors: NovelReaderColors,
     percentRead: Int,
     onPercentChange: (Int) -> Unit,
     seekRequests: Flow<Int>,
@@ -462,8 +473,8 @@ private fun ChapterContent(
             }
         }
         else -> {
-            val document = remember(chapterContent, style, backgroundColor) {
-                NovelReaderCss.document(chapterContent, style, backgroundColor)
+            val document = remember(chapterContent, style, colors) {
+                NovelReaderCss.document(chapterContent, style, colors)
             }
             NovelChapterWebView(
                 document = document,
@@ -471,7 +482,7 @@ private fun ChapterContent(
                 initialPercent = percentRead,
                 seekRequests = seekRequests,
                 assetServer = assetServer,
-                backgroundColor = backgroundColor,
+                backgroundColor = colors.background,
                 onProgress = {
                     onPercentChange(it)
                     viewModel.reportProgress(chapter.id, it)
@@ -490,7 +501,8 @@ private fun ChapterContent(
                 // sit under the status and navigation bars. Insets are zero once fullscreen hides them.
                 modifier = Modifier
                     .fillMaxSize()
-                    .systemBarsPadding(),
+                    .systemBarsPadding()
+                    .padding(bottom = bottomInset),
             )
         }
     }
@@ -561,6 +573,7 @@ private fun NovelReaderErrorMessage(error: NovelReaderError, modifier: Modifier 
 @Composable
 private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderStyle {
     val fontSize by preferences.fontSize.collectAsState()
+    val font by preferences.font.collectAsState()
     val bold by preferences.bold.collectAsState()
     val italic by preferences.italic.collectAsState()
     val underline by preferences.underline.collectAsState()
@@ -580,9 +593,11 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val highlightInitialChars by preferences.highlightInitialChars.collectAsState()
     val indentFirstLine by preferences.indentFirstLine.collectAsState()
     val trimBlankLines by preferences.trimBlankLines.collectAsState()
+    val linkColor by preferences.linkColor.collectAsState()
 
     return NovelReaderStyle(
         fontSizePx = fontSize,
+        font = font,
         bold = bold,
         italic = italic,
         underline = underline,
@@ -602,6 +617,7 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         highlightInitialChars = highlightInitialChars,
         indentFirstLine = indentFirstLine,
         trimBlankLines = trimBlankLines,
+        linkColor = linkColor,
     )
 }
 
@@ -620,28 +636,6 @@ private const val READING_RULER_ALPHA = 0.18f
 /** The amber the warm filter lays over the page; the intensity supplies its alpha. */
 private const val BLUELIGHT_AMBER = 0x00FF9632
 private const val BLUELIGHT_MAX_ALPHA = 180
-
-/**
- * Minutes left, in the page indicator own outlined style.
- *
- * The shared indicator takes two integers and cannot carry text, so this matches how it looks
- * rather than trying to call it.
- */
-@Composable
-private fun NovelReaderRemainingTime(minutes: Int, modifier: Modifier = Modifier) {
-    val text = stringResource(MR.strings.leaf_novel_reader_minutes_left, minutes)
-    val style = TextStyle(
-        color = Color(235, 235, 235),
-        fontSize = MaterialTheme.typography.bodySmall.fontSize,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 1.sp,
-    )
-
-    Box(contentAlignment = Alignment.Center, modifier = modifier) {
-        Text(text = text, style = style.copy(color = Color(45, 45, 45), drawStyle = Stroke(width = 4f)))
-        Text(text = text, style = style)
-    }
-}
 
 /**
  * Nudges the brightness the image reader own key holds.

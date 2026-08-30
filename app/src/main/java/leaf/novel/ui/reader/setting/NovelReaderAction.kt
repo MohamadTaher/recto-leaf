@@ -25,6 +25,7 @@ enum class NovelReaderAction(val titleRes: StringResource) {
     SHOW_CHAPTERS(MR.strings.chapters),
     BOOK_INFORMATION(MR.strings.leaf_novel_action_book_information),
     DAY_NIGHT_MODE(MR.strings.leaf_novel_reader_day_night_mode),
+    CHANGE_THEME(MR.strings.leaf_novel_action_change_theme),
     SCREEN_ORIENTATION(MR.strings.rotation_type),
     TEXT_SELECTION(MR.strings.leaf_novel_action_text_selection),
     BRIGHTNESS(MR.strings.leaf_novel_action_brightness),

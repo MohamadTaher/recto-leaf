@@ -26,17 +26,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import leaf.novel.ui.reader.setting.NovelLinkColor
 import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
+import leaf.novel.ui.reader.setting.NovelReaderTheme
+import leaf.novel.ui.reader.setting.NovelStatusBarTap
+import leaf.novel.ui.reader.setting.NovelStatusItem
+import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.toggle
@@ -130,6 +138,17 @@ private fun ColumnScope.VisualPage(
         valueRange = NovelReaderPreferences.MIN_FONT_SIZE..NovelReaderPreferences.MAX_FONT_SIZE,
         onChange = { novelReaderPreferences.fontSize.set(it) },
     )
+
+    val font by novelReaderPreferences.font.collectAsState()
+    SettingsChipRow(MR.strings.leaf_novel_reader_font) {
+        NovelReaderFont.entries.map { candidate ->
+            FilterChip(
+                selected = font == candidate,
+                onClick = { novelReaderPreferences.font.set(candidate) },
+                label = { Text(stringResource(candidate.titleRes)) },
+            )
+        }
+    }
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_text_styling)
 
@@ -254,6 +273,36 @@ private fun ColumnScope.VisualPage(
         pref = novelReaderPreferences.highlightInitialChars,
     )
 
+    // The fork's own theme sets a background and a text colour together, which Mihon's key cannot
+    // model. Follow Mihon defers to the row below, so that row stays where it is rather than being
+    // hidden behind this one — it is what the default choice here means.
+    val novelTheme by novelReaderPreferences.theme.collectAsState()
+    SettingsChipRow(MR.strings.leaf_novel_reader_theme) {
+        NovelReaderTheme.entries.map { candidate ->
+            FilterChip(
+                selected = novelTheme == candidate,
+                onClick = { novelReaderPreferences.theme.set(candidate) },
+                label = { Text(stringResource(candidate.titleRes)) },
+            )
+        }
+    }
+
+    // Day/night flips between these two. Left both at Follow Mihon they are the same value and
+    // nothing to flip, which is exactly when the action falls back to Mihon's own key.
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_day_theme),
+        preference = novelReaderPreferences.dayTheme,
+        options = NovelReaderTheme.entries,
+        titleOf = NovelReaderTheme::titleRes,
+    )
+
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_night_theme),
+        preference = novelReaderPreferences.nightTheme,
+        options = NovelReaderTheme.entries,
+        titleOf = NovelReaderTheme::titleRes,
+    )
+
     val readerTheme by readerPreferences.readerTheme.collectAsState()
     SettingsChipRow(MR.strings.pref_reader_theme) {
         themes.map { (labelRes, value) ->
@@ -261,6 +310,25 @@ private fun ColumnScope.VisualPage(
                 selected = readerTheme == value,
                 onClick = { readerPreferences.readerTheme.set(value) },
                 label = { Text(stringResource(labelRes)) },
+            )
+        }
+    }
+
+    // Beside the theme row because both are colour. Each chip wears the colour it selects, so the
+    // row shows what it does without a swatch component of its own; Default has none to wear and
+    // takes the label colour, which is exactly the theme-derived ink it stands for.
+    val linkColor by novelReaderPreferences.linkColor.collectAsState()
+    SettingsChipRow(MR.strings.leaf_novel_reader_link_color) {
+        NovelLinkColor.entries.map { candidate ->
+            FilterChip(
+                selected = linkColor == candidate,
+                onClick = { novelReaderPreferences.linkColor.set(candidate) },
+                label = {
+                    Text(
+                        text = stringResource(candidate.titleRes),
+                        color = candidate.argb?.let(::Color) ?: Color.Unspecified,
+                    )
+                },
             )
         }
     }
@@ -307,19 +375,30 @@ private fun ColumnScope.MiscellaneousPage(
     )
 
     CheckboxItem(
-        label = stringResource(MR.strings.pref_show_page_number),
-        pref = readerPreferences.showPageNumber,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_show_remaining_time),
-        pref = novelReaderPreferences.showRemainingTime,
-    )
-
-    CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_disable_touch_edge),
         pref = novelReaderPreferences.disableTouchEdge,
     )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_status_bar)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_show_status_bar),
+        pref = novelReaderPreferences.showStatusBar,
+    )
+
+    // Only while there is a bar to place them in. Eight rows configuring something switched off is
+    // the same silent-no-op the paging heading has to carry a subtitle to excuse.
+    val showStatusBar by novelReaderPreferences.showStatusBar.collectAsState()
+    if (showStatusBar) {
+        NovelStatusItem.entries.forEach { item ->
+            EnumSelectItem(
+                label = stringResource(item.titleRes),
+                preference = novelReaderPreferences.statusSlots.getValue(item),
+                options = NovelStatusPlacement.entries,
+                titleOf = NovelStatusPlacement::titleRes,
+            )
+        }
+    }
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_typesetting)
 
@@ -451,6 +530,15 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         )
     }
 
+    HeadingItem(MR.strings.leaf_novel_reader_heading_status_bar)
+
+    NovelStatusBarTap.entries.forEach { tap ->
+        ActionSelectItem(
+            label = stringResource(tap.titleRes),
+            preference = novelReaderPreferences.statusTaps.getValue(tap),
+        )
+    }
+
     HeadingItem(MR.strings.leaf_novel_action_auto_scroll)
 
     val autoScrollSpeed by novelReaderPreferences.autoScrollSpeed.collectAsState()
@@ -531,26 +619,43 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
             )
         }
 
-        ActionPicker(
+        EnumPicker(
             expanded = expanded,
             selected = action,
+            options = NovelReaderAction.entries,
+            titleOf = NovelReaderAction::titleRes,
             onDismissRequest = { expanded = false },
             onSelect = preference::set,
         )
     }
 }
 
+/** An action binding, which is what most of these rows are. */
+@Composable
+private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAction>) {
+    EnumSelectItem(label, preference, NovelReaderAction.entries, NovelReaderAction::titleRes)
+}
+
 /**
- * A row naming what is bound, which opens the picker anchored to itself.
+ * A row naming what is chosen, which opens the picker anchored to itself.
  *
  * Deliberately not the shared select row. That one is an `ExposedDropdownMenuBox`, which measures
  * the space it has against the window and throws outright when there is less of it than the menu
  * needs — and a row low in this dialog has exactly that little. The plain dropdown below is a popup
  * that does no such arithmetic, and it is what the grid above already uses.
+ *
+ * Generic over the enum rather than over actions alone: the status bar chooses a placement per item
+ * from the same shape of row, and one row that takes its options is smaller than two that differ
+ * only in their type.
  */
 @Composable
-private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAction>) {
-    val action by preference.collectAsState()
+private fun <T : Enum<T>> EnumSelectItem(
+    label: String,
+    preference: Preference<T>,
+    options: List<T>,
+    titleOf: (T) -> StringResource,
+) {
+    val selected by preference.collectAsState()
     var expanded by remember { mutableStateOf(false) }
 
     Box {
@@ -567,33 +672,37 @@ private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAc
         ) {
             Text(text = label, style = MaterialTheme.typography.bodyMedium)
             Text(
-                text = stringResource(action.titleRes),
+                text = stringResource(titleOf(selected)),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
 
-        ActionPicker(
+        EnumPicker(
             expanded = expanded,
-            selected = action,
+            selected = selected,
+            options = options,
+            titleOf = titleOf,
             onDismissRequest = { expanded = false },
             onSelect = preference::set,
         )
     }
 }
 
-/** The one list of actions, shared by the grid and the rows so the two can never drift apart. */
+/** The one picker, shared by the grid and the rows so the two can never drift apart. */
 @Composable
-private fun ActionPicker(
+private fun <T : Enum<T>> EnumPicker(
     expanded: Boolean,
-    selected: NovelReaderAction,
+    selected: T,
+    options: List<T>,
+    titleOf: (T) -> StringResource,
     onDismissRequest: () -> Unit,
-    onSelect: (NovelReaderAction) -> Unit,
+    onSelect: (T) -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest) {
-        NovelReaderAction.entries.forEach { candidate ->
+        options.forEach { candidate ->
             RadioMenuItem(
-                text = { Text(stringResource(candidate.titleRes)) },
+                text = { Text(stringResource(titleOf(candidate))) },
                 isChecked = candidate == selected,
                 onClick = {
                     onDismissRequest()

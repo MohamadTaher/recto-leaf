@@ -12,7 +12,7 @@ import kotlin.math.abs
  * swipe competes with the primary gesture, which has to be opted into rather than discovered.
  */
 enum class NovelReaderSwipe(val titleRes: StringResource, val default: NovelReaderAction) {
-    RIGHT_TO_LEFT(MR.strings.leaf_novel_swipe_right_to_left, NovelReaderAction.NONE),
+    RIGHT_TO_LEFT(MR.strings.leaf_novel_swipe_right_to_left, NovelReaderAction.CHANGE_THEME),
     LEFT_TO_RIGHT(MR.strings.leaf_novel_swipe_left_to_right, NovelReaderAction.SHOW_CHAPTERS),
     TOP_TO_BOTTOM(MR.strings.leaf_novel_swipe_top_to_bottom, NovelReaderAction.NONE),
     BOTTOM_TO_TOP(MR.strings.leaf_novel_swipe_bottom_to_top, NovelReaderAction.NONE),

@@ -5,6 +5,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import leaf.novel.ui.reader.NovelStatusLine
 
 /**
  * A handle on the WebView showing the current chapter, for the things the reader drives from
@@ -52,6 +53,16 @@ class NovelWebViewController {
 
     /** Whether there is any page left below, so auto scroll can stop at the end of a chapter. */
     val canScrollDown: Boolean get() = webView?.canScrollVertically(1) == true
+
+    /**
+     * Which screenful of the chapter is showing, as the view reports its own scrolling.
+     *
+     * Observable state for the same reason [findMatches] is: only the mini status bar displays it,
+     * and threading a second progress callback down through the screen would be plumbing for one
+     * short label.
+     */
+    var screens: NovelStatusLine.Screens by mutableStateOf(NovelStatusLine.Screens.NONE)
+        internal set
 
     /**
      * Matches from the last search: which one is showing, and how many there are.

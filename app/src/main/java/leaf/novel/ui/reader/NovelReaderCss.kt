@@ -2,6 +2,7 @@ package leaf.novel.ui.reader
 
 import androidx.annotation.ColorInt
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderStyle
 
 /**
@@ -26,11 +27,14 @@ object NovelReaderCss {
     fun document(
         content: NovelChapterContent,
         style: NovelReaderStyle,
-        @ColorInt backgroundColor: Int,
+        colors: NovelReaderColors,
     ): String {
-        val background = backgroundColor.toCssColor()
-        val foreground = foregroundFor(backgroundColor).toCssColor()
-        val muted = foregroundFor(backgroundColor).withAlpha(ACCENT_ALPHA).toCssColor()
+        val background = colors.background.toCssColor()
+        val foreground = colors.foreground.toCssColor()
+        val muted = colors.foreground.withAlpha(ACCENT_ALPHA).toCssColor()
+        // A chosen colour is a fixed one; the default keeps following whatever the theme reads as.
+        val link = style.linkColor.argb?.toCssColor() ?: muted
+        val fontFamily = style.font.cssFamily?.let { "font-family: $it;" }.orEmpty()
 
         val fontSizePx = scaledFontSizePx(style)
         val lineHeight = tenths(
@@ -53,12 +57,13 @@ object NovelReaderCss {
             <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
             ${content.head}
             <style>
-            :root { color-scheme: ${if (isDark(backgroundColor)) "dark" else "light"}; }
+            :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
             html { -webkit-text-size-adjust: 100%; }
             body {
               background: $background !important;
               color: $foreground !important;
               font-size: ${fontSizePx}px;
+              $fontFamily
               font-weight: ${if (style.bold) "bold" else "normal"};
               font-style: ${if (style.italic) "italic" else "normal"};
               text-decoration: ${if (style.underline) "underline" else "none"};
@@ -80,7 +85,7 @@ object NovelReaderCss {
             img, svg, video { max-width: 100%; height: auto; }
             pre, table { overflow-x: auto; display: block; max-width: 100%; }
             hr { border: none; border-top: 1px solid $muted; }
-            a { color: $muted !important; }
+            a { color: $link !important; }
             ::selection { background: $muted; }
             </style>
             </head>

@@ -28,6 +28,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import leaf.novel.ui.reader.NovelStatusLine
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
@@ -187,6 +188,7 @@ fun NovelChapterWebView(
                     controller.findMatches = FindMatches(activeMatchOrdinal, numberOfMatches)
                 }
                 onScroll = { scrollY, range ->
+                    controller.screens = NovelStatusLine.screens(scrollY, range, height)
                     if (restored.value) currentOnProgress(percentOf(scrollY, range, height))
                 }
                 webView = this
@@ -219,6 +221,9 @@ fun NovelChapterWebView(
             view.scrollTo(0, view.scrollTargetOf(initialPercent))
         }
         restored.value = true
+        // onScrollChanged only fires on a change, so a chapter opened at the top would leave the
+        // status bar reading 1/1 until the first drag. Seed it from the settled measurement.
+        controller.screens = NovelStatusLine.screens(view.scrollY, view.verticalScrollRange, view.height)
         // The reload dropped any highlighting, so a search still open is run again over the
         // rebuilt document rather than left showing nothing.
         controller.reapplyFind()

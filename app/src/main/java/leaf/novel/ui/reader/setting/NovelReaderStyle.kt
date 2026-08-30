@@ -20,6 +20,7 @@ package leaf.novel.ui.reader.setting
  */
 data class NovelReaderStyle(
     val fontSizePx: Int,
+    val font: NovelReaderFont,
     val bold: Boolean,
     val italic: Boolean,
     val underline: Boolean,
@@ -39,4 +40,5 @@ data class NovelReaderStyle(
     val highlightInitialChars: Boolean,
     val indentFirstLine: Boolean,
     val trimBlankLines: Boolean,
+    val linkColor: NovelLinkColor,
 )
