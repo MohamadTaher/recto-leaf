@@ -262,6 +262,9 @@ class NovelReaderViewModel(
 
     fun toggleMenu() = mutableState.update { it.copy(menuVisible = !it.menuVisible) }
 
+    /** Forces the chrome up, for an action that needs something anchored to it. */
+    fun showMenu() = mutableState.update { it.copy(menuVisible = true) }
+
     /**
      * Flips the shared reader theme between its black and white values.
      *
