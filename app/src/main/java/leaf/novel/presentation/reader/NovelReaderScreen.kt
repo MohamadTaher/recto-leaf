@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.presentation.reader.ReaderPageIndicator
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -374,19 +377,18 @@ fun NovelReaderScreen(
             percentRead = livePercent,
             onPercentChange = { seekRequests.tryEmit(it) },
             onClickSettings = { settingsTab = it },
-            onToggleDayNight = viewModel::toggleDayNightMode,
-            autoScrolling = state.autoScrolling,
-            readingRuler = readingRuler,
-            onToggleReadingRuler = { viewModel.novelReaderPreferences.readingRuler.toggle() },
-            onShowChapters = { showChapters = true },
-            onOpenEntry = onOpenEntry,
-            onStartSearch = {
-                viewModel.showMenu()
-                viewModel.setSearchQuery("")
-            },
-            onToggleAutoScroll = { viewModel.setAutoScrolling(!state.autoScrolling) },
             additionalOptionsExpanded = additionalOptionsExpanded,
             onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },
+            additionalOptions = { dismiss ->
+                AdditionalOptions(
+                    autoScrolling = state.autoScrolling,
+                    readingRuler = readingRuler,
+                    onSelect = { action ->
+                        dismiss()
+                        performAction(action)
+                    },
+                )
+            },
         )
 
         SnackbarHost(
@@ -661,4 +663,58 @@ private fun adjustFontSize(preferences: NovelReaderPreferences, steps: Int) {
             NovelReaderPreferences.MAX_FONT_SIZE,
         )
     }
+}
+
+/**
+ * The items in the additional options menu.
+ *
+ * Each runs an action the tap grid, a key or a swipe could equally be bound to, so a menu entry and
+ * a binding reach the same effect down the same path rather than down two that have to agree.
+ */
+@Composable
+private fun ColumnScope.AdditionalOptions(
+    autoScrolling: Boolean,
+    readingRuler: Boolean,
+    onSelect: (NovelReaderAction) -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(stringResource(MR.strings.chapters)) },
+        onClick = { onSelect(NovelReaderAction.SHOW_CHAPTERS) },
+    )
+
+    DropdownMenuItem(
+        text = { Text(stringResource(MR.strings.leaf_novel_action_book_information)) },
+        onClick = { onSelect(NovelReaderAction.BOOK_INFORMATION) },
+    )
+
+    DropdownMenuItem(
+        text = { Text(stringResource(MR.strings.action_search)) },
+        onClick = { onSelect(NovelReaderAction.SEARCH) },
+    )
+
+    RadioMenuItem(
+        text = { Text(stringResource(MR.strings.leaf_novel_reader_reading_ruler)) },
+        isChecked = readingRuler,
+        onClick = { onSelect(NovelReaderAction.READING_RULER) },
+    )
+
+    DropdownMenuItem(
+        text = {
+            Text(
+                stringResource(
+                    if (autoScrolling) {
+                        MR.strings.leaf_novel_action_stop_auto_scroll
+                    } else {
+                        MR.strings.leaf_novel_action_auto_scroll
+                    },
+                ),
+            )
+        },
+        onClick = { onSelect(NovelReaderAction.AUTO_SCROLL) },
+    )
+
+    DropdownMenuItem(
+        text = { Text(stringResource(MR.strings.leaf_novel_reader_day_night_mode)) },
+        onClick = { onSelect(NovelReaderAction.DAY_NIGHT_MODE) },
+    )
 }
