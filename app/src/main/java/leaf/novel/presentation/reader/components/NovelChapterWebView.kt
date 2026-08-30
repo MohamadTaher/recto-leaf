@@ -2,6 +2,7 @@ package leaf.novel.presentation.reader.components
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.view.ActionMode
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -25,19 +26,28 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
+import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelTapGrid
 import kotlin.math.roundToInt
 
 /**
- * A WebView that reports its own scroll position and exposes its scroll range.
+ * A WebView that reports its own scroll position, exposes its scroll range, and knows when text is
+ * selected.
  *
- * `computeVerticalScrollRange` is protected on `View`, and the restore logic needs it to turn a
- * stored percent back into a pixel offset, so the subclass exists purely to widen those two.
+ * `computeVerticalScrollRange` is protected on `View` and the restore logic needs it to turn a
+ * stored percent back into a pixel offset. Selection state has no accessor at all, and a bound
+ * swipe has to stay out of the way of a reader dragging a selection handle, so the subclass widens
+ * both.
  */
 @SuppressLint("ViewConstructor")
 private class NovelWebView(context: Context) : WebView(context) {
 
     var onScroll: ((scrollY: Int, range: Int) -> Unit)? = null
+
+    private var selectionMode: ActionMode? = null
+
+    /** Selection runs in an action mode, which is the only signal the view offers that it is on. */
+    val isSelecting: Boolean get() = selectionMode != null
 
     val verticalScrollRange: Int get() = computeVerticalScrollRange()
 
@@ -47,6 +57,22 @@ private class NovelWebView(context: Context) : WebView(context) {
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
         onScroll?.invoke(t, computeVerticalScrollRange())
+    }
+
+    override fun startActionMode(callback: ActionMode.Callback?, type: Int): ActionMode? {
+        val mode = super.startActionMode(callback?.let(::TrackedCallback), type)
+        selectionMode = mode
+        return mode
+    }
+
+    /** Delegates all of it but the end, which is the part that clears [isSelecting]. */
+    private inner class TrackedCallback(
+        private val delegate: ActionMode.Callback,
+    ) : ActionMode.Callback by delegate {
+        override fun onDestroyActionMode(mode: ActionMode) {
+            selectionMode = null
+            delegate.onDestroyActionMode(mode)
+        }
     }
 }
 
@@ -78,6 +104,7 @@ fun NovelChapterWebView(
     onProgress: (Int) -> Unit,
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
+    onSwipe: (NovelReaderSwipe) -> Boolean,
     onInternalLink: (String) -> Unit,
     onExternalLink: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -92,6 +119,7 @@ fun NovelChapterWebView(
     val currentOnProgress by rememberUpdatedState(onProgress)
     val currentOnTapCell by rememberUpdatedState(onTapCell)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
+    val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentOnInternalLink by rememberUpdatedState(onInternalLink)
     val currentOnExternalLink by rememberUpdatedState(onExternalLink)
 
@@ -109,6 +137,7 @@ fun NovelChapterWebView(
                 attachTapDetector(
                     onTapCell = { currentOnTapCell(it) },
                     onLongPress = { currentOnLongPress() },
+                    onSwipe = { currentOnSwipe(it) },
                 )
                 controller.attach(this)
                 onScroll = { scrollY, range ->
@@ -207,21 +236,31 @@ private fun WebView.configure(backgroundColor: Int) {
 }
 
 @SuppressLint("ClickableViewAccessibility")
-private fun WebView.attachTapDetector(onTapCell: (Int) -> Unit, onLongPress: () -> Boolean) {
+private fun NovelWebView.attachTapDetector(
+    onTapCell: (Int) -> Unit,
+    onLongPress: () -> Boolean,
+    onSwipe: (NovelReaderSwipe) -> Boolean,
+) {
     val detector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                onTapCell(NovelTapGrid.cellOf(e.x, e.y, this@attachTapDetector.width, this@attachTapDetector.height))
+                onTapCell(NovelTapGrid.cellOf(e.x, e.y, width, height))
                 return false
+            }
+
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                // A selection handle being dragged across the page is a fling like any other, so
+                // selection wins outright while it is up.
+                if (e1 == null || isSelecting) return false
+                val swipe = NovelReaderSwipe.of(e2.x - e1.x, e2.y - e1.y) ?: return false
+                return onSwipe(swipe)
             }
         },
     )
-    // Returning false leaves the WebView's own scrolling untouched.
-    setOnTouchListener { _, event ->
-        detector.onTouchEvent(event)
-        false
-    }
+    // Only a claimed swipe is consumed. Everything else reports false and leaves the WebView to
+    // scroll exactly as it did before, which is why an unbound direction costs nothing.
+    setOnTouchListener { _, event -> detector.onTouchEvent(event) }
     // Consuming the long click is what suppresses the WebView's own text selection, so a binding
     // that means "leave selection alone" reports false and lets the default behaviour run.
     setOnLongClickListener { onLongPress() }

@@ -91,6 +91,12 @@ class NovelReaderPreferences(
             preferenceStore.getEnum("leaf_novel_key_${key.name.lowercase()}", key.default)
         }
 
+    /** One binding per swipe direction. All start unbound; see [NovelReaderSwipe]. */
+    val swipes: Map<NovelReaderSwipe, Preference<NovelReaderAction>> =
+        NovelReaderSwipe.entries.associateWith { swipe ->
+            preferenceStore.getEnum("leaf_novel_swipe_${swipe.name.lowercase()}", NovelReaderAction.NONE)
+        }
+
     // endregion
 
     companion object {

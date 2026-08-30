@@ -32,6 +32,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
+import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelTapGrid
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
@@ -306,6 +307,19 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         val boundAction by preference.collectAsState()
         SelectItem(
             label = stringResource(key.titleRes),
+            options = titles,
+            selectedIndex = boundAction.ordinal,
+            onSelect = { preference.set(NovelReaderAction.entries[it]) },
+        )
+    }
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_gestures)
+
+    NovelReaderSwipe.entries.forEach { swipe ->
+        val preference = novelReaderPreferences.swipes.getValue(swipe)
+        val boundAction by preference.collectAsState()
+        SelectItem(
+            label = stringResource(swipe.titleRes),
             options = titles,
             selectedIndex = boundAction.ordinal,
             onSelect = { preference.set(NovelReaderAction.entries[it]) },
