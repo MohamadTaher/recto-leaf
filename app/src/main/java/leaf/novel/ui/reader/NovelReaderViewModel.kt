@@ -278,6 +278,7 @@ class NovelReaderViewModel(
         // Auto scroll does not carry across a chapter boundary.
         // Neither auto scroll nor a search carries across a chapter boundary.
         stopSpeaking()
+        stopSpeedReading()
         mutableState.update { it.copy(currentIndex = index, autoScrolling = false, searchQuery = null) }
     }
 
@@ -307,7 +308,7 @@ class NovelReaderViewModel(
     /** Auto scroll and speech both move the page; starting either has to stop the other. */
     fun setAutoScrolling(enabled: Boolean) {
         if (enabled) stopSpeaking()
-        mutableState.update { it.copy(autoScrolling = enabled) }
+        mutableState.update { it.copy(autoScrolling = enabled, speedReading = it.speedReading && !enabled) }
     }
 
     // region Speech
@@ -343,6 +344,7 @@ class NovelReaderViewModel(
         val utterances = NovelSpeech.utterances(html, novelReaderPreferences.speechDivision.get())
         if (utterances.isEmpty()) return
 
+        stopSpeedReading()
         val engine = speaker ?: NovelSpeaker(context).also { created ->
             speaker = created
             // Mirrored into the reader's own state so the screen has one thing to collect, and so
@@ -366,6 +368,60 @@ class NovelReaderViewModel(
 
     fun stopSpeaking() {
         speaker?.stop()
+    }
+
+    // endregion
+
+    // region Speed reading
+
+    private var speedReadPhrases: List<String> = emptyList()
+
+    /**
+     * Starts or stops showing the chapter a phrase at a time, from where the reader is now.
+     *
+     * The phrases come from the same walk of the markup the remaining-time estimate uses, so
+     * entering the mode costs one parse and no fetch. Auto scroll and speech both stop: three
+     * things moving the page at once is not a mode.
+     */
+    fun toggleSpeedReading(percentRead: Int) {
+        if (state.value.speedReading) {
+            stopSpeedReading()
+            return
+        }
+
+        val html = currentHtml ?: return
+        val chunk = novelReaderPreferences.speedReadChunk.get()
+            .coerceIn(NovelReaderPreferences.SPEED_READ_CHUNK_RANGE)
+        val phrases = NovelReadingTime.words(html)
+            .chunked(chunk) { words -> words.joinToString(" ") }
+        if (phrases.isEmpty()) return
+
+        stopSpeaking()
+        speedReadPhrases = phrases
+        // Picking up where the page is, rather than at the top: the mode is for reading on, not
+        // for starting the chapter again.
+        val from = (phrases.size * percentRead.coerceIn(0, 100) / 100).coerceIn(0, phrases.lastIndex)
+        mutableState.update {
+            it.copy(autoScrolling = false, speedReading = true, speedReadIndex = from)
+        }
+    }
+
+    /** Steps to the next phrase, stopping at the end of the chapter. */
+    fun advanceSpeedReading() = mutableState.update {
+        val next = it.speedReadIndex + 1
+        if (next >= speedReadPhrases.size) it.copy(speedReading = false) else it.copy(speedReadIndex = next)
+    }
+
+    fun stopSpeedReading() = mutableState.update { it.copy(speedReading = false) }
+
+    /** What is on the overlay now, or null when the mode is off. */
+    val speedReadPhrase: String?
+        get() = if (state.value.speedReading) speedReadPhrases.getOrNull(state.value.speedReadIndex) else null
+
+    /** How far through the chapter the mode has reached, so the page beneath keeps up. */
+    fun speedReadFraction(): Float {
+        val size = speedReadPhrases.size
+        return if (size <= 0) 0f else (state.value.speedReadIndex.toFloat() / size).coerceIn(0f, 1f)
     }
 
     // endregion
@@ -531,6 +587,8 @@ class NovelReaderViewModel(
         val speaking: Boolean = false,
         /** How far through the chapter speech has reached, for the page to follow. */
         val speechFraction: Float = 0f,
+        val speedReading: Boolean = false,
+        val speedReadIndex: Int = 0,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }

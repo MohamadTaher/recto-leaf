@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.RadioMenuItem
@@ -70,6 +71,7 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
+import tachiyomi.presentation.core.util.clickableNoIndication
 import tachiyomi.presentation.core.util.collectAsState
 import java.time.LocalTime
 import kotlin.math.roundToInt
@@ -116,6 +118,17 @@ fun NovelReaderScreen(
     var openImage by remember { mutableStateOf<String?>(null) }
     val webViewController = remember { NovelWebViewController() }
 
+    val chapter = state.currentChapter
+
+    // Where the reader currently is, seeded from the stored position and updated as it scrolls.
+    // Changing font size or theme rebuilds the document, and the reload restores from *this* rather
+    // than from the database, so adjusting type size does not throw the reader back to where it was
+    // when the chapter opened. It sits this high up because the chapter slider both displays it and
+    // drives it, and the action dispatcher below starts speed reading from it.
+    var livePercent by remember(chapter?.id) {
+        mutableIntStateOf(chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0)
+    }
+
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
         when (action) {
@@ -136,6 +149,7 @@ fun NovelReaderScreen(
             NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
             NovelReaderAction.PUBLISHER_FORMATTING -> publisherFormatting = !publisherFormatting
             NovelReaderAction.SPEAK -> viewModel.toggleSpeaking()
+            NovelReaderAction.SPEED_READ -> viewModel.toggleSpeedReading(livePercent)
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
             NovelReaderAction.TEXT_SELECTION -> Unit
@@ -285,16 +299,6 @@ fun NovelReaderScreen(
         }
     }
 
-    val chapter = state.currentChapter
-
-    // Where the reader currently is, seeded from the stored position and updated as it scrolls.
-    // Changing font size or theme rebuilds the document, and the reload restores from *this* rather
-    // than from the database, so adjusting type size does not throw the reader back to where it was
-    // when the chapter opened. It sits this high up because the chapter slider both displays it and
-    // drives it.
-    var livePercent by remember(chapter?.id) {
-        mutableIntStateOf(chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0)
-    }
     val seekRequests = remember {
         MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     }
@@ -304,6 +308,22 @@ fun NovelReaderScreen(
     // WebView where a paragraph actually is without JavaScript, and it runs none.
     LaunchedEffect(state.speaking, state.speechFraction) {
         if (state.speaking) seekRequests.tryEmit((state.speechFraction * 100).roundToInt())
+    }
+
+    // The same shape as auto scroll: one tick, one step. The page follows underneath so that
+    // leaving the mode leaves the reader at the phrase they stopped on rather than where they
+    // started, which is what makes the position it records honest.
+    val speedReadWpm by viewModel.novelReaderPreferences.speedReadWpm.collectAsState()
+    val speedReadChunk by viewModel.novelReaderPreferences.speedReadChunk.collectAsState()
+    LaunchedEffect(state.speedReading, speedReadWpm, speedReadChunk) {
+        if (!state.speedReading) return@LaunchedEffect
+
+        val perPhrase = MILLIS_PER_MINUTE * speedReadChunk / speedReadWpm.coerceAtLeast(1)
+        while (true) {
+            delay(perPhrase.toLong())
+            viewModel.advanceSpeedReading()
+            seekRequests.tryEmit((viewModel.speedReadFraction() * 100).roundToInt())
+        }
     }
 
     Box(
@@ -383,6 +403,27 @@ fun NovelReaderScreen(
             readerPreferences = viewModel.readerPreferences,
         )
 
+        // Over the page rather than rewriting it, so leaving the mode puts the chapter back
+        // untouched. Any tap leaves: a mode that takes the whole screen has to be escapable
+        // without remembering how it was entered.
+        viewModel.speedReadPhrase?.let { phrase ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(colors.background))
+                    .clickableNoIndication { viewModel.stopSpeedReading() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = phrase,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color(colors.foreground),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = MaterialTheme.padding.large),
+                )
+            }
+        }
+
         // Decoration only. It takes no pointer input, so scrolling, tapping and long-press
         // selection all carry on underneath the band.
         if (readingRuler) {
@@ -422,6 +463,7 @@ fun NovelReaderScreen(
                     publisherPreview = publisherPreview,
                     publisherFormatting = publisherFormatting,
                     speaking = state.speaking,
+                    speedReading = state.speedReading,
                     onSelect = { action ->
                         dismiss()
                         performAction(action)
@@ -678,6 +720,9 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     )
 }
 
+/** Speed reading counts phrases a minute, where the timer counts milliseconds. */
+private const val MILLIS_PER_MINUTE = 60_000
+
 /** One frame, so the creep is smooth rather than a series of visible jumps. */
 private const val AUTO_SCROLL_TICK_MS = 16L
 
@@ -729,6 +774,7 @@ private fun ColumnScope.AdditionalOptions(
     publisherPreview: Boolean,
     publisherFormatting: Boolean,
     speaking: Boolean,
+    speedReading: Boolean,
     onSelect: (NovelReaderAction) -> Unit,
 ) {
     DropdownMenuItem(
@@ -765,6 +811,21 @@ private fun ColumnScope.AdditionalOptions(
             )
         },
         onClick = { onSelect(NovelReaderAction.SPEAK) },
+    )
+
+    DropdownMenuItem(
+        text = {
+            Text(
+                stringResource(
+                    if (speedReading) {
+                        MR.strings.leaf_novel_action_stop_speed_read
+                    } else {
+                        MR.strings.leaf_novel_action_speed_read
+                    },
+                ),
+            )
+        },
+        onClick = { onSelect(NovelReaderAction.SPEED_READ) },
     )
 
     DropdownMenuItem(

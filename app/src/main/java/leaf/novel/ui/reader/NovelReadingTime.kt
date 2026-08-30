@@ -24,8 +24,16 @@ object NovelReadingTime {
      * Counted from the markup the reader already holds — the chapter is not fetched or loaded again
      * to work this out, only read a second time.
      */
-    fun wordsIn(html: String): Int =
-        Jsoup.parse(html).text().split(WHITESPACE).count { it.isNotBlank() }
+    fun wordsIn(html: String): Int = words(html).size
+
+    /**
+     * The chapter's words in reading order.
+     *
+     * Speed reading shows them one or two at a time and the estimate above counts them, so both
+     * come from the one walk of the markup rather than each doing their own.
+     */
+    fun words(html: String): List<String> =
+        Jsoup.parse(html).text().split(WHITESPACE).filter { it.isNotBlank() }
 
     /**
      * Minutes left, from the chapter's length and how far through it the reader has scrolled.

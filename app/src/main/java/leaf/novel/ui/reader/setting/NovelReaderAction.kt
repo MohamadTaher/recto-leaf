@@ -28,6 +28,7 @@ enum class NovelReaderAction(val titleRes: StringResource) {
     CHANGE_THEME(MR.strings.leaf_novel_action_change_theme),
     PUBLISHER_FORMATTING(MR.strings.leaf_novel_action_publisher_formatting),
     SPEAK(MR.strings.leaf_novel_action_speak),
+    SPEED_READ(MR.strings.leaf_novel_action_speed_read),
     SCREEN_ORIENTATION(MR.strings.rotation_type),
     TEXT_SELECTION(MR.strings.leaf_novel_action_text_selection),
     BRIGHTNESS(MR.strings.leaf_novel_action_brightness),
