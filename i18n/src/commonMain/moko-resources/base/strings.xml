@@ -1190,7 +1190,7 @@
     <string name="leaf_novel_reader_reminder_at">Remind me at (HH:mm)</string>
     <string name="leaf_novel_reader_reminder_message">Time to rest your eyes</string>
     <string name="leaf_novel_reader_heading_paging">Paging</string>
-    <string name="leaf_novel_reader_paging_subtitle">Stored now; these take effect once paged reading exists.</string>
+    <string name="leaf_novel_reader_paged">Paged reading</string>
     <string name="leaf_novel_reader_keep_one_line">Keep one line when paging</string>
     <string name="leaf_novel_reader_trim_top_blank_lines">Trim blank lines at the top of a page</string>
     <string name="leaf_novel_reader_tilt_to_turn">Allow tilt device to turn page</string>

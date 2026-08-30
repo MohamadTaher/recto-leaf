@@ -23,22 +23,30 @@ class NovelWebViewController {
     private var webView: WebView? = null
     private var activeQuery: String? = null
 
-    internal fun attach(view: WebView) {
+    /**
+     * Moving by whole screenfuls, which the view supplies because only it knows which axis the
+     * chapter is laid out on and how much of a line to leave behind.
+     */
+    private var turner: ((pages: Int) -> Unit)? = null
+
+    internal fun attach(view: WebView, turnPages: (pages: Int) -> Unit) {
         webView = view
+        turner = turnPages
     }
 
     internal fun detach() {
         webView = null
+        turner = null
     }
 
-    /** Scrolls back by one viewport, animated, as the page-up key would. */
+    /** Back one page, which in a paged chapter is one column and otherwise one viewport. */
     fun pageUp() {
-        webView?.pageUp(false)
+        turner?.invoke(-1)
     }
 
-    /** Scrolls on by one viewport. */
+    /** On one page. */
     fun pageDown() {
-        webView?.pageDown(false)
+        turner?.invoke(1)
     }
 
     /**

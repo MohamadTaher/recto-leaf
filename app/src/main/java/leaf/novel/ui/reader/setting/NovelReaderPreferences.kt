@@ -243,12 +243,13 @@ class NovelReaderPreferences(
     // region Paging
 
     /**
-     * Settings a paged reader would honour, stored ahead of one existing.
+     * Lays the chapter out in columns a viewport wide rather than one long scroll.
      *
-     * Nothing reads them yet, deliberately: an unused write is honest, where a read that discards
-     * what it finds only looks wired. Pagination is what turns them on, and the settings screen
-     * says as much beside them.
+     * Off by default: the reader has scrolled for seventeen stages and should not start paging
+     * without being asked. Every preference below configures this one and is inert while it is off.
      */
+    val paged: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_paged", false)
+
     val keepOneLineWhenPaging: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_keep_one_line_when_paging", false)
 

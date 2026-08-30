@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -48,6 +49,7 @@ import leaf.novel.presentation.reader.components.NovelChapterWebView
 import leaf.novel.presentation.reader.components.NovelImageDialog
 import leaf.novel.presentation.reader.components.NovelStatusBar
 import leaf.novel.presentation.reader.components.NovelStatusBarHeight
+import leaf.novel.presentation.reader.components.NovelTiltPageTurns
 import leaf.novel.presentation.reader.components.NovelWebViewController
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsDialog
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
@@ -276,6 +278,30 @@ fun NovelReaderScreen(
     val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
     val tapImageToOpen by viewModel.novelReaderPreferences.tapImageToOpen.collectAsState()
 
+    // The paging settings stage 17 stored and left inert. Every one of them reads as off while
+    // paged mode is off, so continuous reading behaves exactly as it did before this stage.
+    val paged by viewModel.novelReaderPreferences.paged.collectAsState()
+    val keepOneLine by viewModel.novelReaderPreferences.keepOneLineWhenPaging.collectAsState()
+    val pageTurnSound by viewModel.novelReaderPreferences.pageTurnSound.collectAsState()
+    val disableVerticalScroll by viewModel.novelReaderPreferences.disableVerticalScroll.collectAsState()
+    val flingToTurnPage by viewModel.novelReaderPreferences.flingHorizontallyToTurnPage.collectAsState()
+    val tiltToTurnPage by viewModel.novelReaderPreferences.tiltToTurnPage.collectAsState()
+
+    // One line of the page, in pixels, for the page turn to leave behind. The stylesheet's own
+    // arithmetic, done here because only the view can turn it into a scroll distance.
+    val density = LocalDensity.current.density
+    val pageOverlapPx = if (keepOneLine) {
+        (NovelReaderCss.lineHeightDp(style) * density).roundToInt()
+    } else {
+        0
+    }
+
+    // A tilt is a page turn only while paged mode and the setting are both on, so the sensor is
+    // registered on exactly that condition and torn down with it.
+    NovelTiltPageTurns(enabled = paged && tiltToTurnPage) { forward ->
+        if (forward) webViewController.pageDown() else webViewController.pageUp()
+    }
+
     // A short tick with a fractional step, carried between ticks, so even the slowest speed creeps
     // instead of jumping a whole pixel at a time. Scrolling through the view keeps progress
     // recording, because it reports position from the same callback a finger drives.
@@ -359,6 +385,11 @@ fun NovelReaderScreen(
                         seekRequests = seekRequests,
                         controller = webViewController,
                         ignoreEdgeTaps = disableTouchEdge,
+                        paged = paged,
+                        pageOverlapPx = pageOverlapPx,
+                        pageTurnSound = pageTurnSound,
+                        blockVerticalScroll = disableVerticalScroll,
+                        flingTurnsPage = flingToTurnPage,
                         tapImageEnabled = tapImageToOpen,
                         onImageTap = { openImage = it },
                         pinchEnabled = pinchFontSize,
@@ -521,6 +552,11 @@ private fun ChapterContent(
     seekRequests: Flow<Int>,
     controller: NovelWebViewController,
     ignoreEdgeTaps: Boolean,
+    paged: Boolean,
+    pageOverlapPx: Int,
+    pageTurnSound: Boolean,
+    blockVerticalScroll: Boolean,
+    flingTurnsPage: Boolean,
     tapImageEnabled: Boolean,
     onImageTap: (String) -> Unit,
     pinchEnabled: Boolean,
@@ -572,6 +608,11 @@ private fun ChapterContent(
                 },
                 controller = controller,
                 ignoreEdgeTaps = ignoreEdgeTaps,
+                paged = paged,
+                pageOverlapPx = pageOverlapPx,
+                pageTurnSound = pageTurnSound,
+                blockVerticalScroll = blockVerticalScroll,
+                flingTurnsPage = flingTurnsPage,
                 tapImageEnabled = tapImageEnabled,
                 onImageTap = onImageTap,
                 pinchEnabled = pinchEnabled,
@@ -686,6 +727,8 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val printPageNumbers by preferences.printPageNumbers.collectAsState()
     val imageSize by preferences.imageSize.collectAsState()
     val centerImages by preferences.centerImages.collectAsState()
+    val paged by preferences.paged.collectAsState()
+    val dualPageLayout by preferences.dualPageLayout.collectAsState()
 
     return NovelReaderStyle(
         fontSizePx = fontSize,
@@ -717,6 +760,8 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         printPageNumbers = printPageNumbers,
         imageSize = imageSize,
         centerImages = centerImages,
+        paged = paged,
+        dualPageLayout = dualPageLayout,
     )
 }
 
