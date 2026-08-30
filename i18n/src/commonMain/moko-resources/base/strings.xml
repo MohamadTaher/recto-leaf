@@ -1135,6 +1135,11 @@
     <string name="leaf_novel_action_stop_auto_scroll">Stop auto scroll</string>
     <string name="leaf_novel_reader_autoscroll_speed">Speed</string>
     <string name="leaf_novel_reader_reading_ruler">Reading ruler</string>
+    <string name="leaf_novel_reader_heading_screen">Screen and interface</string>
+    <string name="leaf_novel_reader_show_notification_bar">Show system notification bar</string>
+    <string name="leaf_novel_reader_show_remaining_time">Show reading remaining time</string>
+    <string name="leaf_novel_reader_disable_touch_edge">Disable touch screen edge</string>
+    <string name="leaf_novel_reader_minutes_left">%1$d min left</string>
     <string name="leaf_novel_reader_find_previous">Previous match</string>
     <string name="leaf_novel_reader_find_next">Next match</string>
     <string name="leaf_novel_reader_heading_focused_reading">Focused reading</string>

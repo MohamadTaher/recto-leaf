@@ -236,8 +236,16 @@ class NovelReaderViewModel(
     /** Loads one chapter's body. The reader never touches [leaf.novel.data.epub.NovelEpubReader] itself. */
     suspend fun chapterContent(chapter: Chapter): Result<NovelChapterContent> {
         val contentProvider = provider ?: return Result.failure(IllegalStateException("Reader closed"))
-        return runCatching { contentProvider.content(chapter) }
+        val result = runCatching { contentProvider.content(chapter) }
             .onFailure { logcat(LogPriority.WARN, it) { "Could not load chapter ${chapter.url}" } }
+
+        // Counted once per chapter for the remaining-time estimate, and off the main thread: a
+        // long chapter is a lot of markup to walk.
+        result.getOrNull()?.let { content ->
+            val words = withIOContext { NovelReadingTime.wordsIn(content.html) }
+            mutableState.update { it.copy(chapterWords = words) }
+        }
+        return result
     }
 
     fun assetServer(): NovelEpubAssetServer? = provider?.let(::NovelEpubAssetServer)
@@ -413,6 +421,7 @@ class NovelReaderViewModel(
         val brightnessOverlayValue: Int = 0,
         val autoScrolling: Boolean = false,
         val searchQuery: String? = null,
+        val chapterWords: Int = 0,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }

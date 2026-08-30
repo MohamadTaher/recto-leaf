@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test
 
 private const val WIDTH = 300
 private const val HEIGHT = 600
+private const val MARGIN = 24f
 
 /**
  * The only arithmetic in the tap handling, and the only part of it that can be wrong quietly: a
@@ -46,5 +47,18 @@ class NovelTapGridTest {
     @Test
     fun `falls back to the centre before the view has been measured`() {
         NovelTapGrid.cellOf(10f, 10f, width = 0, height = 0) shouldBe NovelTapGrid.CENTRE
+    }
+
+    @Test
+    fun `calls a tap near any of the four edges an edge tap`() {
+        NovelTapGrid.isNearEdge(5f, 300f, WIDTH, HEIGHT, MARGIN) shouldBe true
+        NovelTapGrid.isNearEdge(295f, 300f, WIDTH, HEIGHT, MARGIN) shouldBe true
+        NovelTapGrid.isNearEdge(150f, 5f, WIDTH, HEIGHT, MARGIN) shouldBe true
+        NovelTapGrid.isNearEdge(150f, 595f, WIDTH, HEIGHT, MARGIN) shouldBe true
+    }
+
+    @Test
+    fun `leaves a tap in the body of the page alone`() {
+        NovelTapGrid.isNearEdge(150f, 300f, WIDTH, HEIGHT, MARGIN) shouldBe false
     }
 }

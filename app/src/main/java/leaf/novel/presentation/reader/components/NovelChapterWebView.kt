@@ -134,6 +134,7 @@ fun NovelChapterWebView(
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
+    ignoreEdgeTaps: Boolean,
     onInternalLink: (String) -> Unit,
     onExternalLink: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -149,6 +150,7 @@ fun NovelChapterWebView(
     val currentOnTapCell by rememberUpdatedState(onTapCell)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnSwipe by rememberUpdatedState(onSwipe)
+    val currentIgnoreEdgeTaps by rememberUpdatedState(ignoreEdgeTaps)
     val currentOnInternalLink by rememberUpdatedState(onInternalLink)
     val currentOnExternalLink by rememberUpdatedState(onExternalLink)
 
@@ -167,6 +169,7 @@ fun NovelChapterWebView(
                     onTapCell = { currentOnTapCell(it) },
                     onLongPress = { currentOnLongPress() },
                     onSwipe = { currentOnSwipe(it) },
+                    ignoreEdgeTaps = { currentIgnoreEdgeTaps },
                 )
                 controller.attach(this)
                 setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
@@ -273,12 +276,20 @@ private fun NovelWebView.attachTapDetector(
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
+    ignoreEdgeTaps: () -> Boolean,
 ) {
-    val minSwipeDistancePx = NovelReaderSwipe.MIN_DISTANCE_DP * resources.displayMetrics.density
+    val density = resources.displayMetrics.density
+    val minSwipeDistancePx = NovelReaderSwipe.MIN_DISTANCE_DP * density
+    val edgeMarginPx = NovelTapGrid.EDGE_MARGIN_DP * density
     val detector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                // An edge tap on a gesture-navigation phone is as likely to have been a missed
+                // swipe, so a reader who asks for them to be ignored gets them ignored.
+                if (ignoreEdgeTaps() && NovelTapGrid.isNearEdge(e.x, e.y, width, height, edgeMarginPx)) {
+                    return false
+                }
                 onTapCell(NovelTapGrid.cellOf(e.x, e.y, width, height))
                 return false
             }

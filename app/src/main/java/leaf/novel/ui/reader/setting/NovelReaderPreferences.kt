@@ -81,6 +81,16 @@ class NovelReaderPreferences(
     val highlightInitialChars: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_highlight_initial_chars", false)
 
+    // region Screen and UI
+
+    val disableTouchEdge: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_disable_touch_edge", false)
+
+    val showRemainingTime: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_show_remaining_time", false)
+
+    // endregion
+
     // endregion
 
     // endregion

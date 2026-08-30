@@ -1,7 +1,9 @@
 package leaf.novel.presentation.reader
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,9 +26,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.presentation.reader.ReaderPageIndicator
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -44,6 +50,7 @@ import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
+import leaf.novel.ui.reader.NovelReadingTime
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderStyle
@@ -140,6 +147,8 @@ fun NovelReaderScreen(
 
     val autoScrollSpeed by viewModel.novelReaderPreferences.autoScrollSpeed.collectAsState()
     val readingRuler by viewModel.novelReaderPreferences.readingRuler.collectAsState()
+    val showRemainingTime by viewModel.novelReaderPreferences.showRemainingTime.collectAsState()
+    val disableTouchEdge by viewModel.novelReaderPreferences.disableTouchEdge.collectAsState()
 
     // A short tick with a fractional step, carried between ticks, so even the slowest speed creeps
     // instead of jumping a whole pixel at a time. Scrolling through the view keeps progress
@@ -206,6 +215,7 @@ fun NovelReaderScreen(
                         onPercentChange = { livePercent = it },
                         seekRequests = seekRequests,
                         controller = webViewController,
+                        ignoreEdgeTaps = disableTouchEdge,
                         onTapCell = { performAction(tapActions[it]) },
                         onSwipe = { swipe ->
                             val bound = viewModel.novelReaderPreferences.swipes.getValue(swipe).get()
@@ -232,14 +242,27 @@ fun NovelReaderScreen(
 
         // Where in the *book* the reader is. The slider below says where in the chapter, so the two
         // never say the same thing twice.
-        if (!state.menuVisible && showPageNumber) {
-            ReaderPageIndicator(
-                currentPage = state.currentIndex + 1,
-                totalPages = state.chapters.size,
+        if (!state.menuVisible && (showPageNumber || showRemainingTime)) {
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding(),
-            )
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showPageNumber) {
+                    ReaderPageIndicator(
+                        currentPage = state.currentIndex + 1,
+                        totalPages = state.chapters.size,
+                    )
+                }
+
+                if (showRemainingTime && state.chapterWords > 0) {
+                    NovelReaderRemainingTime(
+                        minutes = NovelReadingTime.minutesRemaining(state.chapterWords, livePercent),
+                    )
+                }
+            }
         }
 
         ContentOverlay(state = state, readerPreferences = viewModel.readerPreferences)
@@ -319,6 +342,7 @@ private fun ChapterContent(
     onPercentChange: (Int) -> Unit,
     seekRequests: Flow<Int>,
     controller: NovelWebViewController,
+    ignoreEdgeTaps: Boolean,
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
@@ -364,6 +388,7 @@ private fun ChapterContent(
                     viewModel.reportProgress(chapter.id, it)
                 },
                 controller = controller,
+                ignoreEdgeTaps = ignoreEdgeTaps,
                 onTapCell = onTapCell,
                 onLongPress = onLongPress,
                 onSwipe = onSwipe,
@@ -478,3 +503,25 @@ private val READING_RULER_HEIGHT = 28.dp
 
 /** Visible as a band without washing out the words it sits behind. */
 private const val READING_RULER_ALPHA = 0.18f
+
+/**
+ * Minutes left, in the page indicator own outlined style.
+ *
+ * The shared indicator takes two integers and cannot carry text, so this matches how it looks
+ * rather than trying to call it.
+ */
+@Composable
+private fun NovelReaderRemainingTime(minutes: Int, modifier: Modifier = Modifier) {
+    val text = stringResource(MR.strings.leaf_novel_reader_minutes_left, minutes)
+    val style = TextStyle(
+        color = Color(235, 235, 235),
+        fontSize = MaterialTheme.typography.bodySmall.fontSize,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.sp,
+    )
+
+    Box(contentAlignment = Alignment.Center, modifier = modifier) {
+        Text(text = text, style = style.copy(color = Color(45, 45, 45), drawStyle = Stroke(width = 4f)))
+        Text(text = text, style = style)
+    }
+}
