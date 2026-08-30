@@ -51,9 +51,7 @@ object NovelReaderCss {
             if (style.centerImages) " display: block; margin-left: auto; margin-right: auto;" else ""
 
         val fontSizePx = scaledFontSizePx(style)
-        val lineHeight = tenths(
-            (LINE_HEIGHT_BASE_TENTHS + style.lineSpacing).coerceAtLeast(MIN_LINE_HEIGHT_TENTHS),
-        )
+        val lineHeight = tenths(lineHeightTenths(style))
         val letterSpacing = hundredths(style.fontSpacing)
         val paragraphSpacing = hundredths(style.paragraphSpacing)
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
@@ -74,7 +72,8 @@ object NovelReaderCss {
             $bookHead
             <style>
             :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
-            html { -webkit-text-size-adjust: 100%; }
+            html { -webkit-text-size-adjust: 100%; ${if (style.paged) PAGED_HTML else ""} }
+            ${if (style.paged) pagedBody(style) else ""}
             body {
               background: $background !important;
               color: $foreground !important;
@@ -122,6 +121,37 @@ object NovelReaderCss {
     }
 
     /**
+     * The rules that turn one long scroll into a row of pages.
+     *
+     * CSS multi-column, with a column exactly a viewport wide, so the browser does the pagination
+     * and the reader only has to scroll sideways by whole viewports. No JavaScript, which is the
+     * constraint every feature in this reader has been held to — and no layout engine of our own,
+     * which is the reason this was left until last rather than done by measuring text.
+     *
+     * The gutter between pages is the two side margins added together, because the body's own
+     * padding applies once around the whole strip rather than once per page — so it gives the
+     * first page its left margin and the last its right, and the gap gives every other page both.
+     *
+     * Emitted before the main `body` rule so that rule still owns the padding and the colours; this
+     * one sets only what it does not.
+     */
+    private fun pagedBody(style: NovelReaderStyle): String {
+        val columns = if (style.dualPageLayout) DUAL_COLUMNS else SINGLE_COLUMN
+        return """
+            body {
+              height: 100vh;
+              column-count: $columns;
+              column-gap: ${style.marginLeft + style.marginRight}px;
+              column-fill: auto;
+              overflow: hidden;
+            }
+            /* A heading or an image split across a column boundary is the characteristic defect. */
+            h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+            img, svg, video, pre, table { break-inside: avoid; }
+        """.trimIndent()
+    }
+
+    /**
      * The chapter as its publisher laid it out, for the preview.
      *
      * The book's own head is kept whatever the CSS setting says — that is the whole point — and the
@@ -155,6 +185,18 @@ object NovelReaderCss {
     @ColorInt
     fun foregroundFor(@ColorInt backgroundColor: Int): Int =
         if (isDark(backgroundColor)) READER_TEXT_ON_DARK else READER_TEXT_ON_LIGHT
+
+    /**
+     * One line of the page, in CSS pixels — which the viewport meta tag makes equal to dp.
+     *
+     * Public because a page turn that keeps a line has to know how tall a line is, and the
+     * stylesheet is the one place that decides.
+     */
+    fun lineHeightDp(style: NovelReaderStyle): Int =
+        scaledFontSizePx(style) * lineHeightTenths(style) / 10
+
+    private fun lineHeightTenths(style: NovelReaderStyle): Int =
+        (LINE_HEIGHT_BASE_TENTHS + style.lineSpacing).coerceAtLeast(MIN_LINE_HEIGHT_TENTHS)
 
     fun isDark(@ColorInt color: Int): Boolean {
         val luminance = 0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
@@ -199,6 +241,12 @@ object NovelReaderCss {
 
     private fun Int.toCssColor(): String =
         "rgba(${red()}, ${green()}, ${blue()}, ${alpha() / 255f})"
+
+    /** Paged mode owns the viewport outright: the strip of columns scrolls, the page does not. */
+    private const val PAGED_HTML = "height: 100%; overflow: hidden;"
+
+    private const val SINGLE_COLUMN = 1
+    private const val DUAL_COLUMNS = 2
 
     /** The usual novel indent: enough to see, not enough to notice. */
     private const val FIRST_LINE_INDENT_EM = "1.2"

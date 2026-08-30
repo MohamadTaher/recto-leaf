@@ -567,14 +567,15 @@ private fun ColumnScope.MiscellaneousPage(
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_paging)
 
-    // Saying so is not optional: a setting that silently does nothing is a bug report waiting.
-    Text(
-        text = stringResource(MR.strings.leaf_novel_reader_paging_subtitle),
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier
-            .padding(horizontal = SettingsItemsPaddings.Horizontal)
-            .secondaryItemAlpha(),
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_paged),
+        pref = novelReaderPreferences.paged,
     )
+
+    // The rest configure the mode above, so they are only worth showing once it is on. Stage 17's
+    // "stored now, takes effect later" subtitle is gone with them: it is no longer true.
+    val paged by novelReaderPreferences.paged.collectAsState()
+    if (!paged) return
 
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_keep_one_line),

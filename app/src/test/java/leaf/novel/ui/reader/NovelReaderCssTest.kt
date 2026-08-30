@@ -46,6 +46,8 @@ private fun style(
     printPageNumbers: Boolean = false,
     imageSize: NovelImageSize = NovelImageSize.FIT_WIDTH,
     centerImages: Boolean = true,
+    paged: Boolean = false,
+    dualPageLayout: Boolean = false,
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
     font = font,
@@ -76,6 +78,8 @@ private fun style(
     printPageNumbers = printPageNumbers,
     imageSize = imageSize,
     centerImages = centerImages,
+    paged = paged,
+    dualPageLayout = dualPageLayout,
 )
 
 /**

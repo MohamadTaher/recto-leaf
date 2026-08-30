@@ -48,4 +48,6 @@ data class NovelReaderStyle(
     val printPageNumbers: Boolean,
     val imageSize: NovelImageSize,
     val centerImages: Boolean,
+    val paged: Boolean,
+    val dualPageLayout: Boolean,
 )
