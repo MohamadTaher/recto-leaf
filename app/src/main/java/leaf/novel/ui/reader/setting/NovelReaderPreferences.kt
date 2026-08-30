@@ -101,6 +101,27 @@ class NovelReaderPreferences(
     val nightTheme: Preference<NovelReaderTheme> =
         preferenceStore.getEnum("leaf_novel_night_theme", NovelReaderTheme.FOLLOW_MIHON)
 
+    /**
+     * The reader's own colours, one entry per [NovelReaderTheme] custom slot.
+     *
+     * A fixed count rather than a growable list: three preferences a slot and no serialization,
+     * where a list would need a format, an escape for the names in it, and a migration the first
+     * time a field was added.
+     */
+    val customThemes: List<NovelCustomTheme> = List(NovelReaderTheme.CUSTOM_SLOTS) { slot ->
+        NovelCustomTheme(
+            name = preferenceStore.getString("leaf_novel_custom_theme_${slot + 1}_name", ""),
+            background = preferenceStore.getInt(
+                "leaf_novel_custom_theme_${slot + 1}_background",
+                NovelCustomTheme.UNSET,
+            ),
+            foreground = preferenceStore.getInt(
+                "leaf_novel_custom_theme_${slot + 1}_foreground",
+                NovelCustomTheme.UNSET,
+            ),
+        )
+    }
+
     // region Focused reading
 
     val readingRuler: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_reading_ruler", false)
