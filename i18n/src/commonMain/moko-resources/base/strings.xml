@@ -1182,6 +1182,16 @@
     <string name="leaf_novel_reader_heading_typesetting">Typesetting</string>
     <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
     <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>
+    <string name="leaf_novel_reader_heading_replacements">Find and replace</string>
+    <string name="leaf_novel_reader_replacements_subtitle">Applied to every chapter before it is shown, in order.</string>
+    <string name="leaf_novel_reader_add_replacement">Add a rule</string>
+    <string name="leaf_novel_reader_replacement_summary">%1$s → %2$s</string>
+    <string name="leaf_novel_reader_replacement_title">Name</string>
+    <string name="leaf_novel_reader_replacement_find">Find</string>
+    <string name="leaf_novel_reader_replacement_replace">Replace with</string>
+    <string name="leaf_novel_reader_replacement_regex">Regular expression</string>
+    <string name="leaf_novel_reader_replacement_case">Case sensitive</string>
+    <string name="leaf_novel_reader_replacement_whole_word">Whole word only</string>
     <string name="leaf_novel_reader_heading_format">Format specific (EPUB)</string>
     <string name="leaf_novel_reader_format_subtitle">Print page numbers appear only in books that carry them.</string>
     <string name="leaf_novel_reader_disable_book_css">Disable CSS styles</string>

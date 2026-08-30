@@ -802,6 +802,7 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val indentFirstLine by preferences.indentFirstLine.collectAsState()
     val trimBlankLines by preferences.trimBlankLines.collectAsState()
     val trimTopBlankLines by preferences.trimTopBlankLines.collectAsState()
+    val textReplacements by preferences.textReplacements.collectAsState()
     val linkColor by preferences.linkColor.collectAsState()
     val noteColor by preferences.noteColor.collectAsState()
     val disableBookCss by preferences.disableBookCss.collectAsState()
@@ -836,6 +837,7 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         indentFirstLine = indentFirstLine,
         trimBlankLines = trimBlankLines,
         trimTopBlankLines = trimTopBlankLines,
+        textReplacements = textReplacements,
         linkColor = linkColor,
         noteColor = noteColor,
         disableBookCss = disableBookCss,

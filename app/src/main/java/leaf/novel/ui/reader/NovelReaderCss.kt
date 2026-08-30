@@ -58,6 +58,9 @@ object NovelReaderCss {
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
         val firstLineIndent = if (style.indentFirstLine) FIRST_LINE_INDENT_EM else NO_INDENT_EM
         val chapterHtml = content.html
+            // First, so a rule matches what the book said rather than what the aids below have
+            // since made of it.
+            .let { NovelTextReplacements.apply(it, style.textReplacements) }
             // Trimming the top of a page is the same pass as trimming the chapter — a column break
             // cannot be targeted separately — so the paged setting turns on the one that exists
             // rather than a second doing identical work.

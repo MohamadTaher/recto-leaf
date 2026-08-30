@@ -49,6 +49,7 @@ private fun style(
     paged: Boolean = false,
     dualPageLayout: Boolean = false,
     trimTopBlankLines: Boolean = false,
+    textReplacements: String = "",
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
     font = font,
@@ -82,6 +83,7 @@ private fun style(
     paged = paged,
     dualPageLayout = dualPageLayout,
     trimTopBlankLines = trimTopBlankLines,
+    textReplacements = textReplacements,
 )
 
 /**

@@ -161,6 +161,15 @@ class NovelReaderPreferences(
     val trimBlankLines: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_trim_blank_lines", false)
 
+    /**
+     * Find-and-replace rules, as a JSON list.
+     *
+     * One preference rather than a fixed set of slots, because how many rules a book needs is the
+     * reader's business — unlike the custom themes, where three was more than anyone wanted.
+     */
+    val textReplacements: Preference<String> =
+        preferenceStore.getString("leaf_novel_text_replacements", "")
+
     // region Format specific
 
     /**
