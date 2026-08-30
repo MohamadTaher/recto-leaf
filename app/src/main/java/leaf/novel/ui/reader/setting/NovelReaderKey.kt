@@ -8,7 +8,7 @@ import tachiyomi.i18n.MR
  * The keys a reader can bind an action to, with what each starts out doing.
  *
  * The defaults are the imported Moon+ configuration, with anything bound to a feature that does not
- * exist yet demoted to [NovelReaderAction.NONE] — the search key and the three speech bindings.
+ * exist yet demoted to [NovelReaderAction.NONE] — the three speech bindings, until there is speech.
  *
  * The image reader has its own volume-key preferences and this deliberately does not read them.
  * Per-key bindings are a superset of that pair, and writing them would change how manga reads.
@@ -22,7 +22,7 @@ enum class NovelReaderKey(
     VOLUME_DOWN(KeyEvent.KEYCODE_VOLUME_DOWN, MR.strings.leaf_novel_key_volume_down, NovelReaderAction.NONE),
     BACK(KeyEvent.KEYCODE_BACK, MR.strings.leaf_novel_key_back, NovelReaderAction.NONE),
     MENU(KeyEvent.KEYCODE_MENU, MR.strings.leaf_novel_key_menu, NovelReaderAction.NONE),
-    SEARCH(KeyEvent.KEYCODE_SEARCH, MR.strings.leaf_novel_key_search, NovelReaderAction.NONE),
+    SEARCH(KeyEvent.KEYCODE_SEARCH, MR.strings.leaf_novel_key_search, NovelReaderAction.SEARCH),
     CAMERA(KeyEvent.KEYCODE_CAMERA, MR.strings.leaf_novel_key_camera, NovelReaderAction.PAGE_UP),
     DPAD_UP(KeyEvent.KEYCODE_DPAD_UP, MR.strings.leaf_novel_key_dpad_up, NovelReaderAction.NONE),
     DPAD_DOWN(KeyEvent.KEYCODE_DPAD_DOWN, MR.strings.leaf_novel_key_dpad_down, NovelReaderAction.NONE),
