@@ -325,6 +325,16 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
             onSelect = { preference.set(NovelReaderAction.entries[it]) },
         )
     }
+
+    HeadingItem(MR.strings.leaf_novel_action_auto_scroll)
+
+    val autoScrollSpeed by novelReaderPreferences.autoScrollSpeed.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_autoscroll_speed),
+        value = autoScrollSpeed,
+        valueRange = NovelReaderPreferences.AUTO_SCROLL_SPEED_RANGE,
+        onChange = { novelReaderPreferences.autoScrollSpeed.set(it) },
+    )
 }
 
 /**

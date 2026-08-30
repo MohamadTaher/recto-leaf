@@ -85,6 +85,9 @@ class NovelReaderPreferences(
     val longTap: Preference<NovelReaderAction> =
         preferenceStore.getEnum("leaf_novel_long_tap", NovelReaderAction.TEXT_SELECTION)
 
+    /** How fast auto scroll creeps, in steps of six pixels a second. */
+    val autoScrollSpeed: Preference<Int> = preferenceStore.getInt("leaf_novel_autoscroll_speed", 5)
+
     /** One binding per key, defaulted from [NovelReaderKey]. */
     val keys: Map<NovelReaderKey, Preference<NovelReaderAction>> =
         NovelReaderKey.entries.associateWith { key ->
@@ -109,6 +112,7 @@ class NovelReaderPreferences(
         val FONT_SPACING_RANGE = -4..20
         val FONT_SCALE_RANGE = -4..20
         val MARGIN_RANGE = 0..200
+        val AUTO_SCROLL_SPEED_RANGE = 1..20
     }
 }
 

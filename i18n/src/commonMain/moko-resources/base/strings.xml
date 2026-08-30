@@ -1130,6 +1130,9 @@
     <string name="leaf_novel_action_page_down">Page down</string>
     <string name="leaf_novel_action_text_selection">Text selection</string>
     <string name="leaf_novel_action_brightness">Brightness</string>
+    <string name="leaf_novel_action_auto_scroll">Auto scroll</string>
+    <string name="leaf_novel_action_stop_auto_scroll">Stop auto scroll</string>
+    <string name="leaf_novel_reader_autoscroll_speed">Speed</string>
     <string name="leaf_novel_reader_font_size">Font size</string>
     <string name="leaf_novel_reader_heading_text_styling">Text styling</string>
     <string name="leaf_novel_reader_bold">Bold</string>

@@ -249,7 +249,8 @@ class NovelReaderViewModel(
         viewModelScope.launchNonCancellable { flushProgress() }
         restoredChapterId = chapter.id
         restartReadTimer()
-        mutableState.update { it.copy(currentIndex = index) }
+        // Auto scroll does not carry across a chapter boundary.
+        mutableState.update { it.copy(currentIndex = index, autoScrolling = false) }
     }
 
     /**
@@ -263,10 +264,19 @@ class NovelReaderViewModel(
         if (index >= 0) setCurrentChapter(index)
     }
 
-    fun toggleMenu() = mutableState.update { it.copy(menuVisible = !it.menuVisible) }
+    /**
+     * Auto scroll stops whenever the chrome comes up. A page still creeping behind an open
+     * settings dialog is the obvious way for this to go wrong.
+     */
+    fun toggleMenu() = mutableState.update {
+        val visible = !it.menuVisible
+        it.copy(menuVisible = visible, autoScrolling = it.autoScrolling && !visible)
+    }
 
     /** Forces the chrome up, for an action that needs something anchored to it. */
-    fun showMenu() = mutableState.update { it.copy(menuVisible = true) }
+    fun showMenu() = mutableState.update { it.copy(menuVisible = true, autoScrolling = false) }
+
+    fun setAutoScrolling(enabled: Boolean) = mutableState.update { it.copy(autoScrolling = enabled) }
 
     /**
      * Actions raised outside the composition — from the key handler — for the screen to perform.
@@ -386,6 +396,7 @@ class NovelReaderViewModel(
         val menuVisible: Boolean = false,
         val error: NovelReaderError? = null,
         val brightnessOverlayValue: Int = 0,
+        val autoScrolling: Boolean = false,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }
