@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import eu.kanade.presentation.components.DropdownMenu
@@ -38,7 +40,6 @@ import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.HeadingItem
-import tachiyomi.presentation.core.components.SelectItem
 import tachiyomi.presentation.core.components.SettingsChipRow
 import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
@@ -303,38 +304,26 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
 
     TapZoneGrid(novelReaderPreferences.tapZones)
 
-    val longTap by novelReaderPreferences.longTap.collectAsState()
-    SelectItem(
+    ActionSelectItem(
         label = stringResource(MR.strings.leaf_novel_reader_long_tap),
-        options = actionTitles(),
-        selectedIndex = longTap.ordinal,
-        onSelect = { novelReaderPreferences.longTap.set(NovelReaderAction.entries[it]) },
+        preference = novelReaderPreferences.longTap,
     )
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_keys)
 
-    val titles = actionTitles()
     NovelReaderKey.entries.forEach { key ->
-        val preference = novelReaderPreferences.keys.getValue(key)
-        val boundAction by preference.collectAsState()
-        SelectItem(
+        ActionSelectItem(
             label = stringResource(key.titleRes),
-            options = titles,
-            selectedIndex = boundAction.ordinal,
-            onSelect = { preference.set(NovelReaderAction.entries[it]) },
+            preference = novelReaderPreferences.keys.getValue(key),
         )
     }
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_gestures)
 
     NovelReaderSwipe.entries.forEach { swipe ->
-        val preference = novelReaderPreferences.swipes.getValue(swipe)
-        val boundAction by preference.collectAsState()
-        SelectItem(
+        ActionSelectItem(
             label = stringResource(swipe.titleRes),
-            options = titles,
-            selectedIndex = boundAction.ordinal,
-            onSelect = { preference.set(NovelReaderAction.entries[it]) },
+            preference = novelReaderPreferences.swipes.getValue(swipe),
         )
     }
 
@@ -401,22 +390,75 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
             )
         }
 
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            NovelReaderAction.entries.forEach { candidate ->
-                RadioMenuItem(
-                    text = { Text(stringResource(candidate.titleRes)) },
-                    isChecked = candidate == action,
-                    onClick = {
-                        expanded = false
-                        preference.set(candidate)
-                    },
-                )
-            }
-        }
+        ActionPicker(
+            expanded = expanded,
+            selected = action,
+            onDismissRequest = { expanded = false },
+            onSelect = preference::set,
+        )
     }
 }
 
-/** [SelectItem] renders what it is given with toString, so the titles have to be resolved first. */
+/**
+ * A row naming what is bound, which opens the picker anchored to itself.
+ *
+ * Deliberately not the shared select row. That one is an `ExposedDropdownMenuBox`, which measures
+ * the space it has against the window and throws outright when there is less of it than the menu
+ * needs — and a row low in this dialog has exactly that little. The plain dropdown below is a popup
+ * that does no such arithmetic, and it is what the grid above already uses.
+ */
 @Composable
-private fun actionTitles(): Array<String> =
-    NovelReaderAction.entries.map { stringResource(it.titleRes) }.toTypedArray()
+private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAction>) {
+    val action by preference.collectAsState()
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        Row(
+            modifier = Modifier
+                .clickable { expanded = true }
+                .fillMaxWidth()
+                .padding(
+                    horizontal = SettingsItemsPaddings.Horizontal,
+                    vertical = SettingsItemsPaddings.Vertical,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(text = label, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = stringResource(action.titleRes),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        ActionPicker(
+            expanded = expanded,
+            selected = action,
+            onDismissRequest = { expanded = false },
+            onSelect = preference::set,
+        )
+    }
+}
+
+/** The one list of actions, shared by the grid and the rows so the two can never drift apart. */
+@Composable
+private fun ActionPicker(
+    expanded: Boolean,
+    selected: NovelReaderAction,
+    onDismissRequest: () -> Unit,
+    onSelect: (NovelReaderAction) -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest) {
+        NovelReaderAction.entries.forEach { candidate ->
+            RadioMenuItem(
+                text = { Text(stringResource(candidate.titleRes)) },
+                isChecked = candidate == selected,
+                onClick = {
+                    onDismissRequest()
+                    onSelect(candidate)
+                },
+            )
+        }
+    }
+}
