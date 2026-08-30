@@ -235,8 +235,8 @@ fun NovelChapterWebView(
                 controller.attach(this) { pages ->
                     turnPage(pages, currentPageOverlapPx, currentPageTurnSound)
                 }
-                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
-                    controller.findMatches = FindMatches(activeMatchOrdinal, numberOfMatches)
+                setFindListener { activeMatchOrdinal, numberOfMatches, doneCounting ->
+                    controller.onFindResult(activeMatchOrdinal, numberOfMatches, doneCounting)
                 }
                 onScroll = { offset, range ->
                     controller.screens = NovelStatusLine.screens(offset, range, viewportExtent)

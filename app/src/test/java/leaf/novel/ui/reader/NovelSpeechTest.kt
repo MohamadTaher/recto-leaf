@@ -2,6 +2,7 @@ package leaf.novel.ui.reader
 
 import io.kotest.matchers.shouldBe
 import leaf.novel.ui.reader.setting.NovelSpeechDivision
+import leaf.novel.ui.reader.setting.NovelTextReplacement
 import org.junit.jupiter.api.Test
 
 /**
@@ -72,29 +73,41 @@ class NovelSpeechTest {
         NovelSpeech.utterances(html, NovelSpeechDivision.SENTENCE) shouldBe listOf("A chapter heading")
     }
 
+    @Test
+    fun `text replacement rules can filter what is spoken`() {
+        val rules = NovelTextReplacements.encode(
+            listOf(NovelTextReplacement(pattern = "Translator note", replacement = "")),
+        )
+        val html = NovelTextReplacements.apply("<p>Read me.</p><p>Translator note</p>", rules)
+
+        NovelSpeech.utterances(html, NovelSpeechDivision.PARAGRAPH) shouldBe listOf("Read me.")
+    }
+
     // region Position
 
     @Test
-    fun `is at the start before anything has been said`() {
-        NovelSpeech.fractionAt(0, listOf("aaaa", "bbbb")) shouldBe 0f
-    }
-
-    /** Weighted by length, not by count: a short line of dialogue is not half the chapter. */
-    @Test
-    fun `weights an utterance by how much text is behind it`() {
+    fun `starts speaking at the visible weighted position`() {
         val utterances = listOf("aaaaaaaaa", "b")
 
-        NovelSpeech.fractionAt(1, utterances) shouldBe 0.9f
+        NovelSpeech.indexAt(0.5f, utterances) shouldBe 0
+        NovelSpeech.indexAt(0.95f, utterances) shouldBe 1
     }
 
     @Test
-    fun `has nothing to report for an empty chapter`() {
-        NovelSpeech.fractionAt(3, emptyList()) shouldBe 0f
+    fun `clamps a visible position to the chapter`() {
+        val utterances = listOf("one", "two")
+
+        NovelSpeech.indexAt(-1f, utterances) shouldBe 0
+        NovelSpeech.indexAt(2f, utterances) shouldBe 1
+        NovelSpeech.indexAt(0.5f, emptyList()) shouldBe 0
     }
 
     @Test
-    fun `clamps an index past the end`() {
-        NovelSpeech.fractionAt(99, listOf("aaaa", "bbbb")) shouldBe 1f
+    fun `identifies the matching repeated utterance`() {
+        val utterances = listOf("Again.", "Different.", "Again.")
+
+        NovelSpeech.occurrenceAt(0, utterances) shouldBe 0
+        NovelSpeech.occurrenceAt(2, utterances) shouldBe 1
     }
 
     // endregion

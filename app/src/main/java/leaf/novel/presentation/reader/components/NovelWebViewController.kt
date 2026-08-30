@@ -22,6 +22,8 @@ class NovelWebViewController {
 
     private var webView: WebView? = null
     private var activeQuery: String? = null
+    private var speechHighlight: SpeechHighlight? = null
+    private var speechMatchesToAdvance = 0
 
     /**
      * Moving by whole screenfuls, which the view supplies because only it knows which axis the
@@ -87,6 +89,8 @@ class NovelWebViewController {
      * so it works with JavaScript off — the reason the reader can keep it off at all.
      */
     fun find(query: String) {
+        speechHighlight = null
+        speechMatchesToAdvance = 0
         activeQuery = query
         webView?.findAllAsync(query)
     }
@@ -99,8 +103,37 @@ class NovelWebViewController {
     /** Drops the highlighting. A stale highlight outliving its search is the bug to avoid here. */
     fun clearFind() {
         activeQuery = null
-        webView?.clearMatches()
         findMatches = FindMatches.NONE
+        if (speechHighlight == null) webView?.clearMatches()
+    }
+
+    /** Highlights and follows one spoken unit with WebView's native, script-free text search. */
+    fun highlightSpeech(text: String, occurrence: Int) {
+        val highlight = SpeechHighlight(text, occurrence.coerceAtLeast(0))
+        if (speechHighlight == highlight) return
+        speechHighlight = highlight
+        activeQuery = null
+        findMatches = FindMatches.NONE
+        applySpeechHighlight(highlight)
+    }
+
+    fun clearSpeechHighlight() {
+        speechHighlight = null
+        speechMatchesToAdvance = 0
+        webView?.clearMatches()
+        activeQuery?.let { webView?.findAllAsync(it) }
+    }
+
+    /** Routes WebView's one find callback to either chapter search or speech highlighting. */
+    internal fun onFindResult(activeMatchOrdinal: Int, numberOfMatches: Int, doneCounting: Boolean) {
+        if (speechHighlight != null) {
+            if (doneCounting && numberOfMatches > 0 && speechMatchesToAdvance > 0) {
+                speechMatchesToAdvance--
+                webView?.findNext(true)
+            }
+            return
+        }
+        findMatches = FindMatches(activeMatchOrdinal, numberOfMatches)
     }
 
     /**
@@ -112,8 +145,15 @@ class NovelWebViewController {
      */
     internal fun reapplyFind() {
         findMatches = FindMatches.NONE
-        activeQuery?.let { webView?.findAllAsync(it) }
+        speechHighlight?.let(::applySpeechHighlight) ?: activeQuery?.let { webView?.findAllAsync(it) }
     }
+
+    private fun applySpeechHighlight(highlight: SpeechHighlight) {
+        speechMatchesToAdvance = highlight.occurrence
+        webView?.findAllAsync(highlight.text)
+    }
+
+    private data class SpeechHighlight(val text: String, val occurrence: Int)
 }
 
 /** How many matches a search found and which of them is showing, both as the view reports them. */
