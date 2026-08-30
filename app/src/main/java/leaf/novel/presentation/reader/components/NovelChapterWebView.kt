@@ -138,6 +138,8 @@ fun NovelChapterWebView(
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
     ignoreEdgeTaps: Boolean,
+    tapImageEnabled: Boolean,
+    onImageTap: (String) -> Unit,
     pinchEnabled: Boolean,
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
@@ -157,6 +159,8 @@ fun NovelChapterWebView(
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentIgnoreEdgeTaps by rememberUpdatedState(ignoreEdgeTaps)
+    val currentTapImageEnabled by rememberUpdatedState(tapImageEnabled)
+    val currentOnImageTap by rememberUpdatedState(onImageTap)
     val currentPinchEnabled by rememberUpdatedState(pinchEnabled)
     val currentOnPinch by rememberUpdatedState(onPinch)
     val currentOnEdgeDrag by rememberUpdatedState(onEdgeDrag)
@@ -179,6 +183,8 @@ fun NovelChapterWebView(
                     onLongPress = { currentOnLongPress() },
                     onSwipe = { currentOnSwipe(it) },
                     ignoreEdgeTaps = { currentIgnoreEdgeTaps },
+                    tapImageEnabled = { currentTapImageEnabled },
+                    onImageTap = { currentOnImageTap(it) },
                     pinchEnabled = { currentPinchEnabled },
                     onPinch = { currentOnPinch(it) },
                     onEdgeDrag = { edge, steps -> currentOnEdgeDrag(edge, steps) },
@@ -296,6 +302,8 @@ private fun NovelWebView.attachTapDetector(
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
     ignoreEdgeTaps: () -> Boolean,
+    tapImageEnabled: () -> Boolean,
+    onImageTap: (String) -> Unit,
     pinchEnabled: () -> Boolean,
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
@@ -319,6 +327,18 @@ private fun NovelWebView.attachTapDetector(
             }
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                // The hit test reports whatever the last touch landed on, so an illustration can
+                // claim its own tap before the grid underneath is ever consulted.
+                if (tapImageEnabled()) {
+                    val hit = hitTestResult
+                    val onImage = hit.type == WebView.HitTestResult.IMAGE_TYPE ||
+                        hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
+                    if (onImage) {
+                        hit.extra?.let(onImageTap)
+                        return false
+                    }
+                }
+
                 // An edge tap on a gesture-navigation phone is as likely to have been a missed
                 // swipe, so a reader who asks for them to be ignored gets them ignored.
                 if (ignoreEdgeTaps() && NovelTapGrid.isNearEdge(e.x, e.y, width, height, edgeMarginPx)) {

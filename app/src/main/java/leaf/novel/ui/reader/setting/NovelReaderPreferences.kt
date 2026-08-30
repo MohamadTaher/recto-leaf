@@ -190,6 +190,17 @@ class NovelReaderPreferences(
     val noteColor: Preference<NovelLinkColor> =
         preferenceStore.getEnum("leaf_novel_note_color", NovelLinkColor.DEFAULT)
 
+    // region Images
+
+    val imageSize: Preference<NovelImageSize> =
+        preferenceStore.getEnum("leaf_novel_image_size", NovelImageSize.FIT_WIDTH)
+
+    val centerImages: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_center_images", true)
+
+    val tapImageToOpen: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_tap_image_to_open", true)
+
     // region Eye care
 
     val bluelight: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_bluelight", false)
@@ -243,6 +254,8 @@ class NovelReaderPreferences(
 
     val pageTurnSound: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_page_turn_sound", false)
+
+    // endregion
 
     // endregion
 

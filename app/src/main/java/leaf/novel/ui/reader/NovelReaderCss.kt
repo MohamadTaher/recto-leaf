@@ -46,6 +46,9 @@ object NovelReaderCss {
             ?.let { "font-family: $it !important;" }
             .orEmpty()
         val bookHead = if (style.disableBookCss) "" else content.head
+        // Centring is a block-level trick, so it has to be part of the same rule as the sizing.
+        val imageRules = style.imageSize.css +
+            if (style.centerImages) " display: block; margin-left: auto; margin-right: auto;" else ""
 
         val fontSizePx = scaledFontSizePx(style)
         val lineHeight = tenths(
@@ -95,7 +98,7 @@ object NovelReaderCss {
             body * { color: $foreground !important; background-color: transparent !important; }
             p { margin: 0 0 ${paragraphSpacing}em; text-indent: ${firstLineIndent}em; }
             h1, h2, h3, h4, h5, h6 { text-align: start; line-height: 1.3; }
-            img, svg, video { max-width: 100%; height: auto; }
+            img, svg, video { $imageRules }
             pre, table { overflow-x: auto; display: block; max-width: 100%; }
             hr { border: none; border-top: 1px solid $muted; }
             a { color: $link !important; }
