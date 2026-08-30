@@ -33,14 +33,14 @@ enum class NovelReaderKey(
         MR.strings.leaf_novel_key_dpad_center,
         NovelReaderAction.OPTIONS_MENU,
     ),
-    HEADSET_PLAY(KeyEvent.KEYCODE_HEADSETHOOK, MR.strings.leaf_novel_key_headset_play, NovelReaderAction.NONE),
-    MEDIA_NEXT(KeyEvent.KEYCODE_MEDIA_NEXT, MR.strings.leaf_novel_key_media_next, NovelReaderAction.NONE),
+    HEADSET_PLAY(KeyEvent.KEYCODE_HEADSETHOOK, MR.strings.leaf_novel_key_headset_play, NovelReaderAction.SPEAK),
+    MEDIA_NEXT(KeyEvent.KEYCODE_MEDIA_NEXT, MR.strings.leaf_novel_key_media_next, NovelReaderAction.SPEAK),
     MEDIA_PREVIOUS(
         KeyEvent.KEYCODE_MEDIA_PREVIOUS,
         MR.strings.leaf_novel_key_media_previous,
         NovelReaderAction.PAGE_UP,
     ),
-    MEDIA_PAUSE(KeyEvent.KEYCODE_MEDIA_PAUSE, MR.strings.leaf_novel_key_media_pause, NovelReaderAction.NONE),
+    MEDIA_PAUSE(KeyEvent.KEYCODE_MEDIA_PAUSE, MR.strings.leaf_novel_key_media_pause, NovelReaderAction.SPEAK),
     ;
 
     companion object {

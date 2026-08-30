@@ -135,6 +135,7 @@ fun NovelReaderScreen(
             NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
             NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
             NovelReaderAction.PUBLISHER_FORMATTING -> publisherFormatting = !publisherFormatting
+            NovelReaderAction.SPEAK -> viewModel.toggleSpeaking()
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
             NovelReaderAction.TEXT_SELECTION -> Unit
@@ -298,6 +299,13 @@ fun NovelReaderScreen(
         MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     }
 
+    // Speech scrolls the page to keep what it is saying on screen. The position is estimated from
+    // how much of the chapter's text sits behind the current utterance — the reader cannot ask the
+    // WebView where a paragraph actually is without JavaScript, and it runs none.
+    LaunchedEffect(state.speaking, state.speechFraction) {
+        if (state.speaking) seekRequests.tryEmit((state.speechFraction * 100).roundToInt())
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -413,6 +421,7 @@ fun NovelReaderScreen(
                     readingRuler = readingRuler,
                     publisherPreview = publisherPreview,
                     publisherFormatting = publisherFormatting,
+                    speaking = state.speaking,
                     onSelect = { action ->
                         dismiss()
                         performAction(action)
@@ -719,6 +728,7 @@ private fun ColumnScope.AdditionalOptions(
     readingRuler: Boolean,
     publisherPreview: Boolean,
     publisherFormatting: Boolean,
+    speaking: Boolean,
     onSelect: (NovelReaderAction) -> Unit,
 ) {
     DropdownMenuItem(
@@ -740,6 +750,21 @@ private fun ColumnScope.AdditionalOptions(
         text = { Text(stringResource(MR.strings.leaf_novel_reader_reading_ruler)) },
         isChecked = readingRuler,
         onClick = { onSelect(NovelReaderAction.READING_RULER) },
+    )
+
+    DropdownMenuItem(
+        text = {
+            Text(
+                stringResource(
+                    if (speaking) {
+                        MR.strings.leaf_novel_action_stop_speaking
+                    } else {
+                        MR.strings.leaf_novel_action_speak
+                    },
+                ),
+            )
+        },
+        onClick = { onSelect(NovelReaderAction.SPEAK) },
     )
 
     DropdownMenuItem(

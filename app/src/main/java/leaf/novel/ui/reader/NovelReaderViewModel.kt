@@ -162,6 +162,7 @@ class NovelReaderViewModel(
     }
 
     override fun onCleared() {
+        speaker?.shutdown()
         runCatching { provider?.close() }
         provider = null
     }
@@ -241,8 +242,10 @@ class NovelReaderViewModel(
             .onFailure { logcat(LogPriority.WARN, it) { "Could not load chapter ${chapter.url}" } }
 
         // Counted once per chapter for the remaining-time estimate, and off the main thread: a
-        // long chapter is a lot of markup to walk.
+        // long chapter is a lot of markup to walk. The markup itself is kept so speech can be cut
+        // from it without fetching the chapter a second time.
         result.getOrNull()?.let { content ->
+            currentHtml = content.html
             val words = withIOContext { NovelReadingTime.wordsIn(content.html) }
             mutableState.update { it.copy(chapterWords = words) }
         }
@@ -274,6 +277,7 @@ class NovelReaderViewModel(
         restartReadTimer()
         // Auto scroll does not carry across a chapter boundary.
         // Neither auto scroll nor a search carries across a chapter boundary.
+        stopSpeaking()
         mutableState.update { it.copy(currentIndex = index, autoScrolling = false, searchQuery = null) }
     }
 
@@ -300,7 +304,71 @@ class NovelReaderViewModel(
     /** Forces the chrome up, for an action that needs something anchored to it. */
     fun showMenu() = mutableState.update { it.copy(menuVisible = true, autoScrolling = false) }
 
-    fun setAutoScrolling(enabled: Boolean) = mutableState.update { it.copy(autoScrolling = enabled) }
+    /** Auto scroll and speech both move the page; starting either has to stop the other. */
+    fun setAutoScrolling(enabled: Boolean) {
+        if (enabled) stopSpeaking()
+        mutableState.update { it.copy(autoScrolling = enabled) }
+    }
+
+    // region Speech
+
+    /**
+     * Built on first use, not with the reader.
+     *
+     * [NovelSpeaker] binds a system service, and a reader who never asks for speech should not be
+     * holding one open for the whole session — which is also why [onCleared] shuts down only what
+     * was actually created.
+     */
+    private var speaker: NovelSpeaker? = null
+
+    /** The chapter's own markup, kept so speech can be cut from it without re-fetching. */
+    private var currentHtml: String? = null
+
+    /** The pieces currently queued, for turning a spoken position into a scroll position. */
+    private var speechUtterances: List<String> = emptyList()
+
+    /**
+     * Starts or stops reading the open chapter aloud.
+     *
+     * The utterances are cut afresh each time, so changing how the chapter is divided takes effect
+     * on the next start rather than needing the chapter reopened.
+     */
+    fun toggleSpeaking() {
+        if (state.value.speaking) {
+            stopSpeaking()
+            return
+        }
+
+        val html = currentHtml ?: return
+        val utterances = NovelSpeech.utterances(html, novelReaderPreferences.speechDivision.get())
+        if (utterances.isEmpty()) return
+
+        val engine = speaker ?: NovelSpeaker(context).also { created ->
+            speaker = created
+            // Mirrored into the reader's own state so the screen has one thing to collect, and so
+            // speech sits beside auto scroll rather than in a stream of its own.
+            created.speech
+                .onEach { speech ->
+                    mutableState.update {
+                        it.copy(
+                            speaking = speech.speaking,
+                            speechFraction = NovelSpeech.fractionAt(speech.index, speechUtterances),
+                        )
+                    }
+                }
+                .launchIn(viewModelScope)
+        }
+
+        speechUtterances = utterances
+        mutableState.update { it.copy(autoScrolling = false) }
+        engine.start(utterances, novelReaderPreferences.speechRate.get())
+    }
+
+    fun stopSpeaking() {
+        speaker?.stop()
+    }
+
+    // endregion
 
     /** Steps to the next orientation, wrapping, for whatever is bound to it. */
     fun cycleOrientation() = novelReaderPreferences.orientation.getAndSet {
@@ -419,8 +487,14 @@ class NovelReaderViewModel(
         chapterReadStartTime = null
     }
 
-    /** Saves progress and history without being cancelled by the activity going away. */
+    /**
+     * Saves progress and history without being cancelled by the activity going away.
+     *
+     * Speech stops here too: a chapter still being read aloud from a backgrounded reader is a
+     * support ticket, and a reader who has left the app has left the book.
+     */
     fun saveOnPause() {
+        stopSpeaking()
         viewModelScope.launchNonCancellable {
             flushProgress()
             updateHistory()
@@ -454,6 +528,9 @@ class NovelReaderViewModel(
         val autoScrolling: Boolean = false,
         val searchQuery: String? = null,
         val chapterWords: Int = 0,
+        val speaking: Boolean = false,
+        /** How far through the chapter speech has reached, for the page to follow. */
+        val speechFraction: Float = 0f,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }
