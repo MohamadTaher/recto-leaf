@@ -7,15 +7,15 @@ import kotlin.math.abs
 /**
  * The four directions a swipe across the page can be bound to.
  *
- * All four start unbound. The vertical pair especially: the page scrolls vertically, so a bound
- * top-to-bottom swipe is competing with the reader's primary gesture, and that has to be something
- * a reader opts into rather than something they discover by accident.
+ * Only left-to-right starts bound, to the chapter list, per the imported configuration. The
+ * vertical pair stay unbound and should: the page scrolls vertically, so a bound top-to-bottom
+ * swipe competes with the primary gesture, which has to be opted into rather than discovered.
  */
-enum class NovelReaderSwipe(val titleRes: StringResource) {
-    RIGHT_TO_LEFT(MR.strings.leaf_novel_swipe_right_to_left),
-    LEFT_TO_RIGHT(MR.strings.leaf_novel_swipe_left_to_right),
-    TOP_TO_BOTTOM(MR.strings.leaf_novel_swipe_top_to_bottom),
-    BOTTOM_TO_TOP(MR.strings.leaf_novel_swipe_bottom_to_top),
+enum class NovelReaderSwipe(val titleRes: StringResource, val default: NovelReaderAction) {
+    RIGHT_TO_LEFT(MR.strings.leaf_novel_swipe_right_to_left, NovelReaderAction.NONE),
+    LEFT_TO_RIGHT(MR.strings.leaf_novel_swipe_left_to_right, NovelReaderAction.SHOW_CHAPTERS),
+    TOP_TO_BOTTOM(MR.strings.leaf_novel_swipe_top_to_bottom, NovelReaderAction.NONE),
+    BOTTOM_TO_TOP(MR.strings.leaf_novel_swipe_bottom_to_top, NovelReaderAction.NONE),
     ;
 
     companion object {
