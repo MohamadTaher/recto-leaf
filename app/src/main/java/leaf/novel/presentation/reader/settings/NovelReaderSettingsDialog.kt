@@ -35,8 +35,10 @@ import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelLinkColor
 import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
@@ -95,6 +97,7 @@ fun NovelReaderSettingsDialog(
     initialTab: NovelReaderSettingsTab,
     novelReaderPreferences: NovelReaderPreferences,
     readerPreferences: ReaderPreferences,
+    resolvedColors: NovelReaderColors,
     onDismissRequest: () -> Unit,
 ) {
     val tabTitles = listOf(
@@ -117,7 +120,8 @@ fun NovelReaderSettingsDialog(
                     .verticalScroll(rememberScrollState()),
             ) {
                 when (NovelReaderSettingsTab.entries[page]) {
-                    NovelReaderSettingsTab.VISUAL -> VisualPage(novelReaderPreferences, readerPreferences)
+                    NovelReaderSettingsTab.VISUAL ->
+                        VisualPage(novelReaderPreferences, readerPreferences, resolvedColors)
                     NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
                     NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(novelReaderPreferences, readerPreferences)
                 }
@@ -130,6 +134,7 @@ fun NovelReaderSettingsDialog(
 private fun ColumnScope.VisualPage(
     novelReaderPreferences: NovelReaderPreferences,
     readerPreferences: ReaderPreferences,
+    resolvedColors: NovelReaderColors,
 ) {
     val fontSize by novelReaderPreferences.fontSize.collectAsState()
     SliderItem(
@@ -277,14 +282,44 @@ private fun ColumnScope.VisualPage(
     // model. Follow Mihon defers to the row below, so that row stays where it is rather than being
     // hidden behind this one — it is what the default choice here means.
     val novelTheme by novelReaderPreferences.theme.collectAsState()
+    val themeLabel: @Composable (NovelReaderTheme) -> String = { candidate ->
+        val slot = candidate.slot?.let(novelReaderPreferences.customThemes::getOrNull)
+        val named = slot?.name?.collectAsState()?.value.orEmpty()
+        named.ifBlank { stringResource(candidate.titleRes) }
+    }
+
     SettingsChipRow(MR.strings.leaf_novel_reader_theme) {
         NovelReaderTheme.entries.map { candidate ->
             FilterChip(
                 selected = novelTheme == candidate,
-                onClick = { novelReaderPreferences.theme.set(candidate) },
-                label = { Text(stringResource(candidate.titleRes)) },
+                // An empty slot is seeded from what is on screen, so picking one starts from a page
+                // the reader can still read rather than from transparent on transparent.
+                onClick = {
+                    candidate.slot
+                        ?.let(novelReaderPreferences.customThemes::getOrNull)
+                        ?.seedFrom(resolvedColors)
+                    novelReaderPreferences.theme.set(candidate)
+                },
+                label = { Text(themeLabel(candidate)) },
             )
         }
+    }
+
+    // Only for the slot being used, and inline rather than in a sheet of its own: the page behind
+    // this dialog is already drawn in the theme being edited, so it is the preview.
+    novelTheme.slot?.let(novelReaderPreferences.customThemes::getOrNull)?.let { custom ->
+        val customName by custom.name.collectAsState()
+        TextItem(
+            label = stringResource(MR.strings.leaf_novel_reader_custom_theme_name),
+            value = customName,
+            onChange = { custom.name.set(it) },
+        )
+
+        HeadingItem(MR.strings.leaf_novel_reader_custom_background)
+        ChannelSliders(custom.background)
+
+        HeadingItem(MR.strings.leaf_novel_reader_custom_text)
+        ChannelSliders(custom.foreground)
     }
 
     // Day/night flips between these two. Left both at Follow Mihon they are the same value and
@@ -293,14 +328,14 @@ private fun ColumnScope.VisualPage(
         label = stringResource(MR.strings.leaf_novel_reader_day_theme),
         preference = novelReaderPreferences.dayTheme,
         options = NovelReaderTheme.entries,
-        titleOf = NovelReaderTheme::titleRes,
+        labelOf = themeLabel,
     )
 
     EnumSelectItem(
         label = stringResource(MR.strings.leaf_novel_reader_night_theme),
         preference = novelReaderPreferences.nightTheme,
         options = NovelReaderTheme.entries,
-        titleOf = NovelReaderTheme::titleRes,
+        labelOf = themeLabel,
     )
 
     val readerTheme by readerPreferences.readerTheme.collectAsState()
@@ -395,7 +430,7 @@ private fun ColumnScope.MiscellaneousPage(
                 label = stringResource(item.titleRes),
                 preference = novelReaderPreferences.statusSlots.getValue(item),
                 options = NovelStatusPlacement.entries,
-                titleOf = NovelStatusPlacement::titleRes,
+                labelOf = { stringResource(it.titleRes) },
             )
         }
     }
@@ -623,17 +658,56 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
             expanded = expanded,
             selected = action,
             options = NovelReaderAction.entries,
-            titleOf = NovelReaderAction::titleRes,
+            labelOf = { stringResource(it.titleRes) },
             onDismissRequest = { expanded = false },
             onSelect = preference::set,
         )
     }
 }
 
+/**
+ * One opaque colour as three sliders, the way the image reader's colour filter page edits its own.
+ *
+ * Alpha is not offered: a page you can see through is not a theme, and the fully transparent value
+ * is what [NovelCustomTheme] reads as an empty slot.
+ */
+@Composable
+private fun ChannelSliders(preference: Preference<Int>) {
+    val color by preference.collectAsState()
+
+    CHANNELS.forEach { (labelRes, shift) ->
+        SliderItem(
+            label = stringResource(labelRes),
+            value = (color shr shift) and CHANNEL_MAX,
+            valueRange = 0..CHANNEL_MAX,
+            steps = 0,
+            onChange = { value ->
+                preference.set(
+                    (color and (CHANNEL_MAX shl shift).inv()) or
+                        (value shl shift) or
+                        OPAQUE,
+                )
+            },
+            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
+    }
+}
+
+private val CHANNELS = listOf(
+    MR.strings.color_filter_r_value to 16,
+    MR.strings.color_filter_g_value to 8,
+    MR.strings.color_filter_b_value to 0,
+)
+
+private const val CHANNEL_MAX = 0xFF
+
+/** Every colour the editor writes is opaque, which is also what marks the slot as used. */
+private const val OPAQUE = 0xFF shl 24
+
 /** An action binding, which is what most of these rows are. */
 @Composable
 private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAction>) {
-    EnumSelectItem(label, preference, NovelReaderAction.entries, NovelReaderAction::titleRes)
+    EnumSelectItem(label, preference, NovelReaderAction.entries) { stringResource(it.titleRes) }
 }
 
 /**
@@ -653,7 +727,7 @@ private fun <T : Enum<T>> EnumSelectItem(
     label: String,
     preference: Preference<T>,
     options: List<T>,
-    titleOf: (T) -> StringResource,
+    labelOf: @Composable (T) -> String,
 ) {
     val selected by preference.collectAsState()
     var expanded by remember { mutableStateOf(false) }
@@ -672,7 +746,7 @@ private fun <T : Enum<T>> EnumSelectItem(
         ) {
             Text(text = label, style = MaterialTheme.typography.bodyMedium)
             Text(
-                text = stringResource(titleOf(selected)),
+                text = labelOf(selected),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -682,7 +756,7 @@ private fun <T : Enum<T>> EnumSelectItem(
             expanded = expanded,
             selected = selected,
             options = options,
-            titleOf = titleOf,
+            labelOf = labelOf,
             onDismissRequest = { expanded = false },
             onSelect = preference::set,
         )
@@ -695,14 +769,14 @@ private fun <T : Enum<T>> EnumPicker(
     expanded: Boolean,
     selected: T,
     options: List<T>,
-    titleOf: (T) -> StringResource,
+    labelOf: @Composable (T) -> String,
     onDismissRequest: () -> Unit,
     onSelect: (T) -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest) {
         options.forEach { candidate ->
             RadioMenuItem(
-                text = { Text(stringResource(titleOf(candidate))) },
+                text = { Text(labelOf(candidate)) },
                 isChecked = candidate == selected,
                 onClick = {
                     onDismissRequest()

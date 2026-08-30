@@ -54,6 +54,7 @@ import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
 import leaf.novel.ui.reader.NovelReadingReminder
 import leaf.novel.ui.reader.NovelReadingTime
+import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
@@ -94,8 +95,15 @@ fun NovelReaderScreen(
     val style = novelReaderStyle(viewModel.novelReaderPreferences)
     // Resolved once and handed to the stylesheet, the WebView, the page behind it and the status
     // bar alike, so none of them can disagree about what colour the page is.
-    val colors = remember(readerTheme, novelTheme) {
-        novelTheme.colors(context.readerBackgroundColor(readerTheme))
+    val customColors = viewModel.novelReaderPreferences.customThemes.map { slot ->
+        val background by slot.background.collectAsState()
+        val foreground by slot.foreground.collectAsState()
+        // Collected rather than read so that dragging a slider redraws the page under the dialog,
+        // which is what makes the editor its own preview.
+        if (background == NovelCustomTheme.UNSET) null else NovelReaderColors(background, foreground)
+    }
+    val colors = remember(readerTheme, novelTheme, customColors) {
+        novelTheme.colors(context.readerBackgroundColor(readerTheme), customColors)
     }
 
     var settingsTab by remember { mutableStateOf<NovelReaderSettingsTab?>(null) }
@@ -414,6 +422,7 @@ fun NovelReaderScreen(
             initialTab = tab,
             novelReaderPreferences = viewModel.novelReaderPreferences,
             readerPreferences = viewModel.readerPreferences,
+            resolvedColors = colors,
             onDismissRequest = { settingsTab = null },
         )
     }

@@ -47,7 +47,7 @@ class NovelReaderThemeTest {
      */
     @Test
     fun `every preset carries a foreground the luminance rule would not have picked`() {
-        val presets = NovelReaderTheme.entries - NovelReaderTheme.FOLLOW_MIHON
+        val presets = NovelReaderTheme.entries.filter { it.background != null }
 
         presets.forEach { theme ->
             val colors = theme.colors(WHITE)
@@ -56,4 +56,44 @@ class NovelReaderThemeTest {
         }
         presets.any { it.foreground != NovelReaderCss.foregroundFor(it.background!!) } shouldBe true
     }
+
+    @Test
+    fun `a custom slot draws in whatever that slot holds`() {
+        val slots = listOf(null, NovelReaderColors(SEPIA_PAPER, SEPIA_INK), null)
+
+        NovelReaderTheme.CUSTOM_2.colors(WHITE, slots) shouldBe
+            NovelReaderColors(SEPIA_PAPER, SEPIA_INK)
+    }
+
+    /**
+     * Selecting a slot that has never been filled must not blank the page, and a slot list that has
+     * not loaded yet must not either — both fall back to what Follow Mihon would have drawn.
+     */
+    @Test
+    fun `an empty custom slot falls back to follow Mihon`() {
+        val empty = listOf(null, null, null)
+
+        NovelReaderTheme.CUSTOM_1.colors(BLACK, empty) shouldBe
+            NovelReaderTheme.FOLLOW_MIHON.colors(BLACK)
+        NovelReaderTheme.CUSTOM_3.colors(BLACK) shouldBe
+            NovelReaderTheme.FOLLOW_MIHON.colors(BLACK)
+    }
+
+    @Test
+    fun `a preset ignores the custom slots`() {
+        val slots = listOf(NovelReaderColors(SEPIA_PAPER, SEPIA_INK), null, null)
+
+        NovelReaderTheme.NIGHT.colors(WHITE, slots) shouldBe NovelReaderTheme.NIGHT.colors(WHITE)
+    }
+
+    /** One slot per custom entry, so no entry can point past the end of the list. */
+    @Test
+    fun `there is a slot for every custom entry`() {
+        val slots = NovelReaderTheme.entries.mapNotNull { it.slot }
+
+        slots shouldBe List(NovelReaderTheme.CUSTOM_SLOTS) { it }
+    }
 }
+
+private const val SEPIA_PAPER = 0xFFEAD9BD.toInt()
+private const val SEPIA_INK = 0xFF4A3A28.toInt()

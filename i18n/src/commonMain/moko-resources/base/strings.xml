@@ -1216,6 +1216,12 @@
     <string name="leaf_novel_theme_grey">Grey</string>
     <string name="leaf_novel_theme_night">Night</string>
     <string name="leaf_novel_theme_console">Console</string>
+    <string name="leaf_novel_theme_custom_1">Custom 1</string>
+    <string name="leaf_novel_theme_custom_2">Custom 2</string>
+    <string name="leaf_novel_theme_custom_3">Custom 3</string>
+    <string name="leaf_novel_reader_custom_theme_name">Theme name</string>
+    <string name="leaf_novel_reader_custom_background">Background colour</string>
+    <string name="leaf_novel_reader_custom_text">Text colour</string>
     <string name="leaf_novel_reader_day_theme">Day theme</string>
     <string name="leaf_novel_reader_night_theme">Night theme</string>
     <string name="leaf_novel_action_change_theme">Change theme</string>
