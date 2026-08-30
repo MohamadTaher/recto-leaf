@@ -36,6 +36,7 @@ import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import leaf.novel.ui.reader.setting.NovelCustomTheme
+import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderColors
@@ -264,6 +265,29 @@ private fun ColumnScope.VisualPage(
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
         steps = 0,
         onChange = { novelReaderPreferences.marginBottom.set(it) },
+    )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_images)
+
+    val imageSize by novelReaderPreferences.imageSize.collectAsState()
+    SettingsChipRow(MR.strings.leaf_novel_reader_image_size) {
+        NovelImageSize.entries.map { candidate ->
+            FilterChip(
+                selected = imageSize == candidate,
+                onClick = { novelReaderPreferences.imageSize.set(candidate) },
+                label = { Text(stringResource(candidate.titleRes)) },
+            )
+        }
+    }
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_center_images),
+        pref = novelReaderPreferences.centerImages,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_tap_image_to_open),
+        pref = novelReaderPreferences.tapImageToOpen,
     )
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_focused_reading)

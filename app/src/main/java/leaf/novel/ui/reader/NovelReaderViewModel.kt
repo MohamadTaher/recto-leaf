@@ -251,6 +251,20 @@ class NovelReaderViewModel(
 
     fun assetServer(): NovelEpubAssetServer? = provider?.let(::NovelEpubAssetServer)
 
+    /**
+     * The bytes behind an image in the open chapter, for the full-screen view.
+     *
+     * Only images the reader itself is serving: anything outside the virtual origin is either a
+     * remote URL the WebView already refused to load or a data URI the page has inline, and neither
+     * has bytes to fetch from here.
+     */
+    suspend fun imageBytes(url: String): ByteArray? = withIOContext {
+        val path = NovelEpubAssetServer.pathFor(url) ?: return@withIOContext null
+        runCatching { provider?.resourceStream(path)?.use { it.readBytes() } }
+            .onFailure { logcat(LogPriority.WARN, it) { "Could not read image $path" } }
+            .getOrNull()
+    }
+
     fun setCurrentChapter(index: Int) {
         val chapter = state.value.chapters.getOrNull(index) ?: return
         if (state.value.currentIndex == index) return

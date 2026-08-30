@@ -46,4 +46,6 @@ data class NovelReaderStyle(
     val useBookFonts: Boolean,
     val inlineFootnotes: Boolean,
     val printPageNumbers: Boolean,
+    val imageSize: NovelImageSize,
+    val centerImages: Boolean,
 )

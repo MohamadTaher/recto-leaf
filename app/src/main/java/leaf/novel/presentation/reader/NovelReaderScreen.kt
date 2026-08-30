@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.components.NovelChapterWebView
+import leaf.novel.presentation.reader.components.NovelImageDialog
 import leaf.novel.presentation.reader.components.NovelStatusBar
 import leaf.novel.presentation.reader.components.NovelStatusBarHeight
 import leaf.novel.presentation.reader.components.NovelWebViewController
@@ -112,6 +113,7 @@ fun NovelReaderScreen(
     var showChapters by remember { mutableStateOf(false) }
     // A look, not a mode: it lasts until it is turned off again and stores nothing.
     var publisherFormatting by remember { mutableStateOf(false) }
+    var openImage by remember { mutableStateOf<String?>(null) }
     val webViewController = remember { NovelWebViewController() }
 
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
@@ -257,6 +259,7 @@ fun NovelReaderScreen(
         .mapValues { (_, preference) -> preference.collectAsState().value }
     val disableTouchEdge by viewModel.novelReaderPreferences.disableTouchEdge.collectAsState()
     val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
+    val tapImageToOpen by viewModel.novelReaderPreferences.tapImageToOpen.collectAsState()
 
     // A short tick with a fractional step, carried between ticks, so even the slowest speed creeps
     // instead of jumping a whole pixel at a time. Scrolling through the view keeps progress
@@ -328,6 +331,8 @@ fun NovelReaderScreen(
                         seekRequests = seekRequests,
                         controller = webViewController,
                         ignoreEdgeTaps = disableTouchEdge,
+                        tapImageEnabled = tapImageToOpen,
+                        onImageTap = { openImage = it },
                         pinchEnabled = pinchFontSize,
                         onPinch = ::performPinch,
                         onEdgeDrag = ::performEdgeDrag,
@@ -434,6 +439,14 @@ fun NovelReaderScreen(
         )
     }
 
+    openImage?.let { url ->
+        NovelImageDialog(
+            url = url,
+            loadBytes = viewModel::imageBytes,
+            onDismissRequest = { openImage = null },
+        )
+    }
+
     if (showChapters) {
         NovelChapterSheet(
             chapters = state.chapters,
@@ -457,6 +470,8 @@ private fun ChapterContent(
     seekRequests: Flow<Int>,
     controller: NovelWebViewController,
     ignoreEdgeTaps: Boolean,
+    tapImageEnabled: Boolean,
+    onImageTap: (String) -> Unit,
     pinchEnabled: Boolean,
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
@@ -506,6 +521,8 @@ private fun ChapterContent(
                 },
                 controller = controller,
                 ignoreEdgeTaps = ignoreEdgeTaps,
+                tapImageEnabled = tapImageEnabled,
+                onImageTap = onImageTap,
                 pinchEnabled = pinchEnabled,
                 onPinch = onPinch,
                 onEdgeDrag = onEdgeDrag,
@@ -616,6 +633,8 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val useBookFonts by preferences.useBookFonts.collectAsState()
     val inlineFootnotes by preferences.inlineFootnotes.collectAsState()
     val printPageNumbers by preferences.printPageNumbers.collectAsState()
+    val imageSize by preferences.imageSize.collectAsState()
+    val centerImages by preferences.centerImages.collectAsState()
 
     return NovelReaderStyle(
         fontSizePx = fontSize,
@@ -645,6 +664,8 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         useBookFonts = useBookFonts,
         inlineFootnotes = inlineFootnotes,
         printPageNumbers = printPageNumbers,
+        imageSize = imageSize,
+        centerImages = centerImages,
     )
 }
 

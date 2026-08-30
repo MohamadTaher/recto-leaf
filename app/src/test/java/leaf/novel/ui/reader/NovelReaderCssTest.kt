@@ -2,6 +2,7 @@ package leaf.novel.ui.reader
 
 import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
 import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderStyle
@@ -43,6 +44,8 @@ private fun style(
     useBookFonts: Boolean = false,
     inlineFootnotes: Boolean = true,
     printPageNumbers: Boolean = false,
+    imageSize: NovelImageSize = NovelImageSize.FIT_WIDTH,
+    centerImages: Boolean = true,
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
     font = font,
@@ -71,6 +74,8 @@ private fun style(
     useBookFonts = useBookFonts,
     inlineFootnotes = inlineFootnotes,
     printPageNumbers = printPageNumbers,
+    imageSize = imageSize,
+    centerImages = centerImages,
 )
 
 /**
