@@ -35,6 +35,7 @@ import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
@@ -458,6 +459,20 @@ private fun ColumnScope.MiscellaneousPage(
                 labelOf = { stringResource(it.titleRes) },
             )
         }
+    }
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_bar_buttons)
+
+    // One row per position rather than a list that reorders: the order of the rows is the order of
+    // the bar, duplicates collapse, and an empty bar falls back to the four it has always had — so
+    // nothing has to be blocked while editing and there is always a way back.
+    novelReaderPreferences.barButtons.forEachIndexed { slot, preference ->
+        EnumSelectItem(
+            label = stringResource(MR.strings.leaf_novel_reader_bar_button, slot + 1),
+            preference = preference,
+            options = NovelBarButtons.CANDIDATES,
+            labelOf = { stringResource(it.titleRes) },
+        )
     }
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_typesetting)

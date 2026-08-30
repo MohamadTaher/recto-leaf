@@ -51,6 +51,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.components.NovelChapterWebView
 import leaf.novel.presentation.reader.components.NovelImageDialog
@@ -297,6 +298,11 @@ fun NovelReaderScreen(
     val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
     val tapImageToOpen by viewModel.novelReaderPreferences.tapImageToOpen.collectAsState()
 
+    // Whichever buttons the reader has put on the bottom bar, resolved from their slots.
+    val barButtons = NovelBarButtons.resolve(
+        viewModel.novelReaderPreferences.barButtons.map { it.collectAsState().value },
+    )
+
     // The paging settings stage 17 stored and left inert. Every one of them reads as off while
     // paged mode is off, so continuous reading behaves exactly as it did before this stage.
     val paged by viewModel.novelReaderPreferences.paged.collectAsState()
@@ -503,7 +509,8 @@ fun NovelReaderScreen(
             enabledNext = state.currentIndex < state.chapters.lastIndex,
             percentRead = livePercent,
             onPercentChange = { seekRequests.tryEmit(it) },
-            onClickSettings = { settingsTab = it },
+            barButtons = barButtons,
+            onAction = ::performAction,
             additionalOptionsExpanded = additionalOptionsExpanded,
             onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },
             additionalOptions = { dismiss ->

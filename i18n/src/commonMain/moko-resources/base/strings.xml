@@ -1174,6 +1174,8 @@
     <string name="leaf_novel_status_long_tap_middle">Long tap middle</string>
     <string name="leaf_novel_status_long_tap_right">Long tap right</string>
     <string name="leaf_novel_reader_disable_touch_edge">Disable touch screen edge</string>
+    <string name="leaf_novel_reader_heading_bar_buttons">Reader bar buttons</string>
+    <string name="leaf_novel_reader_bar_button">Button %1$d</string>
     <string name="leaf_novel_reader_heading_typesetting">Typesetting</string>
     <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
     <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>

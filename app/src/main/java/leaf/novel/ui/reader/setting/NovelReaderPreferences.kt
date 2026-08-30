@@ -333,6 +333,17 @@ class NovelReaderPreferences(
             preferenceStore.getEnum("leaf_novel_swipe_${swipe.name.lowercase()}", swipe.default)
         }
 
+    /**
+     * Which action each slot of the bottom bar carries, in order.
+     *
+     * The defaults are the four buttons the bar has always had, so a reader who never opens the
+     * setting keeps the bar they know. Resolving the slots into a bar is presentation's job — only
+     * it knows which actions have a glyph.
+     */
+    val barButtons: List<Preference<NovelReaderAction>> = List(BAR_SLOTS) { slot ->
+        preferenceStore.getEnum("leaf_novel_bar_button_${slot + 1}", defaultBarButton(slot))
+    }
+
     /** One binding per section of the mini status bar, tap and long tap. */
     val statusTaps: Map<NovelStatusBarTap, Preference<NovelReaderAction>> =
         NovelStatusBarTap.entries.associateWith { tap ->
@@ -363,12 +374,25 @@ class NovelReaderPreferences(
 
         /** Mihon own list minus DEFAULT, which means "inherit" and has nothing here to inherit. */
         val ORIENTATIONS = ReaderOrientation.entries - ReaderOrientation.DEFAULT
+
+        /** How many buttons the bottom bar has room for. */
+        const val BAR_SLOTS = 6
     }
 }
 
+/** Today's bar: the three settings tabs and the additional options menu, in that order. */
+private fun defaultBarButton(slot: Int): NovelReaderAction = when (slot) {
+    0 -> NovelReaderAction.VISUAL_OPTIONS
+    1 -> NovelReaderAction.CONTROL_OPTIONS
+    2 -> NovelReaderAction.MISCELLANEOUS
+    3 -> NovelReaderAction.ADDITIONAL_OPTIONS
+    else -> NovelReaderAction.NONE
+}
+
 /**
- * Only the middle and the bottom left start bound: the middle so tapping the page still opens the
- * menu as it always has, the bottom left because the imported configuration puts day/night there.
+ * Only the middle, the top left and the bottom left start bound: the middle so tapping the page
+ * still opens the menu as it always has, and the other two because the imported configuration puts
+ * speech and day/night there.
  */
 private fun defaultTapAction(cell: Int): NovelReaderAction = when (cell) {
     NovelTapGrid.CENTRE -> NovelReaderAction.OPTIONS_MENU
