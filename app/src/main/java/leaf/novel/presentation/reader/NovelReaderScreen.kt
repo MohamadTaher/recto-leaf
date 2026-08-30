@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +52,7 @@ import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
+import leaf.novel.ui.reader.NovelReadingReminder
 import leaf.novel.ui.reader.NovelReadingTime
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
@@ -61,6 +64,8 @@ import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
+import java.time.LocalTime
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * The reader screen: one chapter at a time in a WebView, with menu-on-tap chrome over it.
@@ -130,6 +135,30 @@ fun NovelReaderScreen(
     // requests and are performed here alongside the taps.
     LaunchedEffect(Unit) {
         viewModel.actions.collect { performAction(it) }
+    }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val reminderMinutes by viewModel.novelReaderPreferences.reminderMinutes.collectAsState()
+    val reminderAt by viewModel.novelReaderPreferences.reminderAt.collectAsState()
+    val reminderMessage = stringResource(MR.strings.leaf_novel_reader_reminder_message)
+
+    // Nudges rather than alarms: both only run while the reader is open, so neither is scheduled
+    // with the system.
+    LaunchedEffect(reminderMinutes) {
+        if (reminderMinutes <= 0) return@LaunchedEffect
+        while (true) {
+            delay(reminderMinutes.minutes)
+            snackbarHostState.showSnackbar(reminderMessage)
+        }
+    }
+
+    LaunchedEffect(reminderAt) {
+        val target = NovelReadingReminder.minutesOfDay(reminderAt) ?: return@LaunchedEffect
+        while (true) {
+            val now = LocalTime.now()
+            delay(NovelReadingReminder.millisUntilNext(now.hour * 60 + now.minute, target))
+            snackbarHostState.showSnackbar(reminderMessage)
+        }
     }
 
     // The menu hangs off the bottom bar, so when the chrome goes its anchor goes with it. Leaving
@@ -265,7 +294,11 @@ fun NovelReaderScreen(
             }
         }
 
-        ContentOverlay(state = state, readerPreferences = viewModel.readerPreferences)
+        ContentOverlay(
+            state = state,
+            novelReaderPreferences = viewModel.novelReaderPreferences,
+            readerPreferences = viewModel.readerPreferences,
+        )
 
         // Decoration only. It takes no pointer input, so scrolling, tapping and long-press
         // selection all carry on underneath the band.
@@ -310,6 +343,13 @@ fun NovelReaderScreen(
             onToggleAutoScroll = { viewModel.setAutoScrolling(!state.autoScrolling) },
             additionalOptionsExpanded = additionalOptionsExpanded,
             onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },
+        )
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
         )
     }
 
@@ -407,8 +447,12 @@ private fun ChapterContent(
 @Composable
 private fun ContentOverlay(
     state: NovelReaderViewModel.State,
+    novelReaderPreferences: NovelReaderPreferences,
     readerPreferences: ReaderPreferences,
 ) {
+    val bluelight by novelReaderPreferences.bluelight.collectAsState()
+    val bluelightIntensity by novelReaderPreferences.bluelightIntensity.collectAsState()
+
     val colorOverlayEnabled by readerPreferences.colorFilter.collectAsState()
     val colorOverlay by readerPreferences.colorFilterValue.collectAsState()
     val colorOverlayMode by readerPreferences.colorFilterMode.collectAsState()
@@ -416,11 +460,24 @@ private fun ContentOverlay(
         ReaderPreferences.ColorFilterMode.getOrNull(colorOverlayMode)?.second
     }
 
+    // A new input to the overlay the reader already draws, not a second one stacked on it. The
+    // warm filter takes the colour when it is on; brightness is a separate input and keeps
+    // working underneath either, which is what stops the two settings fighting.
     ReaderContentOverlay(
         brightness = state.brightnessOverlayValue,
-        color = colorOverlay.takeIf { colorOverlayEnabled },
-        colorBlendMode = colorOverlayBlendMode,
+        color = when {
+            bluelight -> bluelightColor(bluelightIntensity)
+            colorOverlayEnabled -> colorOverlay
+            else -> null
+        },
+        colorBlendMode = if (bluelight) null else colorOverlayBlendMode,
     )
+}
+
+/** A warm amber laid over the page. Only its strength changes with the intensity chosen. */
+private fun bluelightColor(intensity: Int): Int {
+    val alpha = intensity.coerceIn(0, 100) * BLUELIGHT_MAX_ALPHA / 100
+    return (alpha shl 24) or BLUELIGHT_AMBER
 }
 
 @Composable
@@ -507,6 +564,10 @@ private val READING_RULER_HEIGHT = 28.dp
 
 /** Visible as a band without washing out the words it sits behind. */
 private const val READING_RULER_ALPHA = 0.18f
+
+/** The amber the warm filter lays over the page; the intensity supplies its alpha. */
+private const val BLUELIGHT_AMBER = 0x00FF9632
+private const val BLUELIGHT_MAX_ALPHA = 180
 
 /**
  * Minutes left, in the page indicator own outlined style.

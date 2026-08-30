@@ -1142,6 +1142,12 @@
     <string name="leaf_novel_reader_heading_typesetting">Typesetting</string>
     <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
     <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>
+    <string name="leaf_novel_reader_heading_eye_care">Eye care</string>
+    <string name="leaf_novel_reader_bluelight">Bluelight filter</string>
+    <string name="leaf_novel_reader_bluelight_intensity">Filter strength</string>
+    <string name="leaf_novel_reader_reminder_minutes">Remind me after reading for (minutes)</string>
+    <string name="leaf_novel_reader_reminder_at">Remind me at (HH:mm)</string>
+    <string name="leaf_novel_reader_reminder_message">Time to rest your eyes</string>
     <string name="leaf_novel_reader_minutes_left">%1$d min left</string>
     <string name="leaf_novel_reader_find_previous">Previous match</string>
     <string name="leaf_novel_reader_find_next">Next match</string>
