@@ -10,6 +10,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -99,6 +100,12 @@ fun NovelReaderScreen(
             }
             NovelReaderAction.CLOSE -> onBack()
         }
+    }
+
+    // Keys are dispatched by the activity, which cannot reach the composition, so they arrive as
+    // requests and are performed here alongside the taps.
+    LaunchedEffect(Unit) {
+        viewModel.actions.collect { performAction(it) }
     }
 
     val chapter = state.currentChapter

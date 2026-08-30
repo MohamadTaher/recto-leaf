@@ -22,7 +22,9 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
@@ -39,6 +41,7 @@ import leaf.novel.ui.reader.loader.EpubContentProvider
 import leaf.novel.ui.reader.loader.NovelContentProvider
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.SourceContentProvider
+import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import logcat.LogPriority
 import tachiyomi.core.common.preference.getAndSet
@@ -264,6 +267,22 @@ class NovelReaderViewModel(
 
     /** Forces the chrome up, for an action that needs something anchored to it. */
     fun showMenu() = mutableState.update { it.copy(menuVisible = true) }
+
+    /**
+     * Actions raised outside the composition — from the key handler — for the screen to perform.
+     *
+     * The dispatcher lives in the screen because most of what it does is Compose state. Keys are
+     * dispatched by the activity, which cannot reach that, so they arrive here instead.
+     */
+    private val actionRequests = MutableSharedFlow<NovelReaderAction>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val actions: SharedFlow<NovelReaderAction> = actionRequests.asSharedFlow()
+
+    fun requestAction(action: NovelReaderAction) {
+        actionRequests.tryEmit(action)
+    }
 
     /**
      * Flips the shared reader theme between its black and white values.

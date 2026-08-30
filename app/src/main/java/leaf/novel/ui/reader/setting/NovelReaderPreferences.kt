@@ -85,6 +85,12 @@ class NovelReaderPreferences(
     val longTap: Preference<NovelReaderAction> =
         preferenceStore.getEnum("leaf_novel_long_tap", NovelReaderAction.TEXT_SELECTION)
 
+    /** One binding per key, defaulted from [NovelReaderKey]. */
+    val keys: Map<NovelReaderKey, Preference<NovelReaderAction>> =
+        NovelReaderKey.entries.associateWith { key ->
+            preferenceStore.getEnum("leaf_novel_key_${key.name.lowercase()}", key.default)
+        }
+
     // endregion
 
     companion object {
