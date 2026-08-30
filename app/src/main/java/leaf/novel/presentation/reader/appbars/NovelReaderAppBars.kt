@@ -11,6 +11,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -84,16 +85,9 @@ fun NovelReaderAppBars(
     onPercentChange: (Int) -> Unit,
 
     onClickSettings: (NovelReaderSettingsTab) -> Unit,
-    onToggleDayNight: () -> Unit,
-    autoScrolling: Boolean,
-    onToggleAutoScroll: () -> Unit,
-    readingRuler: Boolean,
-    onToggleReadingRuler: () -> Unit,
-    onStartSearch: () -> Unit,
-    onShowChapters: () -> Unit,
-    onOpenEntry: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
+    additionalOptions: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
 ) {
     val backgroundColor = MaterialTheme.colorScheme
         .surfaceColorAtElevation(3.dp)
@@ -156,16 +150,9 @@ fun NovelReaderAppBars(
                         .padding(horizontal = MaterialTheme.padding.small)
                         .windowInsetsPadding(WindowInsets.navigationBars),
                     onClickSettings = onClickSettings,
-                    onToggleDayNight = onToggleDayNight,
-                    autoScrolling = autoScrolling,
-                    onToggleAutoScroll = onToggleAutoScroll,
-                    readingRuler = readingRuler,
-                    onToggleReadingRuler = onToggleReadingRuler,
-                    onStartSearch = onStartSearch,
-                    onShowChapters = onShowChapters,
-                    onOpenEntry = onOpenEntry,
                     additionalOptionsExpanded = additionalOptionsExpanded,
                     onAdditionalOptionsExpandedChange = onAdditionalOptionsExpandedChange,
+                    additionalOptions = additionalOptions,
                 )
             }
         }
@@ -182,16 +169,9 @@ fun NovelReaderAppBars(
 @Composable
 private fun NovelReaderBottomBar(
     onClickSettings: (NovelReaderSettingsTab) -> Unit,
-    onToggleDayNight: () -> Unit,
-    autoScrolling: Boolean,
-    onToggleAutoScroll: () -> Unit,
-    readingRuler: Boolean,
-    onToggleReadingRuler: () -> Unit,
-    onStartSearch: () -> Unit,
-    onShowChapters: () -> Unit,
-    onOpenEntry: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
+    additionalOptions: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -224,14 +204,7 @@ private fun NovelReaderBottomBar(
         AdditionalOptionsMenu(
             expanded = additionalOptionsExpanded,
             onExpandedChange = onAdditionalOptionsExpandedChange,
-            onToggleDayNight = onToggleDayNight,
-            autoScrolling = autoScrolling,
-            onToggleAutoScroll = onToggleAutoScroll,
-            readingRuler = readingRuler,
-            onToggleReadingRuler = onToggleReadingRuler,
-            onStartSearch = onStartSearch,
-            onShowChapters = onShowChapters,
-            onOpenEntry = onOpenEntry,
+            content = additionalOptions,
         )
     }
 }
@@ -239,22 +212,17 @@ private fun NovelReaderBottomBar(
 /**
  * The menu of things you *start*, as opposed to the three tabs of things you *set*.
  *
- * Later stages add one item each — auto scroll, the reading ruler, search, chapters, book
- * information — so it is a plain list of [DropdownMenuItem]s that grows by one block at a time
- * without touching the others.
+ * Its items come from the screen rather than being threaded down here as a callback each. Every one
+ * of them is an action a tap or a key can also be bound to, so letting the screen build them keeps
+ * one path from an action to its effect instead of a second one running alongside the dispatcher.
+ *
+ * The same shape [eu.kanade.presentation.components.TabbedDialog] uses for its own overflow.
  */
 @Composable
 private fun AdditionalOptionsMenu(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
-    onToggleDayNight: () -> Unit,
-    autoScrolling: Boolean,
-    onToggleAutoScroll: () -> Unit,
-    readingRuler: Boolean,
-    onToggleReadingRuler: () -> Unit,
-    onStartSearch: () -> Unit,
-    onShowChapters: () -> Unit,
-    onOpenEntry: () -> Unit,
+    content: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
 ) {
     Box {
         IconButton(onClick = { onExpandedChange(true) }) {
@@ -265,64 +233,7 @@ private fun AdditionalOptionsMenu(
         }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
-            DropdownMenuItem(
-                text = { Text(stringResource(MR.strings.chapters)) },
-                onClick = {
-                    onExpandedChange(false)
-                    onShowChapters()
-                },
-            )
-
-            DropdownMenuItem(
-                text = { Text(stringResource(MR.strings.leaf_novel_action_book_information)) },
-                onClick = {
-                    onExpandedChange(false)
-                    onOpenEntry()
-                },
-            )
-
-            DropdownMenuItem(
-                text = { Text(stringResource(MR.strings.action_search)) },
-                onClick = {
-                    onExpandedChange(false)
-                    onStartSearch()
-                },
-            )
-
-            RadioMenuItem(
-                text = { Text(stringResource(MR.strings.leaf_novel_reader_reading_ruler)) },
-                isChecked = readingRuler,
-                onClick = {
-                    onExpandedChange(false)
-                    onToggleReadingRuler()
-                },
-            )
-
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        stringResource(
-                            if (autoScrolling) {
-                                MR.strings.leaf_novel_action_stop_auto_scroll
-                            } else {
-                                MR.strings.leaf_novel_action_auto_scroll
-                            },
-                        ),
-                    )
-                },
-                onClick = {
-                    onExpandedChange(false)
-                    onToggleAutoScroll()
-                },
-            )
-
-            DropdownMenuItem(
-                text = { Text(stringResource(MR.strings.leaf_novel_reader_day_night_mode)) },
-                onClick = {
-                    onExpandedChange(false)
-                    onToggleDayNight()
-                },
-            )
+            content { onExpandedChange(false) }
         }
     }
 }
