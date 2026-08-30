@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.sample
 import leaf.novel.presentation.reader.NovelReaderScreen
+import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderKey
 import mihon.app.di.AppGraph
 import mihon.core.metro.metroGraph
 import kotlin.time.Duration.Companion.seconds
@@ -94,6 +97,24 @@ class NovelReaderActivity : BaseActivity() {
     override fun onPause() {
         viewModel.saveOnPause()
         super.onPause()
+    }
+
+    /**
+     * Routes a bound key to the reader.
+     *
+     * [NovelReaderAction.NONE] means "do not intercept", not "consume and do nothing". Anything
+     * else would leave a reader with no way out of the activity when Back is unbound, and would
+     * swallow the volume keys for the whole device while the reader is open.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val binding = NovelReaderKey.of(event.keyCode)?.let { viewModel.novelReaderPreferences.keys[it] }
+        val action = binding?.get() ?: NovelReaderAction.NONE
+        if (action == NovelReaderAction.NONE) return super.dispatchKeyEvent(event)
+
+        // Both halves of the press are consumed. Letting the release through would reach the
+        // system, so a key bound here would also still do whatever the system does with it.
+        if (event.action == KeyEvent.ACTION_DOWN) viewModel.requestAction(action)
+        return true
     }
 
     /**

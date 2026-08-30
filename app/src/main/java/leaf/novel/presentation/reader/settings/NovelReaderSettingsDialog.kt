@@ -30,6 +30,7 @@ import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelTapGrid
 import tachiyomi.core.common.preference.Preference
@@ -296,6 +297,20 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         selectedIndex = longTap.ordinal,
         onSelect = { novelReaderPreferences.longTap.set(NovelReaderAction.entries[it]) },
     )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_keys)
+
+    val titles = actionTitles()
+    NovelReaderKey.entries.forEach { key ->
+        val preference = novelReaderPreferences.keys.getValue(key)
+        val boundAction by preference.collectAsState()
+        SelectItem(
+            label = stringResource(key.titleRes),
+            options = titles,
+            selectedIndex = boundAction.ordinal,
+            onSelect = { preference.set(NovelReaderAction.entries[it]) },
+        )
+    }
 }
 
 /**
