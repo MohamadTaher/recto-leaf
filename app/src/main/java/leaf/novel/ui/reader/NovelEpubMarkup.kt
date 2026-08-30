@@ -34,6 +34,10 @@ object NovelEpubMarkup {
      * chapter does not end with a second copy of every note in it.
      */
     fun inlineFootnotes(html: String): String {
+        // Parsing a whole chapter is not free and this runs on every render, so a cheap scan for the
+        // marker comes first: most chapters, and every web novel, carry no footnotes at all.
+        if (NOTEREF !in html) return html
+
         val document = Jsoup.parse(html)
 
         document.select("a[href]")
@@ -63,6 +67,8 @@ object NovelEpubMarkup {
      * settings screen without opening the book — the heading says so instead.
      */
     fun showPageNumbers(html: String): String {
+        if (PAGEBREAK !in html) return html
+
         val document = Jsoup.parse(html)
 
         document.allElements
@@ -89,6 +95,15 @@ object NovelEpubMarkup {
      */
     private fun Element.isType(type: String): Boolean =
         attr("epub:type").split(' ').contains(type) || attr("role") == "doc-$type"
+
+    /**
+     * What the markup has to mention before it is worth parsing.
+     *
+     * Both spellings of each — `epub:type` and `role="doc-…"` — contain these, so a chapter without
+     * the substring cannot contain the element either.
+     */
+    private const val NOTEREF = "noteref"
+    private const val PAGEBREAK = "pagebreak"
 
     /** Where a page break keeps its number, in the order the specification prefers. */
     private val LABEL_ATTRIBUTES = listOf("title", "aria-label", "value")

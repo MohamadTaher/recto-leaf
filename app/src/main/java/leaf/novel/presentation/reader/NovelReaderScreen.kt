@@ -128,12 +128,27 @@ fun NovelReaderScreen(
     var openImage by remember { mutableStateOf<String?>(null) }
     var confirmRestore by remember { mutableStateOf<Uri?>(null) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Read here rather than in the coroutines below, which are not composable. A restore that
+    // quietly did nothing would be the worst possible outcome right after a dialog promising to
+    // replace every setting.
+    val settingsSaved = stringResource(MR.strings.leaf_novel_reader_settings_saved)
+    val settingsRestored = stringResource(MR.strings.leaf_novel_reader_settings_restored)
+    val settingsFailed = stringResource(MR.strings.leaf_novel_reader_settings_failed)
 
     // Mihon's own document picker, so the file lands wherever the reader keeps things and no
     // storage permission is involved.
     val exportSettings = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(SETTINGS_MIME_TYPE),
-    ) { uri -> uri?.let { scope.launch { viewModel.exportSettings(it) } } }
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                val saved = viewModel.exportSettings(it)
+                snackbarHostState.showSnackbar(if (saved) settingsSaved else settingsFailed)
+            }
+        }
+    }
 
     val pickSettings = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -242,7 +257,6 @@ fun NovelReaderScreen(
         viewModel.actions.collect { performAction(it) }
     }
 
-    val snackbarHostState = remember { SnackbarHostState() }
     val reminderMinutes by viewModel.novelReaderPreferences.reminderMinutes.collectAsState()
     val reminderAt by viewModel.novelReaderPreferences.reminderAt.collectAsState()
     val reminderMessage = stringResource(MR.strings.leaf_novel_reader_reminder_message)
@@ -572,7 +586,10 @@ fun NovelReaderScreen(
                 TextButton(
                     onClick = {
                         confirmRestore = null
-                        scope.launch { viewModel.importSettings(uri) }
+                        scope.launch {
+                            val restored = viewModel.importSettings(uri)
+                            snackbarHostState.showSnackbar(if (restored) settingsRestored else settingsFailed)
+                        }
                     },
                 ) {
                     Text(stringResource(MR.strings.action_ok))

@@ -38,6 +38,14 @@ class NovelStatusLineTest {
             NovelStatusLine.Screens(current = 3, total = 3)
     }
 
+    /** The common case: the last screenful is a partial one, and it still has to be reachable. */
+    @Test
+    fun `reaches the last screen of a chapter that does not divide evenly`() {
+        // Two and a half screens: the furthest it can scroll is 1500, which is the third screen.
+        NovelStatusLine.screens(scrollY = 1500, range = 2500, viewportHeight = 1000) shouldBe
+            NovelStatusLine.Screens(current = 3, total = 3)
+    }
+
     @Test
     fun `reads as one of one before the view has been measured`() {
         NovelStatusLine.screens(scrollY = 0, range = 3000, viewportHeight = 0) shouldBe

@@ -46,9 +46,10 @@ object NovelReaderCss {
             ?.let { "font-family: $it !important;" }
             .orEmpty()
         val bookHead = if (style.disableBookCss) "" else content.head
-        // Centring is a block-level trick, so it has to be part of the same rule as the sizing.
-        val imageRules = style.imageSize.css +
-            if (style.centerImages) " display: block; margin-left: auto; margin-right: auto;" else ""
+        // Centring makes an image a block, which would break the line of an inline one — a furigana
+        // glyph, a drop cap, an emoji. So the sizing goes on every image and the centring only on
+        // images that are already the whole of what contains them.
+        val centredImages = if (style.centerImages) CENTRED_IMAGES else ""
 
         val fontSizePx = scaledFontSizePx(style)
         val lineHeight = tenths(lineHeightTenths(style))
@@ -103,7 +104,8 @@ object NovelReaderCss {
             body * { color: $foreground !important; background-color: transparent !important; }
             p { margin: 0 0 ${paragraphSpacing}em; text-indent: ${firstLineIndent}em; }
             h1, h2, h3, h4, h5, h6 { text-align: start; line-height: 1.3; }
-            img, svg, video { $imageRules }
+            img, svg, video { ${style.imageSize.css} }
+            $centredImages
             pre, table { overflow-x: auto; display: block; max-width: 100%; }
             hr { border: none; border-top: 1px solid $muted; }
             a { color: $link !important; }
@@ -253,6 +255,11 @@ object NovelReaderCss {
 
     private fun Int.toCssColor(): String =
         "rgba(${red()}, ${green()}, ${blue()}, ${alpha() / 255f})"
+
+    /** An image that is the whole of its paragraph is an illustration; one beside text is not. */
+    private const val CENTRED_IMAGES =
+        "p > img:only-child, div > img:only-child, figure > img " +
+            "{ display: block; margin-left: auto; margin-right: auto; }"
 
     /** Caps the page so the text flows sideways into columns instead of downward. */
     private const val PAGED_HTML = "height: 100%;"
