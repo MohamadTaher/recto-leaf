@@ -14,6 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import dev.zacsweers.metro.Inject
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.tachiyomi.ui.base.activity.BaseActivity
+import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.view.setComposeContent
 import kotlinx.coroutines.flow.drop
@@ -25,6 +26,7 @@ import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderKey
 import mihon.app.di.AppGraph
 import mihon.core.metro.metroGraph
+import tachiyomi.core.common.Constants
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -85,6 +87,7 @@ class NovelReaderActivity : BaseActivity() {
             NovelReaderScreen(
                 viewModel = viewModel,
                 onBack = { finish() },
+                onOpenEntry = ::openEntryScreen,
             )
         }
     }
@@ -98,6 +101,23 @@ class NovelReaderActivity : BaseActivity() {
         viewModel.setAutoScrolling(false)
         viewModel.saveOnPause()
         super.onPause()
+    }
+
+    /**
+     * Opens the entry screen, by the route the image reader takes to the same place.
+     *
+     * CLEAR_TOP is what keeps the back stack sane: it drops the reader rather than stacking the
+     * entry screen on top of one the reader has already left behind.
+     */
+    private fun openEntryScreen() {
+        val mangaId = viewModel.state.value.manga?.id ?: return
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                action = Constants.SHORTCUT_MANGA
+                putExtra(Constants.MANGA_EXTRA, mangaId)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            },
+        )
     }
 
     /**
