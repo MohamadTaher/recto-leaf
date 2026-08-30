@@ -90,6 +90,8 @@ fun NovelReaderAppBars(
     readingRuler: Boolean,
     onToggleReadingRuler: () -> Unit,
     onStartSearch: () -> Unit,
+    onShowChapters: () -> Unit,
+    onOpenEntry: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
 ) {
@@ -160,6 +162,8 @@ fun NovelReaderAppBars(
                     readingRuler = readingRuler,
                     onToggleReadingRuler = onToggleReadingRuler,
                     onStartSearch = onStartSearch,
+                    onShowChapters = onShowChapters,
+                    onOpenEntry = onOpenEntry,
                     additionalOptionsExpanded = additionalOptionsExpanded,
                     onAdditionalOptionsExpandedChange = onAdditionalOptionsExpandedChange,
                 )
@@ -184,6 +188,8 @@ private fun NovelReaderBottomBar(
     readingRuler: Boolean,
     onToggleReadingRuler: () -> Unit,
     onStartSearch: () -> Unit,
+    onShowChapters: () -> Unit,
+    onOpenEntry: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -224,6 +230,8 @@ private fun NovelReaderBottomBar(
             readingRuler = readingRuler,
             onToggleReadingRuler = onToggleReadingRuler,
             onStartSearch = onStartSearch,
+            onShowChapters = onShowChapters,
+            onOpenEntry = onOpenEntry,
         )
     }
 }
@@ -245,6 +253,8 @@ private fun AdditionalOptionsMenu(
     readingRuler: Boolean,
     onToggleReadingRuler: () -> Unit,
     onStartSearch: () -> Unit,
+    onShowChapters: () -> Unit,
+    onOpenEntry: () -> Unit,
 ) {
     Box {
         IconButton(onClick = { onExpandedChange(true) }) {
@@ -255,6 +265,22 @@ private fun AdditionalOptionsMenu(
         }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(MR.strings.chapters)) },
+                onClick = {
+                    onExpandedChange(false)
+                    onShowChapters()
+                },
+            )
+
+            DropdownMenuItem(
+                text = { Text(stringResource(MR.strings.leaf_novel_action_book_information)) },
+                onClick = {
+                    onExpandedChange(false)
+                    onOpenEntry()
+                },
+            )
+
             DropdownMenuItem(
                 text = { Text(stringResource(MR.strings.action_search)) },
                 onClick = {

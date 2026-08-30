@@ -65,6 +65,7 @@ import tachiyomi.presentation.core.util.collectAsState
 fun NovelReaderScreen(
     viewModel: NovelReaderViewModel,
     onBack: () -> Unit,
+    onOpenEntry: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -78,6 +79,7 @@ fun NovelReaderScreen(
     var settingsTab by remember { mutableStateOf<NovelReaderSettingsTab?>(null) }
 
     var additionalOptionsExpanded by remember { mutableStateOf(false) }
+    var showChapters by remember { mutableStateOf(false) }
     val webViewController = remember { NovelWebViewController() }
 
     val tapActions = viewModel.novelReaderPreferences.tapZones.map { it.collectAsState().value }
@@ -92,6 +94,8 @@ fun NovelReaderScreen(
             NovelReaderAction.PAGE_DOWN -> webViewController.pageDown()
             NovelReaderAction.AUTO_SCROLL -> viewModel.setAutoScrolling(!state.autoScrolling)
             NovelReaderAction.READING_RULER -> viewModel.novelReaderPreferences.readingRuler.toggle()
+            NovelReaderAction.SHOW_CHAPTERS -> showChapters = true
+            NovelReaderAction.BOOK_INFORMATION -> onOpenEntry()
             NovelReaderAction.SEARCH -> {
                 viewModel.showMenu()
                 viewModel.setSearchQuery("")
@@ -273,6 +277,8 @@ fun NovelReaderScreen(
             autoScrolling = state.autoScrolling,
             readingRuler = readingRuler,
             onToggleReadingRuler = { viewModel.novelReaderPreferences.readingRuler.toggle() },
+            onShowChapters = { showChapters = true },
+            onOpenEntry = onOpenEntry,
             onStartSearch = {
                 viewModel.showMenu()
                 viewModel.setSearchQuery("")
@@ -289,6 +295,15 @@ fun NovelReaderScreen(
             novelReaderPreferences = viewModel.novelReaderPreferences,
             readerPreferences = viewModel.readerPreferences,
             onDismissRequest = { settingsTab = null },
+        )
+    }
+
+    if (showChapters) {
+        NovelChapterSheet(
+            chapters = state.chapters,
+            currentIndex = state.currentIndex,
+            onSelectChapter = viewModel::setCurrentChapter,
+            onDismissRequest = { showChapters = false },
         )
     }
 }
