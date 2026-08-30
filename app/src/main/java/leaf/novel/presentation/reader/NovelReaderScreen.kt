@@ -525,6 +525,7 @@ fun NovelReaderScreen(
                     publisherPreview = publisherPreview,
                     publisherFormatting = publisherFormatting,
                     speaking = state.speaking,
+                    speechUnavailable = state.speechUnavailable,
                     speedReading = state.speedReading,
                     onExportSettings = {
                         dismiss()
@@ -889,6 +890,7 @@ private fun ColumnScope.AdditionalOptions(
     publisherPreview: Boolean,
     publisherFormatting: Boolean,
     speaking: Boolean,
+    speechUnavailable: Boolean,
     speedReading: Boolean,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
@@ -915,20 +917,25 @@ private fun ColumnScope.AdditionalOptions(
         onClick = { onSelect(NovelReaderAction.READING_RULER) },
     )
 
-    DropdownMenuItem(
-        text = {
-            Text(
-                stringResource(
-                    if (speaking) {
-                        MR.strings.leaf_novel_action_stop_speaking
-                    } else {
-                        MR.strings.leaf_novel_action_speak
-                    },
-                ),
-            )
-        },
-        onClick = { onSelect(NovelReaderAction.SPEAK) },
-    )
+    // Withdrawn once the engine has bound and reported that the phone has no voice at all. Until
+    // then it is offered: binding is asynchronous, and an item that flickered in on the first tap
+    // would be stranger than one that turns out to have nothing behind it.
+    if (!speechUnavailable) {
+        DropdownMenuItem(
+            text = {
+                Text(
+                    stringResource(
+                        if (speaking) {
+                            MR.strings.leaf_novel_action_stop_speaking
+                        } else {
+                            MR.strings.leaf_novel_action_speak
+                        },
+                    ),
+                )
+            },
+            onClick = { onSelect(NovelReaderAction.SPEAK) },
+        )
+    }
 
     DropdownMenuItem(
         text = {

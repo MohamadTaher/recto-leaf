@@ -359,6 +359,7 @@ class NovelReaderViewModel(
                     mutableState.update {
                         it.copy(
                             speaking = speech.speaking,
+                            speechUnavailable = speech.initialised && !speech.available,
                             speechFraction = NovelSpeech.fractionAt(speech.index, speechUtterances),
                         )
                     }
@@ -632,6 +633,8 @@ class NovelReaderViewModel(
         val speechFraction: Float = 0f,
         val speedReading: Boolean = false,
         val speedReadIndex: Int = 0,
+        /** Set once the engine has bound and reported that the phone has no voice at all. */
+        val speechUnavailable: Boolean = false,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }
