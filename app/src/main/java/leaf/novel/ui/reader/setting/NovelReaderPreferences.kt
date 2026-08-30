@@ -97,6 +97,21 @@ class NovelReaderPreferences(
     val trimBlankLines: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_trim_blank_lines", false)
 
+    // region Eye care
+
+    val bluelight: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_bluelight", false)
+
+    val bluelightIntensity: Preference<Int> =
+        preferenceStore.getInt("leaf_novel_bluelight_intensity", 50)
+
+    /** Minutes of reading before a nudge to rest. Zero is off. */
+    val reminderMinutes: Preference<Int> = preferenceStore.getInt("leaf_novel_reminder_minutes", 0)
+
+    /** A time of day as HH:mm. Empty is off. */
+    val reminderAt: Preference<String> = preferenceStore.getString("leaf_novel_reminder_at", "")
+
+    // endregion
+
     // endregion
 
     // endregion
@@ -154,6 +169,8 @@ class NovelReaderPreferences(
         val FONT_SCALE_RANGE = -4..20
         val MARGIN_RANGE = 0..200
         val AUTO_SCROLL_SPEED_RANGE = 1..20
+        val BLUELIGHT_INTENSITY_RANGE = 0..100
+        val REMINDER_MINUTES_RANGE = 0..120
 
         /** Mihon own list minus DEFAULT, which means "inherit" and has nothing here to inherit. */
         val ORIENTATIONS = ReaderOrientation.entries - ReaderOrientation.DEFAULT

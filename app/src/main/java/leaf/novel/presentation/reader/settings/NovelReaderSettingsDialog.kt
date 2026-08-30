@@ -46,6 +46,7 @@ import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.SettingsChipRow
 import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
+import tachiyomi.presentation.core.components.TextItem
 import tachiyomi.presentation.core.components.material.IconToggleButton
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -329,6 +330,43 @@ private fun ColumnScope.MiscellaneousPage(
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_trim_blank_lines),
         pref = novelReaderPreferences.trimBlankLines,
+    )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_eye_care)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_bluelight),
+        pref = novelReaderPreferences.bluelight,
+    )
+
+    val bluelight by novelReaderPreferences.bluelight.collectAsState()
+    if (bluelight) {
+        val intensity by novelReaderPreferences.bluelightIntensity.collectAsState()
+        SliderItem(
+            label = stringResource(MR.strings.leaf_novel_reader_bluelight_intensity),
+            value = intensity,
+            valueRange = NovelReaderPreferences.BLUELIGHT_INTENSITY_RANGE,
+            steps = 0,
+            onChange = { novelReaderPreferences.bluelightIntensity.set(it) },
+            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
+    }
+
+    val reminderMinutes by novelReaderPreferences.reminderMinutes.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_reminder_minutes),
+        value = reminderMinutes,
+        valueRange = NovelReaderPreferences.REMINDER_MINUTES_RANGE,
+        steps = 0,
+        valueString = if (reminderMinutes == 0) stringResource(MR.strings.off) else "$reminderMinutes",
+        onChange = { novelReaderPreferences.reminderMinutes.set(it) },
+    )
+
+    val reminderAt by novelReaderPreferences.reminderAt.collectAsState()
+    TextItem(
+        label = stringResource(MR.strings.leaf_novel_reader_reminder_at),
+        value = reminderAt,
+        onChange = { novelReaderPreferences.reminderAt.set(it) },
     )
 }
 
