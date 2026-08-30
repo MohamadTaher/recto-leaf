@@ -32,6 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.DropdownMenu
+import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.reader.appbars.ReaderTopBar
 import eu.kanade.presentation.reader.components.ChapterNavigator
 import eu.kanade.presentation.reader.components.ChapterNavigatorType
@@ -78,6 +79,8 @@ fun NovelReaderAppBars(
     onToggleDayNight: () -> Unit,
     autoScrolling: Boolean,
     onToggleAutoScroll: () -> Unit,
+    readingRuler: Boolean,
+    onToggleReadingRuler: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
 ) {
@@ -134,6 +137,8 @@ fun NovelReaderAppBars(
                     onToggleDayNight = onToggleDayNight,
                     autoScrolling = autoScrolling,
                     onToggleAutoScroll = onToggleAutoScroll,
+                    readingRuler = readingRuler,
+                    onToggleReadingRuler = onToggleReadingRuler,
                     additionalOptionsExpanded = additionalOptionsExpanded,
                     onAdditionalOptionsExpandedChange = onAdditionalOptionsExpandedChange,
                 )
@@ -155,6 +160,8 @@ private fun NovelReaderBottomBar(
     onToggleDayNight: () -> Unit,
     autoScrolling: Boolean,
     onToggleAutoScroll: () -> Unit,
+    readingRuler: Boolean,
+    onToggleReadingRuler: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -192,6 +199,8 @@ private fun NovelReaderBottomBar(
             onToggleDayNight = onToggleDayNight,
             autoScrolling = autoScrolling,
             onToggleAutoScroll = onToggleAutoScroll,
+            readingRuler = readingRuler,
+            onToggleReadingRuler = onToggleReadingRuler,
         )
     }
 }
@@ -210,6 +219,8 @@ private fun AdditionalOptionsMenu(
     onToggleDayNight: () -> Unit,
     autoScrolling: Boolean,
     onToggleAutoScroll: () -> Unit,
+    readingRuler: Boolean,
+    onToggleReadingRuler: () -> Unit,
 ) {
     Box {
         IconButton(onClick = { onExpandedChange(true) }) {
@@ -220,6 +231,15 @@ private fun AdditionalOptionsMenu(
         }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            RadioMenuItem(
+                text = { Text(stringResource(MR.strings.leaf_novel_reader_reading_ruler)) },
+                isChecked = readingRuler,
+                onClick = {
+                    onExpandedChange(false)
+                    onToggleReadingRuler()
+                },
+            )
+
             DropdownMenuItem(
                 text = {
                     Text(

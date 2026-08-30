@@ -40,6 +40,10 @@ object NovelReaderCss {
         )
         val letterSpacing = hundredths(style.fontSpacing)
         val paragraphSpacing = hundredths(style.paragraphSpacing)
+        // The reading aids rewrite the book's own markup, so they run before it is embedded.
+        val chapterHtml = content.html
+            .let { if (style.highlightFirstWord) NovelTextEmphasis.firstWordOfSentence(it) else it }
+            .let { if (style.highlightInitialChars) NovelTextEmphasis.initialCharsOfWord(it) else it }
 
         return """
             <!DOCTYPE html>
@@ -81,7 +85,7 @@ object NovelReaderCss {
             </style>
             </head>
             <body>
-            ${content.html}
+            $chapterHtml
             </body>
             </html>
         """.trimIndent()

@@ -70,6 +70,18 @@ class NovelReaderPreferences(
 
     val marginBottom: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_bottom", 3)
 
+    // region Focused reading
+
+    val readingRuler: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_reading_ruler", false)
+
+    val highlightFirstWord: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_highlight_first_word", false)
+
+    val highlightInitialChars: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_highlight_initial_chars", false)
+
+    // endregion
+
     // endregion
 
     // region Controls
