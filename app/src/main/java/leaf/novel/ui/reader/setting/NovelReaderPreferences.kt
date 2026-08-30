@@ -3,6 +3,7 @@ package leaf.novel.ui.reader.setting
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
@@ -97,6 +98,14 @@ class NovelReaderPreferences(
     val longTap: Preference<NovelReaderAction> =
         preferenceStore.getEnum("leaf_novel_long_tap", NovelReaderAction.TEXT_SELECTION)
 
+    /**
+     * Reuses the image reader orientation model, but deliberately not its key.
+     *
+     * That key is the image reader default, and writing it from here would change how manga opens.
+     */
+    val orientation: Preference<ReaderOrientation> =
+        preferenceStore.getEnum("leaf_novel_orientation", ReaderOrientation.PORTRAIT)
+
     /** How fast auto scroll creeps, in steps of six pixels a second. */
     val autoScrollSpeed: Preference<Int> = preferenceStore.getInt("leaf_novel_autoscroll_speed", 5)
 
@@ -125,6 +134,9 @@ class NovelReaderPreferences(
         val FONT_SCALE_RANGE = -4..20
         val MARGIN_RANGE = 0..200
         val AUTO_SCROLL_SPEED_RANGE = 1..20
+
+        /** Mihon own list minus DEFAULT, which means "inherit" and has nothing here to inherit. */
+        val ORIENTATIONS = ReaderOrientation.entries - ReaderOrientation.DEFAULT
     }
 }
 

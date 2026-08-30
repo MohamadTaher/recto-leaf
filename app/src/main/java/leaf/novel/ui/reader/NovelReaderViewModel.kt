@@ -279,6 +279,12 @@ class NovelReaderViewModel(
 
     fun setAutoScrolling(enabled: Boolean) = mutableState.update { it.copy(autoScrolling = enabled) }
 
+    /** Steps to the next orientation, wrapping, for whatever is bound to it. */
+    fun cycleOrientation() = novelReaderPreferences.orientation.getAndSet {
+        val orientations = NovelReaderPreferences.ORIENTATIONS
+        orientations[(orientations.indexOf(it) + 1) % orientations.size]
+    }
+
     /**
      * A null query means the search bar is closed.
      *

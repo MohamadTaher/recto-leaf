@@ -158,6 +158,10 @@ class NovelReaderActivity : BaseActivity() {
         readerPreferences.fullscreen.changes()
             .onEach(::setFullscreen)
             .launchIn(lifecycleScope)
+
+        viewModel.novelReaderPreferences.orientation.changes()
+            .onEach { requestedOrientation = it.flag }
+            .launchIn(lifecycleScope)
     }
 
     private fun setKeepScreenOn(enabled: Boolean) {
