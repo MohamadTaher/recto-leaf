@@ -89,6 +89,16 @@ class NovelReaderPreferences(
     val showRemainingTime: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_show_remaining_time", false)
 
+    // region Typesetting
+
+    val indentFirstLine: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_indent_first_line", true)
+
+    val trimBlankLines: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_trim_blank_lines", false)
+
+    // endregion
+
     // endregion
 
     // endregion

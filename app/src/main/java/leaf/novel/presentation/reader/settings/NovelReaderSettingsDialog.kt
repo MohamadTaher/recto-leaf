@@ -318,6 +318,18 @@ private fun ColumnScope.MiscellaneousPage(
         label = stringResource(MR.strings.leaf_novel_reader_disable_touch_edge),
         pref = novelReaderPreferences.disableTouchEdge,
     )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_typesetting)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_indent_first_line),
+        pref = novelReaderPreferences.indentFirstLine,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_trim_blank_lines),
+        pref = novelReaderPreferences.trimBlankLines,
+    )
 }
 
 @Composable

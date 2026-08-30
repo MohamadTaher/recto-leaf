@@ -16,8 +16,6 @@ import leaf.novel.ui.reader.setting.NovelReaderStyle
  */
 object NovelReaderCss {
 
-    const val FIRST_LINE_INDENT_EM = 0.0
-
     /**
      * Builds the document the WebView actually loads.
      *
@@ -41,7 +39,9 @@ object NovelReaderCss {
         val letterSpacing = hundredths(style.fontSpacing)
         val paragraphSpacing = hundredths(style.paragraphSpacing)
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
+        val firstLineIndent = if (style.indentFirstLine) FIRST_LINE_INDENT_EM else NO_INDENT_EM
         val chapterHtml = content.html
+            .let { if (style.trimBlankLines) NovelHtmlSanitizer.trimBlankLines(it) else it }
             .let { if (style.highlightFirstWord) NovelTextEmphasis.firstWordOfSentence(it) else it }
             .let { if (style.highlightInitialChars) NovelTextEmphasis.initialCharsOfWord(it) else it }
 
@@ -75,7 +75,7 @@ object NovelReaderCss {
             }
             /* Descendants only: including `body` here would beat its own background above. */
             body * { color: $foreground !important; background-color: transparent !important; }
-            p { margin: 0 0 ${paragraphSpacing}em; text-indent: ${FIRST_LINE_INDENT_EM}em; }
+            p { margin: 0 0 ${paragraphSpacing}em; text-indent: ${firstLineIndent}em; }
             h1, h2, h3, h4, h5, h6 { text-align: start; line-height: 1.3; }
             img, svg, video { max-width: 100%; height: auto; }
             pre, table { overflow-x: auto; display: block; max-width: 100%; }
@@ -139,6 +139,10 @@ object NovelReaderCss {
 
     private fun Int.toCssColor(): String =
         "rgba(${red()}, ${green()}, ${blue()}, ${alpha() / 255f})"
+
+    /** The usual novel indent: enough to see, not enough to notice. */
+    private const val FIRST_LINE_INDENT_EM = "1.2"
+    private const val NO_INDENT_EM = "0.0"
 
     /** Soft enough to lift text off the page without smearing it at small sizes. */
     private const val TEXT_SHADOW = "0 1px 2px rgba(0, 0, 0, 0.35)"

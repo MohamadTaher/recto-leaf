@@ -1139,6 +1139,9 @@
     <string name="leaf_novel_reader_show_notification_bar">Show system notification bar</string>
     <string name="leaf_novel_reader_show_remaining_time">Show reading remaining time</string>
     <string name="leaf_novel_reader_disable_touch_edge">Disable touch screen edge</string>
+    <string name="leaf_novel_reader_heading_typesetting">Typesetting</string>
+    <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
+    <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>
     <string name="leaf_novel_reader_minutes_left">%1$d min left</string>
     <string name="leaf_novel_reader_find_previous">Previous match</string>
     <string name="leaf_novel_reader_find_next">Next match</string>

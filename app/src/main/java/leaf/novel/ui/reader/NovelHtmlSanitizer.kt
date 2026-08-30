@@ -3,6 +3,9 @@ package leaf.novel.ui.reader
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
+import org.jsoup.nodes.Node
+import org.jsoup.nodes.TextNode
 import org.jsoup.safety.Safelist
 
 /**
@@ -68,6 +71,48 @@ object NovelHtmlSanitizer {
         }
 
         return Jsoup.clean(body.html(), base, SAFELIST)
+    }
+
+    /**
+     * Drops the blank space a book pads its paragraphs out with.
+     *
+     * Empty and whitespace-only paragraphs go, and a run of line breaks collapses to one. Rules
+     * stay: a horizontal rule is a scene break, which is content rather than padding, and the
+     * stylesheet already renders it as such.
+     *
+     * Called where the document is built rather than from [sanitize], and that matters. An
+     * imported EPUB never passes through [sanitize] — it is read straight out of the archive — so
+     * trimming there would quietly do nothing for the case most books are.
+     */
+    fun trimBlankLines(html: String): String {
+        val document = Jsoup.parseBodyFragment(html)
+        // Indenting block elements would add newlines, which render as spaces.
+        document.outputSettings().prettyPrint(false)
+        val body = document.body()
+
+        body.select("p").forEach { paragraph ->
+            // Blank of text is not blank of content: a paragraph holding only an image stays.
+            if (paragraph.text().isBlank() && paragraph.select("img, svg, video, hr").isEmpty()) {
+                paragraph.remove()
+            }
+        }
+
+        // A break following another break is padding; the first of the run is a line meant.
+        body.select("br").forEach { lineBreak ->
+            val previous = lineBreak.previousNonBlank()
+            if (previous is Element && previous.normalName() == "br") lineBreak.remove()
+        }
+
+        return body.html()
+    }
+
+    /** The sibling before this one, looking past the whitespace between tags. */
+    private fun Node.previousNonBlank(): Node? {
+        var previous = previousSibling()
+        while (previous is TextNode && previous.text().isBlank()) {
+            previous = previous.previousSibling()
+        }
+        return previous
     }
 
     private fun isHttp(url: String): Boolean =
