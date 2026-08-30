@@ -1120,6 +1120,11 @@
     <string name="leaf_novel_key_media_next">Media next</string>
     <string name="leaf_novel_key_media_previous">Media previous</string>
     <string name="leaf_novel_key_media_pause">Media pause</string>
+    <string name="leaf_novel_reader_heading_gestures">Gestures</string>
+    <string name="leaf_novel_swipe_right_to_left">Swipe right to left</string>
+    <string name="leaf_novel_swipe_left_to_right">Swipe left to right</string>
+    <string name="leaf_novel_swipe_top_to_bottom">Swipe top to bottom</string>
+    <string name="leaf_novel_swipe_bottom_to_top">Swipe bottom to top</string>
     <string name="leaf_novel_action_options_menu">Options menu</string>
     <string name="leaf_novel_action_page_up">Page up</string>
     <string name="leaf_novel_action_page_down">Page down</string>

@@ -43,6 +43,7 @@ import leaf.novel.ui.reader.NovelReaderViewModel
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderStyle
+import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
@@ -151,6 +152,15 @@ fun NovelReaderScreen(
                         seekRequests = seekRequests,
                         controller = webViewController,
                         onTapCell = { performAction(tapActions[it]) },
+                        onSwipe = { swipe ->
+                            val bound = viewModel.novelReaderPreferences.swipes.getValue(swipe).get()
+                            if (bound == NovelReaderAction.NONE) {
+                                false
+                            } else {
+                                performAction(bound)
+                                true
+                            }
+                        },
                         onLongPress = {
                             if (longTapAction == NovelReaderAction.TEXT_SELECTION) {
                                 false
@@ -221,6 +231,7 @@ private fun ChapterContent(
     controller: NovelWebViewController,
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
+    onSwipe: (NovelReaderSwipe) -> Boolean,
     onExternalLink: (String) -> Unit,
 ) {
     val assetServer = remember(viewModel) { viewModel.assetServer() }
@@ -265,6 +276,7 @@ private fun ChapterContent(
                 controller = controller,
                 onTapCell = onTapCell,
                 onLongPress = onLongPress,
+                onSwipe = onSwipe,
                 onInternalLink = viewModel::openChapterByEntry,
                 onExternalLink = onExternalLink,
                 // The reader is edge-to-edge, so without this the first and last lines of a chapter
