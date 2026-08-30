@@ -587,15 +587,25 @@ private fun ColumnScope.MiscellaneousPage(
         pref = novelReaderPreferences.paged,
     )
 
-    // The rest configure the mode above, so they are only worth showing once it is on. Stage 17's
-    // "stored now, takes effect later" subtitle is gone with them: it is no longer true.
-    val paged by novelReaderPreferences.paged.collectAsState()
-    if (!paged) return
-
+    // These two are about turning a page, not about how the page is laid out, so they work — and
+    // are offered — in either mode. Keeping a line is in fact the only one of the seven that does
+    // *nothing* while paged: columns cannot overlap.
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_keep_one_line),
         pref = novelReaderPreferences.keepOneLineWhenPaging,
     )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_page_turn_sound),
+        pref = novelReaderPreferences.pageTurnSound,
+    )
+
+    // The rest describe a layout that only exists while paged mode is on, and are gated at their
+    // call sites as well as here. Showing one that cannot be reached to switch off again is how a
+    // reader ends up stuck on a page they cannot scroll. Stage 17's "stored now, takes effect
+    // later" subtitle is gone with all of them: it is no longer true of any.
+    val paged by novelReaderPreferences.paged.collectAsState()
+    if (!paged) return
 
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_trim_top_blank_lines),
@@ -620,11 +630,6 @@ private fun ColumnScope.MiscellaneousPage(
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_dual_page),
         pref = novelReaderPreferences.dualPageLayout,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_page_turn_sound),
-        pref = novelReaderPreferences.pageTurnSound,
     )
 }
 

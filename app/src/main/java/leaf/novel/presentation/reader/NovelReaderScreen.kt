@@ -303,8 +303,9 @@ fun NovelReaderScreen(
         viewModel.novelReaderPreferences.barButtons.map { it.collectAsState().value },
     )
 
-    // The paging settings stage 17 stored and left inert. Every one of them reads as off while
-    // paged mode is off, so continuous reading behaves exactly as it did before this stage.
+    // The paging settings stage 17 stored and left inert. The three that only mean anything to a
+    // paged layout are gated on it below; keeping a line and the page-turn sound apply to page up
+    // and page down in either mode, and are offered in either mode to match.
     val paged by viewModel.novelReaderPreferences.paged.collectAsState()
     val keepOneLine by viewModel.novelReaderPreferences.keepOneLineWhenPaging.collectAsState()
     val pageTurnSound by viewModel.novelReaderPreferences.pageTurnSound.collectAsState()
@@ -413,8 +414,12 @@ fun NovelReaderScreen(
                         paged = paged,
                         pageOverlapPx = pageOverlapPx,
                         pageTurnSound = pageTurnSound,
-                        blockVerticalScroll = disableVerticalScroll,
-                        flingTurnsPage = flingToTurnPage,
+                        // Paged-only, and gated here as well as hidden in the settings: a reader
+                        // who turned dragging off while paged and then left paged mode would
+                        // otherwise be stuck on a page they cannot scroll, with the checkbox that
+                        // would undo it no longer on screen.
+                        blockVerticalScroll = paged && disableVerticalScroll,
+                        flingTurnsPage = paged && flingToTurnPage,
                         tapImageEnabled = tapImageToOpen,
                         onImageTap = { openImage = it },
                         pinchEnabled = pinchFontSize,
@@ -778,6 +783,7 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val highlightInitialChars by preferences.highlightInitialChars.collectAsState()
     val indentFirstLine by preferences.indentFirstLine.collectAsState()
     val trimBlankLines by preferences.trimBlankLines.collectAsState()
+    val trimTopBlankLines by preferences.trimTopBlankLines.collectAsState()
     val linkColor by preferences.linkColor.collectAsState()
     val noteColor by preferences.noteColor.collectAsState()
     val disableBookCss by preferences.disableBookCss.collectAsState()
@@ -811,6 +817,7 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         highlightInitialChars = highlightInitialChars,
         indentFirstLine = indentFirstLine,
         trimBlankLines = trimBlankLines,
+        trimTopBlankLines = trimTopBlankLines,
         linkColor = linkColor,
         noteColor = noteColor,
         disableBookCss = disableBookCss,

@@ -271,9 +271,7 @@ fun NovelChapterWebView(
         // Content height is not final at onPageFinished — images and the book's own stylesheet are
         // still settling — so restoring there lands in the wrong place on a long chapter.
         val maxScroll = view.awaitStableMaxScroll()
-        if (maxScroll > 0 && initialPercent > 0) {
-            view.scrollTo(0, view.scrollTargetOf(initialPercent))
-        }
+        if (maxScroll > 0 && initialPercent > 0) view.seekTo(initialPercent)
         restored.value = true
         // onScrollChanged only fires on a change, so a chapter opened at the top would leave the
         // status bar reading 1/1 until the first drag. Seed it from the settled measurement.

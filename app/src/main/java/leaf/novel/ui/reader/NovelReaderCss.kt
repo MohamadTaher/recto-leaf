@@ -57,7 +57,13 @@ object NovelReaderCss {
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
         val firstLineIndent = if (style.indentFirstLine) FIRST_LINE_INDENT_EM else NO_INDENT_EM
         val chapterHtml = content.html
-            .let { if (style.trimBlankLines) NovelHtmlSanitizer.trimBlankLines(it) else it }
+            // Trimming the top of a page is the same pass as trimming the chapter — a column break
+            // cannot be targeted separately — so the paged setting turns on the one that exists
+            // rather than a second doing identical work.
+            .let {
+                val trim = style.trimBlankLines || (style.paged && style.trimTopBlankLines)
+                if (trim) NovelHtmlSanitizer.trimBlankLines(it) else it
+            }
             .let { if (style.inlineFootnotes) NovelEpubMarkup.inlineFootnotes(it) else it }
             .let { if (style.printPageNumbers) NovelEpubMarkup.showPageNumbers(it) else it }
             .let { if (style.highlightFirstWord) NovelTextEmphasis.firstWordOfSentence(it) else it }
@@ -134,6 +140,13 @@ object NovelReaderCss {
      *
      * Emitted before the main `body` rule so that rule still owns the padding and the colours; this
      * one sets only what it does not.
+     *
+     * Nothing here hides overflow, and nothing may. The reader runs no JavaScript, so a page turn is
+     * the WebView's own `scrollBy` — which moves the *document*, and only has anywhere to move it if
+     * the columns overflow the root scroller visibly. Hiding overflow on `html` or `body` leaves
+     * `computeHorizontalScrollRange()` equal to the viewport, which reads as a chapter with one page
+     * that is already finished. Capping the height is what turns the text sideways; clipping it is
+     * what would strand the reader on the first column.
      */
     private fun pagedBody(style: NovelReaderStyle): String {
         val columns = if (style.dualPageLayout) DUAL_COLUMNS else SINGLE_COLUMN
@@ -143,7 +156,6 @@ object NovelReaderCss {
               column-count: $columns;
               column-gap: ${style.marginLeft + style.marginRight}px;
               column-fill: auto;
-              overflow: hidden;
             }
             /* A heading or an image split across a column boundary is the characteristic defect. */
             h1, h2, h3, h4, h5, h6 { break-after: avoid; }
@@ -242,8 +254,8 @@ object NovelReaderCss {
     private fun Int.toCssColor(): String =
         "rgba(${red()}, ${green()}, ${blue()}, ${alpha() / 255f})"
 
-    /** Paged mode owns the viewport outright: the strip of columns scrolls, the page does not. */
-    private const val PAGED_HTML = "height: 100%; overflow: hidden;"
+    /** Caps the page so the text flows sideways into columns instead of downward. */
+    private const val PAGED_HTML = "height: 100%;"
 
     private const val SINGLE_COLUMN = 1
     private const val DUAL_COLUMNS = 2
