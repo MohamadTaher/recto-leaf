@@ -1,5 +1,7 @@
 package leaf.novel.ui.reader
 
+import kotlin.math.roundToInt
+
 /**
  * The two sums the mini status bar shows and nothing else needs.
  *
@@ -27,8 +29,16 @@ object NovelStatusLine {
     fun screens(scrollY: Int, range: Int, viewportHeight: Int): Screens {
         if (viewportHeight <= 0) return Screens.NONE
         val total = ((range + viewportHeight - 1) / viewportHeight).coerceAtLeast(1)
-        val current = (scrollY / viewportHeight + 1).coerceIn(1, total)
-        return Screens(current, total)
+
+        // Spread over how far the chapter can actually scroll, not over its length. The last
+        // screenful is usually a partial one, so the furthest the reader can get is a viewport
+        // short of the end — dividing by the viewport would leave the final screen unreachable and
+        // a two-and-a-half screen chapter reading "2/3" at the bottom.
+        val maxScroll = (range - viewportHeight).coerceAtLeast(0)
+        if (maxScroll <= 0) return Screens(current = 1, total = total)
+
+        val current = (scrollY.toFloat() / maxScroll * (total - 1)).roundToInt() + 1
+        return Screens(current.coerceIn(1, total), total)
     }
 
     /**

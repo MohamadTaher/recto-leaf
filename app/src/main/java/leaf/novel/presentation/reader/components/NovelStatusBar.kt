@@ -83,7 +83,7 @@ fun NovelStatusBar(
     val clock = if (placements[NovelStatusItem.CLOCK] != NovelStatusPlacement.OFF) clockText() else null
 
     val texts = mapOf(
-        NovelStatusItem.BATTERY to battery?.let { "{$it}" },
+        NovelStatusItem.BATTERY to battery?.let { "$it%" },
         NovelStatusItem.CLOCK to clock,
         NovelStatusItem.REMAINING_TIME to stringResource(MR.strings.leaf_novel_reader_minutes_left, minutesRemaining),
         NovelStatusItem.CHAPTER_NAME to chapterName,

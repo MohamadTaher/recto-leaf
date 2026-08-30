@@ -188,6 +188,7 @@ private fun NovelReaderBottomBar(
                 AdditionalOptionsMenu(
                     expanded = additionalOptionsExpanded,
                     onExpandedChange = onAdditionalOptionsExpandedChange,
+                    showButton = true,
                     content = additionalOptions,
                 )
             } else {
@@ -195,6 +196,18 @@ private fun NovelReaderBottomBar(
                     Icon(imageVector = icon, contentDescription = stringResource(action.titleRes))
                 }
             }
+        }
+
+        // The menu is still reachable from a tap zone, a key or a gesture when its button is not on
+        // the bar, and it is the only route to speech, speed reading and the settings backup — so it
+        // keeps an anchor here either way. Without one the binding opened nothing at all.
+        if (NovelReaderAction.ADDITIONAL_OPTIONS !in buttons) {
+            AdditionalOptionsMenu(
+                expanded = additionalOptionsExpanded,
+                onExpandedChange = onAdditionalOptionsExpandedChange,
+                showButton = false,
+                content = additionalOptions,
+            )
         }
     }
 }
@@ -212,14 +225,17 @@ private fun NovelReaderBottomBar(
 private fun AdditionalOptionsMenu(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
+    showButton: Boolean,
     content: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
 ) {
     Box {
-        IconButton(onClick = { onExpandedChange(true) }) {
-            Icon(
-                imageVector = MaterialSymbols.AutoMirroredRounded.Sort,
-                contentDescription = stringResource(MR.strings.leaf_novel_reader_additional_options),
-            )
+        if (showButton) {
+            IconButton(onClick = { onExpandedChange(true) }) {
+                Icon(
+                    imageVector = MaterialSymbols.AutoMirroredRounded.Sort,
+                    contentDescription = stringResource(MR.strings.leaf_novel_reader_additional_options),
+                )
+            }
         }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
