@@ -469,6 +469,8 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val marginBottom by preferences.marginBottom.collectAsState()
     val highlightFirstWord by preferences.highlightFirstWord.collectAsState()
     val highlightInitialChars by preferences.highlightInitialChars.collectAsState()
+    val indentFirstLine by preferences.indentFirstLine.collectAsState()
+    val trimBlankLines by preferences.trimBlankLines.collectAsState()
 
     return NovelReaderStyle(
         fontSizePx = fontSize,
@@ -489,6 +491,8 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         marginBottom = marginBottom,
         highlightFirstWord = highlightFirstWord,
         highlightInitialChars = highlightInitialChars,
+        indentFirstLine = indentFirstLine,
+        trimBlankLines = trimBlankLines,
     )
 }
 

@@ -37,4 +37,6 @@ data class NovelReaderStyle(
     val marginBottom: Int,
     val highlightFirstWord: Boolean,
     val highlightInitialChars: Boolean,
+    val indentFirstLine: Boolean,
+    val trimBlankLines: Boolean,
 )

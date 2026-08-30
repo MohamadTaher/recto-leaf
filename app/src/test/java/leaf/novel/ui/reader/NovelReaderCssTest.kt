@@ -28,6 +28,8 @@ private fun style(
     marginBottom: Int = 3,
     highlightFirstWord: Boolean = false,
     highlightInitialChars: Boolean = false,
+    indentFirstLine: Boolean = true,
+    trimBlankLines: Boolean = false,
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
     bold = bold,
@@ -47,6 +49,8 @@ private fun style(
     marginBottom = marginBottom,
     highlightFirstWord = highlightFirstWord,
     highlightInitialChars = highlightInitialChars,
+    indentFirstLine = indentFirstLine,
+    trimBlankLines = trimBlankLines,
 )
 
 /**
