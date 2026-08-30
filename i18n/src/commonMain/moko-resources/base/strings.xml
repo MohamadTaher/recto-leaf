@@ -1164,6 +1164,15 @@
     <string name="leaf_novel_reader_heading_typesetting">Typesetting</string>
     <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
     <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>
+    <string name="leaf_novel_reader_heading_format">Format specific (EPUB)</string>
+    <string name="leaf_novel_reader_format_subtitle">Print page numbers appear only in books that carry them.</string>
+    <string name="leaf_novel_reader_disable_book_css">Disable CSS styles</string>
+    <string name="leaf_novel_reader_use_book_fonts">Use fonts specified in the book</string>
+    <string name="leaf_novel_reader_inline_footnotes">Show footnotes directly in chapter text</string>
+    <string name="leaf_novel_reader_note_color">Footnote color</string>
+    <string name="leaf_novel_reader_print_page_numbers">Show print edition page numbers</string>
+    <string name="leaf_novel_reader_publisher_preview">Offer publisher formatting preview</string>
+    <string name="leaf_novel_action_publisher_formatting">Publisher formatting</string>
     <string name="leaf_novel_reader_heading_eye_care">Eye care</string>
     <string name="leaf_novel_reader_bluelight">Bluelight filter</string>
     <string name="leaf_novel_reader_bluelight_intensity">Filter strength</string>

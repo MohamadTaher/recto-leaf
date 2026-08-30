@@ -161,6 +161,35 @@ class NovelReaderPreferences(
     val trimBlankLines: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_trim_blank_lines", false)
 
+    // region Format specific
+
+    /**
+     * Whether the book's own `<head>` is injected ahead of the reader's stylesheet.
+     *
+     * On by default, per the imported configuration: a book's own CSS is what makes it render
+     * unlike every other book in the library, and the reader's settings exist to override it.
+     */
+    val disableBookCss: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_disable_book_css", true)
+
+    /** Suppresses the reader's own font-family, leaving whatever the book names to apply. */
+    val useBookFonts: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_use_book_fonts", false)
+
+    val inlineFootnotes: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_inline_footnotes", true)
+
+    val printPageNumbers: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_print_page_numbers", false)
+
+    /** Whether the publisher-formatting preview is offered in the additional options menu. */
+    val publisherPreview: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_publisher_preview", false)
+
+    /** The colour a folded-in footnote is drawn in. Shares the link palette. */
+    val noteColor: Preference<NovelLinkColor> =
+        preferenceStore.getEnum("leaf_novel_note_color", NovelLinkColor.DEFAULT)
+
     // region Eye care
 
     val bluelight: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_bluelight", false)
@@ -214,6 +243,8 @@ class NovelReaderPreferences(
 
     val pageTurnSound: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_page_turn_sound", false)
+
+    // endregion
 
     // endregion
 

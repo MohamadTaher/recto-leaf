@@ -447,6 +447,62 @@ private fun ColumnScope.MiscellaneousPage(
         pref = novelReaderPreferences.trimBlankLines,
     )
 
+    HeadingItem(MR.strings.leaf_novel_reader_heading_format)
+
+    // Print page numbers only exist in a book that carries them, and there is no way to know that
+    // from here without opening it — so the heading says so rather than the setting doing nothing.
+    Text(
+        text = stringResource(MR.strings.leaf_novel_reader_format_subtitle),
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier
+            .padding(horizontal = SettingsItemsPaddings.Horizontal)
+            .secondaryItemAlpha(),
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_disable_book_css),
+        pref = novelReaderPreferences.disableBookCss,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_use_book_fonts),
+        pref = novelReaderPreferences.useBookFonts,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_inline_footnotes),
+        pref = novelReaderPreferences.inlineFootnotes,
+    )
+
+    val inlineFootnotes by novelReaderPreferences.inlineFootnotes.collectAsState()
+    if (inlineFootnotes) {
+        val noteColor by novelReaderPreferences.noteColor.collectAsState()
+        SettingsChipRow(MR.strings.leaf_novel_reader_note_color) {
+            NovelLinkColor.entries.map { candidate ->
+                FilterChip(
+                    selected = noteColor == candidate,
+                    onClick = { novelReaderPreferences.noteColor.set(candidate) },
+                    label = {
+                        Text(
+                            text = stringResource(candidate.titleRes),
+                            color = candidate.argb?.let(::Color) ?: Color.Unspecified,
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_print_page_numbers),
+        pref = novelReaderPreferences.printPageNumbers,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_publisher_preview),
+        pref = novelReaderPreferences.publisherPreview,
+    )
+
     HeadingItem(MR.strings.leaf_novel_reader_heading_eye_care)
 
     CheckboxItem(
