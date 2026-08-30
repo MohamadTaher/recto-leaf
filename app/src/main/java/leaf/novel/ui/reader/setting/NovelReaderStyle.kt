@@ -51,4 +51,5 @@ data class NovelReaderStyle(
     val paged: Boolean,
     val dualPageLayout: Boolean,
     val trimTopBlankLines: Boolean,
+    val textReplacements: String,
 )

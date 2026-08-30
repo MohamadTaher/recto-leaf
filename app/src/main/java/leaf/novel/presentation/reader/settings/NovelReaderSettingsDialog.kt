@@ -487,6 +487,8 @@ private fun ColumnScope.MiscellaneousPage(
         pref = novelReaderPreferences.trimBlankLines,
     )
 
+    TextReplacements(novelReaderPreferences.textReplacements)
+
     HeadingItem(MR.strings.leaf_novel_reader_heading_format)
 
     // Print page numbers only exist in a book that carries them, and there is no way to know that
