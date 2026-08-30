@@ -22,7 +22,9 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
@@ -39,8 +41,10 @@ import leaf.novel.ui.reader.loader.EpubContentProvider
 import leaf.novel.ui.reader.loader.NovelContentProvider
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.SourceContentProvider
+import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import logcat.LogPriority
+import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
@@ -232,8 +236,16 @@ class NovelReaderViewModel(
     /** Loads one chapter's body. The reader never touches [leaf.novel.data.epub.NovelEpubReader] itself. */
     suspend fun chapterContent(chapter: Chapter): Result<NovelChapterContent> {
         val contentProvider = provider ?: return Result.failure(IllegalStateException("Reader closed"))
-        return runCatching { contentProvider.content(chapter) }
+        val result = runCatching { contentProvider.content(chapter) }
             .onFailure { logcat(LogPriority.WARN, it) { "Could not load chapter ${chapter.url}" } }
+
+        // Counted once per chapter for the remaining-time estimate, and off the main thread: a
+        // long chapter is a lot of markup to walk.
+        result.getOrNull()?.let { content ->
+            val words = withIOContext { NovelReadingTime.wordsIn(content.html) }
+            mutableState.update { it.copy(chapterWords = words) }
+        }
+        return result
     }
 
     fun assetServer(): NovelEpubAssetServer? = provider?.let(::NovelEpubAssetServer)
@@ -245,7 +257,9 @@ class NovelReaderViewModel(
         viewModelScope.launchNonCancellable { flushProgress() }
         restoredChapterId = chapter.id
         restartReadTimer()
-        mutableState.update { it.copy(currentIndex = index) }
+        // Auto scroll does not carry across a chapter boundary.
+        // Neither auto scroll nor a search carries across a chapter boundary.
+        mutableState.update { it.copy(currentIndex = index, autoScrolling = false, searchQuery = null) }
     }
 
     /**
@@ -259,7 +273,59 @@ class NovelReaderViewModel(
         if (index >= 0) setCurrentChapter(index)
     }
 
-    fun toggleMenu() = mutableState.update { it.copy(menuVisible = !it.menuVisible) }
+    /**
+     * Auto scroll stops whenever the chrome comes up. A page still creeping behind an open
+     * settings dialog is the obvious way for this to go wrong.
+     */
+    fun toggleMenu() = mutableState.update {
+        val visible = !it.menuVisible
+        it.copy(menuVisible = visible, autoScrolling = it.autoScrolling && !visible)
+    }
+
+    /** Forces the chrome up, for an action that needs something anchored to it. */
+    fun showMenu() = mutableState.update { it.copy(menuVisible = true, autoScrolling = false) }
+
+    fun setAutoScrolling(enabled: Boolean) = mutableState.update { it.copy(autoScrolling = enabled) }
+
+    /** Steps to the next orientation, wrapping, for whatever is bound to it. */
+    fun cycleOrientation() = novelReaderPreferences.orientation.getAndSet {
+        val orientations = NovelReaderPreferences.ORIENTATIONS
+        orientations[(orientations.indexOf(it) + 1) % orientations.size]
+    }
+
+    /**
+     * A null query means the search bar is closed.
+     *
+     * The activity reads this before deciding whether to claim a key: a reader typing into the
+     * search field must not have their letters turned into page turns.
+     */
+    fun setSearchQuery(query: String?) = mutableState.update { it.copy(searchQuery = query) }
+
+    /**
+     * Actions raised outside the composition — from the key handler — for the screen to perform.
+     *
+     * The dispatcher lives in the screen because most of what it does is Compose state. Keys are
+     * dispatched by the activity, which cannot reach that, so they arrive here instead.
+     */
+    private val actionRequests = MutableSharedFlow<NovelReaderAction>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val actions: SharedFlow<NovelReaderAction> = actionRequests.asSharedFlow()
+
+    fun requestAction(action: NovelReaderAction) {
+        actionRequests.tryEmit(action)
+    }
+
+    /**
+     * Flips the shared reader theme between its black and white values.
+     *
+     * The theme is a ReaderPreferences key both readers share — the novel reader deliberately has
+     * no settings system of its own — so the image reader changes background with it.
+     */
+    fun toggleDayNightMode() = readerPreferences.readerTheme.getAndSet {
+        if (it == READER_THEME_WHITE) READER_THEME_BLACK else READER_THEME_WHITE
+    }
 
     fun setBrightnessOverlayValue(value: Int) = mutableState.update { it.copy(brightnessOverlayValue = value) }
 
@@ -353,6 +419,9 @@ class NovelReaderViewModel(
         val menuVisible: Boolean = false,
         val error: NovelReaderError? = null,
         val brightnessOverlayValue: Int = 0,
+        val autoScrolling: Boolean = false,
+        val searchQuery: String? = null,
+        val chapterWords: Int = 0,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }
@@ -363,6 +432,10 @@ class NovelReaderViewModel(
 
         /** How long the reader must sit still before its position is written. */
         private const val PROGRESS_DEBOUNCE_MS = 400L
+
+        // Upstream stores readerTheme as a bare int with no named constants of its own.
+        private const val READER_THEME_WHITE = 0
+        private const val READER_THEME_BLACK = 1
 
         const val EXTRA_MANGA = "manga"
         const val EXTRA_CHAPTER = "chapter"
