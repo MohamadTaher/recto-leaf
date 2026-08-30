@@ -24,6 +24,12 @@ object NovelTapGrid {
     /** How close to an edge counts as an edge tap, when the reader asks those to be ignored. */
     const val EDGE_MARGIN_DP = 24f
 
+    /** How wide the strip is that a value-adjusting drag has to start inside. */
+    const val EDGE_SWIPE_MARGIN_DP = 48f
+
+    /** How far a value-adjusting drag travels per step of the value it moves. */
+    const val EDGE_SWIPE_STEP_DP = 12f
+
     /**
      * Resolves a tap into its cell.
      *
@@ -47,4 +53,20 @@ object NovelTapGrid {
      */
     fun isNearEdge(x: Float, y: Float, width: Int, height: Int, marginPx: Float): Boolean =
         x < marginPx || y < marginPx || x > width - marginPx || y > height - marginPx
+
+    /** Which side of the page a drag began on, for the gestures that adjust a value. */
+    enum class Edge { LEFT, RIGHT }
+
+    /**
+     * The edge a drag started from, or null when it started in the body of the page.
+     *
+     * A wider strip than [EDGE_MARGIN_DP]: that one decides whether to ignore a tap, where this
+     * one has to be findable by someone reaching for it deliberately.
+     */
+    fun edgeOf(x: Float, width: Int, marginPx: Float): Edge? = when {
+        width <= 0 -> null
+        x < marginPx -> Edge.LEFT
+        x > width - marginPx -> Edge.RIGHT
+        else -> null
+    }
 }

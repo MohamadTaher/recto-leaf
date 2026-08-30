@@ -110,6 +110,19 @@ class NovelReaderPreferences(
     /** A time of day as HH:mm. Empty is off. */
     val reminderAt: Preference<String> = preferenceStore.getString("leaf_novel_reminder_at", "")
 
+    // region Value gestures
+
+    val edgeSwipeBrightness: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_edge_swipe_brightness", false)
+
+    val edgeSwipeFontSize: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_edge_swipe_font_size", false)
+
+    val pinchFontSize: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_pinch_font_size", false)
+
+    // endregion
+
     // endregion
 
     // endregion
@@ -171,6 +184,9 @@ class NovelReaderPreferences(
         val AUTO_SCROLL_SPEED_RANGE = 1..20
         val BLUELIGHT_INTENSITY_RANGE = 0..100
         val REMINDER_MINUTES_RANGE = 0..120
+
+        /** The image reader brightness range: below zero the overlay dims rather than the window. */
+        val BRIGHTNESS_RANGE = -75..100
 
         /** Mihon own list minus DEFAULT, which means "inherit" and has nothing here to inherit. */
         val ORIENTATIONS = ReaderOrientation.entries - ReaderOrientation.DEFAULT

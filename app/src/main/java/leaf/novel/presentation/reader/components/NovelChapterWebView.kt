@@ -8,6 +8,7 @@ import android.view.GestureDetector
 import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -31,6 +32,7 @@ import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelTapGrid
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -135,6 +137,9 @@ fun NovelChapterWebView(
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
     ignoreEdgeTaps: Boolean,
+    pinchEnabled: Boolean,
+    onPinch: (Float) -> Unit,
+    onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
     onInternalLink: (String) -> Unit,
     onExternalLink: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -151,6 +156,9 @@ fun NovelChapterWebView(
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentIgnoreEdgeTaps by rememberUpdatedState(ignoreEdgeTaps)
+    val currentPinchEnabled by rememberUpdatedState(pinchEnabled)
+    val currentOnPinch by rememberUpdatedState(onPinch)
+    val currentOnEdgeDrag by rememberUpdatedState(onEdgeDrag)
     val currentOnInternalLink by rememberUpdatedState(onInternalLink)
     val currentOnExternalLink by rememberUpdatedState(onExternalLink)
 
@@ -170,6 +178,9 @@ fun NovelChapterWebView(
                     onLongPress = { currentOnLongPress() },
                     onSwipe = { currentOnSwipe(it) },
                     ignoreEdgeTaps = { currentIgnoreEdgeTaps },
+                    pinchEnabled = { currentPinchEnabled },
+                    onPinch = { currentOnPinch(it) },
+                    onEdgeDrag = { edge, steps -> currentOnEdgeDrag(edge, steps) },
                 )
                 controller.attach(this)
                 setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
@@ -277,13 +288,28 @@ private fun NovelWebView.attachTapDetector(
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
     ignoreEdgeTaps: () -> Boolean,
+    pinchEnabled: () -> Boolean,
+    onPinch: (Float) -> Unit,
+    onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
 ) {
     val density = resources.displayMetrics.density
     val minSwipeDistancePx = NovelReaderSwipe.MIN_DISTANCE_DP * density
     val edgeMarginPx = NovelTapGrid.EDGE_MARGIN_DP * density
+    val edgeSwipeMarginPx = NovelTapGrid.EDGE_SWIPE_MARGIN_DP * density
+    val edgeStepPx = NovelTapGrid.EDGE_SWIPE_STEP_DP * density
+
     val detector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
+
+            /** Travel not yet worth a whole step, carried on so a slow drag still moves evenly. */
+            private var edgeCarry = 0f
+
+            override fun onDown(e: MotionEvent): Boolean {
+                edgeCarry = 0f
+                return false
+            }
+
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 // An edge tap on a gesture-navigation phone is as likely to have been a missed
                 // swipe, so a reader who asks for them to be ignored gets them ignored.
@@ -292,6 +318,27 @@ private fun NovelWebView.attachTapDetector(
                 }
                 onTapCell(NovelTapGrid.cellOf(e.x, e.y, width, height))
                 return false
+            }
+
+            override fun onScroll(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                distanceX: Float,
+                distanceY: Float,
+            ): Boolean {
+                // Only a drag that began at an edge and is travelling mostly up or down. Anything
+                // else is an ordinary scroll and is left entirely to the page.
+                if (e1 == null || isSelecting) return false
+                val edge = NovelTapGrid.edgeOf(e1.x, width, edgeSwipeMarginPx) ?: return false
+                if (abs(distanceY) <= abs(distanceX)) return false
+
+                edgeCarry += distanceY
+                val steps = (edgeCarry / edgeStepPx).toInt()
+                if (steps != 0) edgeCarry -= steps * edgeStepPx
+
+                // Reported even when the travel was not yet a whole step, so that a drag the reader
+                // has turned on keeps the page still for its whole length rather than only part.
+                return onEdgeDrag(edge, steps)
             }
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
@@ -304,9 +351,39 @@ private fun NovelWebView.attachTapDetector(
             }
         },
     )
-    // Only a claimed swipe is consumed. Everything else reports false and leaves the WebView to
-    // scroll exactly as it did before, which is why an unbound direction costs nothing.
-    setOnTouchListener { _, event -> detector.onTouchEvent(event) }
+
+    // A pinch commits once, when the fingers lift. A font size change rebuilds the document, so
+    // acting on every step of the gesture would stutter the page the whole way through it.
+    val scaleDetector = ScaleGestureDetector(
+        context,
+        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+
+            private var scale = 1f
+
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                if (!pinchEnabled()) return false
+                scale = 1f
+                return true
+            }
+
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                scale *= detector.scaleFactor
+                return true
+            }
+
+            override fun onScaleEnd(detector: ScaleGestureDetector) {
+                onPinch(scale)
+            }
+        },
+    )
+
+    setOnTouchListener { _, event ->
+        scaleDetector.onTouchEvent(event)
+        val handled = detector.onTouchEvent(event)
+        // A pinch in progress must not also scroll the page. Everything else reports false and
+        // leaves the WebView scrolling exactly as it did before.
+        scaleDetector.isInProgress || handled
+    }
     // Consuming the long click is what suppresses the WebView's own text selection, so a binding
     // that means "leave selection alone" reports false and lets the default behaviour run.
     setOnLongClickListener { onLongPress() }

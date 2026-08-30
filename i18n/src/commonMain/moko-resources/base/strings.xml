@@ -1134,6 +1134,10 @@
     <string name="leaf_novel_action_auto_scroll">Auto scroll</string>
     <string name="leaf_novel_action_stop_auto_scroll">Stop auto scroll</string>
     <string name="leaf_novel_reader_autoscroll_speed">Speed</string>
+    <string name="leaf_novel_reader_heading_value_gestures">Adjust by touch</string>
+    <string name="leaf_novel_reader_edge_swipe_brightness">Swipe left edge to adjust brightness</string>
+    <string name="leaf_novel_reader_edge_swipe_font_size">Swipe right edge to adjust font size</string>
+    <string name="leaf_novel_reader_pinch_font_size">Pinch to change font size</string>
     <string name="leaf_novel_reader_reading_ruler">Reading ruler</string>
     <string name="leaf_novel_reader_heading_screen">Screen and interface</string>
     <string name="leaf_novel_reader_show_notification_bar">Show system notification bar</string>

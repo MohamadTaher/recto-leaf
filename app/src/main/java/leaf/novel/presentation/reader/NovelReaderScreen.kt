@@ -58,6 +58,8 @@ import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderStyle
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
+import leaf.novel.ui.reader.setting.NovelTapGrid
+import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.i18n.MR
@@ -65,6 +67,7 @@ import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 import java.time.LocalTime
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.minutes
 
 /**
@@ -178,6 +181,9 @@ fun NovelReaderScreen(
     val readingRuler by viewModel.novelReaderPreferences.readingRuler.collectAsState()
     val showRemainingTime by viewModel.novelReaderPreferences.showRemainingTime.collectAsState()
     val disableTouchEdge by viewModel.novelReaderPreferences.disableTouchEdge.collectAsState()
+    val edgeSwipeBrightness by viewModel.novelReaderPreferences.edgeSwipeBrightness.collectAsState()
+    val edgeSwipeFontSize by viewModel.novelReaderPreferences.edgeSwipeFontSize.collectAsState()
+    val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
 
     // A short tick with a fractional step, carried between ticks, so even the slowest speed creeps
     // instead of jumping a whole pixel at a time. Scrolling through the view keeps progress
@@ -245,6 +251,30 @@ fun NovelReaderScreen(
                         seekRequests = seekRequests,
                         controller = webViewController,
                         ignoreEdgeTaps = disableTouchEdge,
+                        pinchEnabled = pinchFontSize,
+                        onPinch = { scale ->
+                            viewModel.novelReaderPreferences.fontSize.getAndSet {
+                                (it * scale).roundToInt().coerceIn(
+                                    NovelReaderPreferences.MIN_FONT_SIZE,
+                                    NovelReaderPreferences.MAX_FONT_SIZE,
+                                )
+                            }
+                        },
+                        onEdgeDrag = { edge, steps ->
+                            val enabled = when (edge) {
+                                NovelTapGrid.Edge.LEFT -> edgeSwipeBrightness
+                                NovelTapGrid.Edge.RIGHT -> edgeSwipeFontSize
+                            }
+                            if (enabled && steps != 0) {
+                                when (edge) {
+                                    NovelTapGrid.Edge.LEFT ->
+                                        adjustBrightness(viewModel.readerPreferences, steps)
+                                    NovelTapGrid.Edge.RIGHT ->
+                                        adjustFontSize(viewModel.novelReaderPreferences, steps)
+                                }
+                            }
+                            enabled
+                        },
                         onTapCell = { performAction(tapActions[it]) },
                         onSwipe = { swipe ->
                             val bound = viewModel.novelReaderPreferences.swipes.getValue(swipe).get()
@@ -383,6 +413,9 @@ private fun ChapterContent(
     seekRequests: Flow<Int>,
     controller: NovelWebViewController,
     ignoreEdgeTaps: Boolean,
+    pinchEnabled: Boolean,
+    onPinch: (Float) -> Unit,
+    onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
@@ -429,6 +462,9 @@ private fun ChapterContent(
                 },
                 controller = controller,
                 ignoreEdgeTaps = ignoreEdgeTaps,
+                pinchEnabled = pinchEnabled,
+                onPinch = onPinch,
+                onEdgeDrag = onEdgeDrag,
                 onTapCell = onTapCell,
                 onLongPress = onLongPress,
                 onSwipe = onSwipe,
@@ -588,5 +624,27 @@ private fun NovelReaderRemainingTime(minutes: Int, modifier: Modifier = Modifier
     Box(contentAlignment = Alignment.Center, modifier = modifier) {
         Text(text = text, style = style.copy(color = Color(45, 45, 45), drawStyle = Stroke(width = 4f)))
         Text(text = text, style = style)
+    }
+}
+
+/**
+ * Nudges the brightness the image reader own key holds.
+ *
+ * Switching custom brightness on is part of it: the value does nothing while it is off, and a drag
+ * that visibly does nothing is worse than one that turns a setting on to obey.
+ */
+private fun adjustBrightness(preferences: ReaderPreferences, steps: Int) {
+    preferences.customBrightness.set(true)
+    preferences.customBrightnessValue.getAndSet {
+        (it + steps).coerceIn(NovelReaderPreferences.BRIGHTNESS_RANGE)
+    }
+}
+
+private fun adjustFontSize(preferences: NovelReaderPreferences, steps: Int) {
+    preferences.fontSize.getAndSet {
+        (it + steps).coerceIn(
+            NovelReaderPreferences.MIN_FONT_SIZE,
+            NovelReaderPreferences.MAX_FONT_SIZE,
+        )
     }
 }
