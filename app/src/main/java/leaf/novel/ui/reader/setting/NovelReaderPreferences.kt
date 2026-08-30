@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
+import tachiyomi.core.common.preference.getEnum
 
 /**
  * The reader's own preferences — the ones text needs and images have no equivalent for.
@@ -71,6 +72,21 @@ class NovelReaderPreferences(
 
     // endregion
 
+    // region Controls
+
+    /**
+     * One binding per cell of [NovelTapGrid], indexed the way that grid numbers its cells. The
+     * stored keys are one-based, matching how Moon+ and the settings screen both count them.
+     */
+    val tapZones: List<Preference<NovelReaderAction>> = List(NovelTapGrid.COUNT) { cell ->
+        preferenceStore.getEnum("leaf_novel_tap_${cell + 1}", defaultTapAction(cell))
+    }
+
+    val longTap: Preference<NovelReaderAction> =
+        preferenceStore.getEnum("leaf_novel_long_tap", NovelReaderAction.TEXT_SELECTION)
+
+    // endregion
+
     companion object {
         const val DEFAULT_FONT_SIZE = 18
         const val MIN_FONT_SIZE = 10
@@ -82,4 +98,14 @@ class NovelReaderPreferences(
         val FONT_SCALE_RANGE = -4..20
         val MARGIN_RANGE = 0..200
     }
+}
+
+/**
+ * Only the middle and the bottom left start bound: the middle so tapping the page still opens the
+ * menu as it always has, the bottom left because the imported configuration puts day/night there.
+ */
+private fun defaultTapAction(cell: Int): NovelReaderAction = when (cell) {
+    NovelTapGrid.CENTRE -> NovelReaderAction.OPTIONS_MENU
+    NovelTapGrid.BOTTOM_LEFT -> NovelReaderAction.DAY_NIGHT_MODE
+    else -> NovelReaderAction.NONE
 }

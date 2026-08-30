@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
+import leaf.novel.ui.reader.setting.NovelTapGrid
 import kotlin.math.roundToInt
 
 /**
@@ -72,9 +73,11 @@ fun NovelChapterWebView(
     initialPercent: Int,
     seekRequests: Flow<Int>,
     assetServer: NovelEpubAssetServer?,
+    controller: NovelWebViewController,
     backgroundColor: Int,
     onProgress: (Int) -> Unit,
-    onTap: () -> Unit,
+    onTapCell: (Int) -> Unit,
+    onLongPress: () -> Boolean,
     onInternalLink: (String) -> Unit,
     onExternalLink: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -87,7 +90,8 @@ fun NovelChapterWebView(
 
     val currentAssetServer by rememberUpdatedState(assetServer)
     val currentOnProgress by rememberUpdatedState(onProgress)
-    val currentOnTap by rememberUpdatedState(onTap)
+    val currentOnTapCell by rememberUpdatedState(onTapCell)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnInternalLink by rememberUpdatedState(onInternalLink)
     val currentOnExternalLink by rememberUpdatedState(onExternalLink)
 
@@ -102,7 +106,11 @@ fun NovelChapterWebView(
                     onInternalLink = { currentOnInternalLink(it) },
                     onExternalLink = { currentOnExternalLink(it) },
                 )
-                attachTapDetector { currentOnTap() }
+                attachTapDetector(
+                    onTapCell = { currentOnTapCell(it) },
+                    onLongPress = { currentOnLongPress() },
+                )
+                controller.attach(this)
                 onScroll = { scrollY, range ->
                     if (restored.value) currentOnProgress(percentOf(scrollY, range, height))
                 }
@@ -113,6 +121,7 @@ fun NovelChapterWebView(
             view.setBackgroundColor(backgroundColor)
         },
         onRelease = { view ->
+            controller.detach()
             view.onScroll = null
             view.stopLoading()
             view.destroy()
@@ -198,12 +207,12 @@ private fun WebView.configure(backgroundColor: Int) {
 }
 
 @SuppressLint("ClickableViewAccessibility")
-private fun WebView.attachTapDetector(onTap: () -> Unit) {
+private fun WebView.attachTapDetector(onTapCell: (Int) -> Unit, onLongPress: () -> Boolean) {
     val detector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                onTap()
+                onTapCell(NovelTapGrid.cellOf(e.x, e.y, this@attachTapDetector.width, this@attachTapDetector.height))
                 return false
             }
         },
@@ -213,6 +222,9 @@ private fun WebView.attachTapDetector(onTap: () -> Unit) {
         detector.onTouchEvent(event)
         false
     }
+    // Consuming the long click is what suppresses the WebView's own text selection, so a binding
+    // that means "leave selection alone" reports false and lets the default behaviour run.
+    setOnLongClickListener { onLongPress() }
 }
 
 private fun novelWebViewClient(

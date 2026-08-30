@@ -1,8 +1,13 @@
 package leaf.novel.presentation.reader.settings
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.rememberPagerState
@@ -10,19 +15,32 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import eu.kanade.presentation.components.DropdownMenu
+import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
+import leaf.novel.ui.reader.setting.NovelTapGrid
+import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.HeadingItem
+import tachiyomi.presentation.core.components.SelectItem
 import tachiyomi.presentation.core.components.SettingsChipRow
+import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
+import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 
@@ -50,9 +68,9 @@ private val themes = listOf(
  * The reader's settings, grouped the way Moon+ groups them, on the image reader's own
  * [TabbedDialog] and setting items so the two dialogs are the same dialog.
  *
- * Only the font size is a key of the reader's own; the background colour, brightness, page number,
- * fullscreen and keep-screen-on are all read from and written to [ReaderPreferences], so there is
- * no second settings system. Reading mode, orientation and crop borders have no text equivalent
+ * Typography and the control bindings are the reader's own keys; the background colour, brightness,
+ * page number, fullscreen and keep-screen-on are all read from and written to [ReaderPreferences],
+ * so there is no second settings system. Reading mode and crop borders have no text equivalent
  * and are not carried over.
  */
 @Composable
@@ -83,8 +101,7 @@ fun NovelReaderSettingsDialog(
             ) {
                 when (NovelReaderSettingsTab.entries[page]) {
                     NovelReaderSettingsTab.VISUAL -> VisualPage(novelReaderPreferences, readerPreferences)
-                    // Empty until taps and keys arrive; padding it now would only be removed then.
-                    NovelReaderSettingsTab.CONTROL -> Unit
+                    NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
                     NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(readerPreferences)
                 }
             }
@@ -265,3 +282,90 @@ private fun ColumnScope.MiscellaneousPage(readerPreferences: ReaderPreferences) 
         pref = readerPreferences.keepScreenOn,
     )
 }
+
+@Composable
+private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferences) {
+    HeadingItem(MR.strings.leaf_novel_reader_heading_tap_zones)
+
+    TapZoneGrid(novelReaderPreferences.tapZones)
+
+    val longTap by novelReaderPreferences.longTap.collectAsState()
+    SelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_long_tap),
+        options = actionTitles(),
+        selectedIndex = longTap.ordinal,
+        onSelect = { novelReaderPreferences.longTap.set(NovelReaderAction.entries[it]) },
+    )
+}
+
+/**
+ * The nine bindings laid out the way they sit on the page, so the setting looks like the thing it
+ * controls. Each cell anchors its own picker rather than opening a dialog on top of this one.
+ */
+@Composable
+private fun TapZoneGrid(tapZones: List<Preference<NovelReaderAction>>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = SettingsItemsPaddings.Horizontal,
+                vertical = SettingsItemsPaddings.Vertical,
+            ),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+    ) {
+        repeat(NovelTapGrid.SIDE) { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+            ) {
+                repeat(NovelTapGrid.SIDE) { column ->
+                    TapZoneCell(
+                        preference = tapZones[row * NovelTapGrid.SIDE + column],
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Modifier = Modifier) {
+    val action by preference.collectAsState()
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(
+                horizontal = MaterialTheme.padding.extraSmall,
+                vertical = MaterialTheme.padding.small,
+            ),
+        ) {
+            Text(
+                text = stringResource(action.titleRes),
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            NovelReaderAction.entries.forEach { candidate ->
+                RadioMenuItem(
+                    text = { Text(stringResource(candidate.titleRes)) },
+                    isChecked = candidate == action,
+                    onClick = {
+                        expanded = false
+                        preference.set(candidate)
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** [SelectItem] renders what it is given with toString, so the titles have to be resolved first. */
+@Composable
+private fun actionTitles(): Array<String> =
+    NovelReaderAction.entries.map { stringResource(it.titleRes) }.toTypedArray()

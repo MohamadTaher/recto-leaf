@@ -33,11 +33,13 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.components.NovelChapterWebView
+import leaf.novel.presentation.reader.components.NovelWebViewController
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsDialog
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
+import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderStyle
 import tachiyomi.domain.chapter.model.Chapter
@@ -67,6 +69,37 @@ fun NovelReaderScreen(
     val backgroundColor = remember(readerTheme) { context.readerBackgroundColor(readerTheme) }
 
     var settingsTab by remember { mutableStateOf<NovelReaderSettingsTab?>(null) }
+
+    var additionalOptionsExpanded by remember { mutableStateOf(false) }
+    val webViewController = remember { NovelWebViewController() }
+
+    val tapActions = viewModel.novelReaderPreferences.tapZones.map { it.collectAsState().value }
+    val longTapAction by viewModel.novelReaderPreferences.longTap.collectAsState()
+
+    // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
+    fun performAction(action: NovelReaderAction) {
+        when (action) {
+            NovelReaderAction.NONE -> Unit
+            NovelReaderAction.OPTIONS_MENU -> viewModel.toggleMenu()
+            NovelReaderAction.PAGE_UP -> webViewController.pageUp()
+            NovelReaderAction.PAGE_DOWN -> webViewController.pageDown()
+            NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
+            // The WebView starts selection on long press itself, so choosing it here means
+            // leaving that gesture alone rather than doing something of our own with it.
+            NovelReaderAction.TEXT_SELECTION -> Unit
+            // The brightness slider lives on the visual page, so the action opens that page.
+            NovelReaderAction.BRIGHTNESS, NovelReaderAction.VISUAL_OPTIONS ->
+                settingsTab = NovelReaderSettingsTab.VISUAL
+            NovelReaderAction.CONTROL_OPTIONS -> settingsTab = NovelReaderSettingsTab.CONTROL
+            NovelReaderAction.MISCELLANEOUS -> settingsTab = NovelReaderSettingsTab.MISCELLANEOUS
+            NovelReaderAction.ADDITIONAL_OPTIONS -> {
+                // The menu hangs off the bottom bar, so the bar has to be up for it to anchor to.
+                viewModel.showMenu()
+                additionalOptionsExpanded = true
+            }
+            NovelReaderAction.CLOSE -> onBack()
+        }
+    }
 
     val chapter = state.currentChapter
 
@@ -109,7 +142,16 @@ fun NovelReaderScreen(
                         percentRead = livePercent,
                         onPercentChange = { livePercent = it },
                         seekRequests = seekRequests,
-                        onTap = viewModel::toggleMenu,
+                        controller = webViewController,
+                        onTapCell = { performAction(tapActions[it]) },
+                        onLongPress = {
+                            if (longTapAction == NovelReaderAction.TEXT_SELECTION) {
+                                false
+                            } else {
+                                performAction(longTapAction)
+                                true
+                            }
+                        },
                         onExternalLink = { uriHandler.openUri(it) },
                     )
                 }
@@ -145,6 +187,8 @@ fun NovelReaderScreen(
             onPercentChange = { seekRequests.tryEmit(it) },
             onClickSettings = { settingsTab = it },
             onToggleDayNight = viewModel::toggleDayNightMode,
+            additionalOptionsExpanded = additionalOptionsExpanded,
+            onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },
         )
     }
 
@@ -167,7 +211,9 @@ private fun ChapterContent(
     percentRead: Int,
     onPercentChange: (Int) -> Unit,
     seekRequests: Flow<Int>,
-    onTap: () -> Unit,
+    controller: NovelWebViewController,
+    onTapCell: (Int) -> Unit,
+    onLongPress: () -> Boolean,
     onExternalLink: (String) -> Unit,
 ) {
     val assetServer = remember(viewModel) { viewModel.assetServer() }
@@ -209,7 +255,9 @@ private fun ChapterContent(
                     onPercentChange(it)
                     viewModel.reportProgress(chapter.id, it)
                 },
-                onTap = onTap,
+                controller = controller,
+                onTapCell = onTapCell,
+                onLongPress = onLongPress,
                 onInternalLink = viewModel::openChapterByEntry,
                 onExternalLink = onExternalLink,
                 // The reader is edge-to-edge, so without this the first and last lines of a chapter

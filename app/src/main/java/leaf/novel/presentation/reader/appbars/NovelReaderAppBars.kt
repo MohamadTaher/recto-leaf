@@ -26,10 +26,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -80,6 +76,8 @@ fun NovelReaderAppBars(
 
     onClickSettings: (NovelReaderSettingsTab) -> Unit,
     onToggleDayNight: () -> Unit,
+    additionalOptionsExpanded: Boolean,
+    onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
 ) {
     val backgroundColor = MaterialTheme.colorScheme
         .surfaceColorAtElevation(3.dp)
@@ -132,6 +130,8 @@ fun NovelReaderAppBars(
                         .windowInsetsPadding(WindowInsets.navigationBars),
                     onClickSettings = onClickSettings,
                     onToggleDayNight = onToggleDayNight,
+                    additionalOptionsExpanded = additionalOptionsExpanded,
+                    onAdditionalOptionsExpandedChange = onAdditionalOptionsExpandedChange,
                 )
             }
         }
@@ -149,6 +149,8 @@ fun NovelReaderAppBars(
 private fun NovelReaderBottomBar(
     onClickSettings: (NovelReaderSettingsTab) -> Unit,
     onToggleDayNight: () -> Unit,
+    additionalOptionsExpanded: Boolean,
+    onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -178,7 +180,11 @@ private fun NovelReaderBottomBar(
             )
         }
 
-        AdditionalOptionsMenu(onToggleDayNight = onToggleDayNight)
+        AdditionalOptionsMenu(
+            expanded = additionalOptionsExpanded,
+            onExpandedChange = onAdditionalOptionsExpandedChange,
+            onToggleDayNight = onToggleDayNight,
+        )
     }
 }
 
@@ -190,22 +196,24 @@ private fun NovelReaderBottomBar(
  * without touching the others.
  */
 @Composable
-private fun AdditionalOptionsMenu(onToggleDayNight: () -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-
+private fun AdditionalOptionsMenu(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onToggleDayNight: () -> Unit,
+) {
     Box {
-        IconButton(onClick = { expanded = true }) {
+        IconButton(onClick = { onExpandedChange(true) }) {
             Icon(
                 imageVector = MaterialSymbols.AutoMirroredRounded.Sort,
                 contentDescription = stringResource(MR.strings.leaf_novel_reader_additional_options),
             )
         }
 
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
             DropdownMenuItem(
                 text = { Text(stringResource(MR.strings.leaf_novel_reader_day_night_mode)) },
                 onClick = {
-                    expanded = false
+                    onExpandedChange(false)
                     onToggleDayNight()
                 },
             )

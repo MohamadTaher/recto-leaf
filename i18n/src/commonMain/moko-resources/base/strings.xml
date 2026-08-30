@@ -1102,6 +1102,13 @@
     <string name="leaf_novel_reader_tab_misc">Misc</string>
     <string name="leaf_novel_reader_additional_options">Additional options</string>
     <string name="leaf_novel_reader_day_night_mode">Day/night mode</string>
+    <string name="leaf_novel_reader_heading_tap_zones">Tap zones</string>
+    <string name="leaf_novel_reader_long_tap">Long tap</string>
+    <string name="leaf_novel_action_options_menu">Options menu</string>
+    <string name="leaf_novel_action_page_up">Page up</string>
+    <string name="leaf_novel_action_page_down">Page down</string>
+    <string name="leaf_novel_action_text_selection">Text selection</string>
+    <string name="leaf_novel_action_brightness">Brightness</string>
     <string name="leaf_novel_reader_font_size">Font size</string>
     <string name="leaf_novel_reader_heading_text_styling">Text styling</string>
     <string name="leaf_novel_reader_bold">Bold</string>
