@@ -235,6 +235,18 @@ private fun ColumnScope.VisualPage(
         onChange = { novelReaderPreferences.marginBottom.set(it) },
     )
 
+    HeadingItem(MR.strings.leaf_novel_reader_heading_focused_reading)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_highlight_first_word),
+        pref = novelReaderPreferences.highlightFirstWord,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_highlight_initial_chars),
+        pref = novelReaderPreferences.highlightInitialChars,
+    )
+
     val readerTheme by readerPreferences.readerTheme.collectAsState()
     SettingsChipRow(MR.strings.pref_reader_theme) {
         themes.map { (labelRes, value) ->

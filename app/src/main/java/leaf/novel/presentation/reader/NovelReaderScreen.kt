@@ -3,6 +3,8 @@ package leaf.novel.presentation.reader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -24,6 +26,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.presentation.reader.ReaderPageIndicator
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -45,6 +48,7 @@ import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderStyle
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
+import tachiyomi.core.common.preference.toggle
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
@@ -87,6 +91,7 @@ fun NovelReaderScreen(
             NovelReaderAction.PAGE_UP -> webViewController.pageUp()
             NovelReaderAction.PAGE_DOWN -> webViewController.pageDown()
             NovelReaderAction.AUTO_SCROLL -> viewModel.setAutoScrolling(!state.autoScrolling)
+            NovelReaderAction.READING_RULER -> viewModel.novelReaderPreferences.readingRuler.toggle()
             NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
@@ -118,6 +123,7 @@ fun NovelReaderScreen(
     }
 
     val autoScrollSpeed by viewModel.novelReaderPreferences.autoScrollSpeed.collectAsState()
+    val readingRuler by viewModel.novelReaderPreferences.readingRuler.collectAsState()
 
     // A short tick with a fractional step, carried between ticks, so even the slowest speed creeps
     // instead of jumping a whole pixel at a time. Scrolling through the view keeps progress
@@ -222,6 +228,18 @@ fun NovelReaderScreen(
 
         ContentOverlay(state = state, readerPreferences = viewModel.readerPreferences)
 
+        // Decoration only. It takes no pointer input, so scrolling, tapping and long-press
+        // selection all carry on underneath the band.
+        if (readingRuler) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .height(READING_RULER_HEIGHT)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = READING_RULER_ALPHA)),
+            )
+        }
+
         NovelReaderAppBars(
             visible = state.menuVisible,
             novelTitle = state.manga?.title,
@@ -238,6 +256,8 @@ fun NovelReaderScreen(
             onClickSettings = { settingsTab = it },
             onToggleDayNight = viewModel::toggleDayNightMode,
             autoScrolling = state.autoScrolling,
+            readingRuler = readingRuler,
+            onToggleReadingRuler = { viewModel.novelReaderPreferences.readingRuler.toggle() },
             onToggleAutoScroll = { viewModel.setAutoScrolling(!state.autoScrolling) },
             additionalOptionsExpanded = additionalOptionsExpanded,
             onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },
@@ -387,6 +407,8 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val marginRight by preferences.marginRight.collectAsState()
     val marginTop by preferences.marginTop.collectAsState()
     val marginBottom by preferences.marginBottom.collectAsState()
+    val highlightFirstWord by preferences.highlightFirstWord.collectAsState()
+    val highlightInitialChars by preferences.highlightInitialChars.collectAsState()
 
     return NovelReaderStyle(
         fontSizePx = fontSize,
@@ -405,6 +427,8 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         marginRight = marginRight,
         marginTop = marginTop,
         marginBottom = marginBottom,
+        highlightFirstWord = highlightFirstWord,
+        highlightInitialChars = highlightInitialChars,
     )
 }
 
@@ -413,3 +437,9 @@ private const val AUTO_SCROLL_TICK_MS = 16L
 
 /** Six pixels a second per speed step, so the default of 5 is roughly a line a second. */
 private const val AUTO_SCROLL_PX_PER_STEP = 6
+
+/** Tall enough to sit under a line of text at any size the reader offers. */
+private val READING_RULER_HEIGHT = 28.dp
+
+/** Visible as a band without washing out the words it sits behind. */
+private const val READING_RULER_ALPHA = 0.18f
