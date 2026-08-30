@@ -33,12 +33,16 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.RadioMenuItem
+import eu.kanade.presentation.components.SearchToolbar
 import eu.kanade.presentation.reader.appbars.ReaderTopBar
 import eu.kanade.presentation.reader.components.ChapterNavigator
 import eu.kanade.presentation.reader.components.ChapterNavigatorType
+import leaf.novel.presentation.reader.components.FindMatches
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.Sort
+import mihon.icons.materialsymbols.rounded.ExpandLess
+import mihon.icons.materialsymbols.rounded.ExpandMore
 import mihon.icons.materialsymbols.rounded.Palette
 import mihon.icons.materialsymbols.rounded.ScreenRotation
 import mihon.icons.materialsymbols.rounded.Settings
@@ -67,6 +71,10 @@ fun NovelReaderAppBars(
     navigateUp: () -> Unit,
     bookmarked: Boolean,
     onToggleBookmarked: () -> Unit,
+    searchQuery: String?,
+    onChangeSearchQuery: (String?) -> Unit,
+    findMatches: FindMatches,
+    onFindNext: (Boolean) -> Unit,
 
     onPreviousChapter: () -> Unit,
     enabledPrevious: Boolean,
@@ -81,6 +89,7 @@ fun NovelReaderAppBars(
     onToggleAutoScroll: () -> Unit,
     readingRuler: Boolean,
     onToggleReadingRuler: () -> Unit,
+    onStartSearch: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
 ) {
@@ -94,18 +103,29 @@ fun NovelReaderAppBars(
             enter = slideInVertically(readerBarsSlideAnimationSpec) { -it } + fadeIn(readerBarsFadeAnimationSpec),
             exit = slideOutVertically(readerBarsSlideAnimationSpec) { -it } + fadeOut(readerBarsFadeAnimationSpec),
         ) {
-            ReaderTopBar(
-                modifier = Modifier.background(backgroundColor),
-                mangaTitle = novelTitle,
-                chapterTitle = chapterTitle,
-                navigateUp = navigateUp,
-                bookmarked = bookmarked,
-                onToggleBookmarked = onToggleBookmarked,
-                // A novel has no page to open, share or view on the web; the entry screen owns those.
-                onOpenInWebView = null,
-                onOpenInBrowser = null,
-                onShare = null,
-            )
+            if (searchQuery == null) {
+                ReaderTopBar(
+                    modifier = Modifier.background(backgroundColor),
+                    mangaTitle = novelTitle,
+                    chapterTitle = chapterTitle,
+                    navigateUp = navigateUp,
+                    bookmarked = bookmarked,
+                    onToggleBookmarked = onToggleBookmarked,
+                    // A novel has no page to open, share or view on the web; the entry screen owns those.
+                    onOpenInWebView = null,
+                    onOpenInBrowser = null,
+                    onShare = null,
+                )
+            } else {
+                NovelReaderSearchBar(
+                    modifier = Modifier.background(backgroundColor),
+                    query = searchQuery,
+                    onQueryChange = onChangeSearchQuery,
+                    onClose = { onChangeSearchQuery(null) },
+                    matches = findMatches,
+                    onFindNext = onFindNext,
+                )
+            }
         }
 
         Spacer(Modifier.weight(1f))
@@ -139,6 +159,7 @@ fun NovelReaderAppBars(
                     onToggleAutoScroll = onToggleAutoScroll,
                     readingRuler = readingRuler,
                     onToggleReadingRuler = onToggleReadingRuler,
+                    onStartSearch = onStartSearch,
                     additionalOptionsExpanded = additionalOptionsExpanded,
                     onAdditionalOptionsExpandedChange = onAdditionalOptionsExpandedChange,
                 )
@@ -162,6 +183,7 @@ private fun NovelReaderBottomBar(
     onToggleAutoScroll: () -> Unit,
     readingRuler: Boolean,
     onToggleReadingRuler: () -> Unit,
+    onStartSearch: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -201,6 +223,7 @@ private fun NovelReaderBottomBar(
             onToggleAutoScroll = onToggleAutoScroll,
             readingRuler = readingRuler,
             onToggleReadingRuler = onToggleReadingRuler,
+            onStartSearch = onStartSearch,
         )
     }
 }
@@ -221,6 +244,7 @@ private fun AdditionalOptionsMenu(
     onToggleAutoScroll: () -> Unit,
     readingRuler: Boolean,
     onToggleReadingRuler: () -> Unit,
+    onStartSearch: () -> Unit,
 ) {
     Box {
         IconButton(onClick = { onExpandedChange(true) }) {
@@ -231,6 +255,14 @@ private fun AdditionalOptionsMenu(
         }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(MR.strings.action_search)) },
+                onClick = {
+                    onExpandedChange(false)
+                    onStartSearch()
+                },
+            )
+
             RadioMenuItem(
                 text = { Text(stringResource(MR.strings.leaf_novel_reader_reading_ruler)) },
                 isChecked = readingRuler,
@@ -276,3 +308,51 @@ private fun AdditionalOptionsMenu(
  */
 private const val MIN_PERCENT = 1
 private const val MAX_PERCENT = 100
+
+/**
+ * The top bar while a search is running, on Mihon's own search toolbar so the field, the close
+ * button and the keyboard behave as they do everywhere else in the app.
+ *
+ * Its search and reset actions are turned off: this bar is only ever in search, and the room they
+ * would take is where the match count and the step buttons go.
+ */
+@Composable
+private fun NovelReaderSearchBar(
+    query: String,
+    onQueryChange: (String?) -> Unit,
+    onClose: () -> Unit,
+    matches: FindMatches,
+    onFindNext: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SearchToolbar(
+        modifier = modifier,
+        searchQuery = query,
+        onChangeSearchQuery = onQueryChange,
+        onClickCloseSearch = onClose,
+        searchEnabled = false,
+        actions = {
+            if (matches.total > 0) {
+                Text(
+                    // The view counts matches from zero; a reader counts them from one.
+                    text = "${matches.activeOrdinal + 1}/${matches.total}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+
+            IconButton(onClick = { onFindNext(false) }, enabled = matches.total > 0) {
+                Icon(
+                    imageVector = MaterialSymbols.Rounded.ExpandLess,
+                    contentDescription = stringResource(MR.strings.leaf_novel_reader_find_previous),
+                )
+            }
+
+            IconButton(onClick = { onFindNext(true) }, enabled = matches.total > 0) {
+                Icon(
+                    imageVector = MaterialSymbols.Rounded.ExpandMore,
+                    contentDescription = stringResource(MR.strings.leaf_novel_reader_find_next),
+                )
+            }
+        },
+    )
+}

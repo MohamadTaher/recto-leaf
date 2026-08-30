@@ -250,7 +250,8 @@ class NovelReaderViewModel(
         restoredChapterId = chapter.id
         restartReadTimer()
         // Auto scroll does not carry across a chapter boundary.
-        mutableState.update { it.copy(currentIndex = index, autoScrolling = false) }
+        // Neither auto scroll nor a search carries across a chapter boundary.
+        mutableState.update { it.copy(currentIndex = index, autoScrolling = false, searchQuery = null) }
     }
 
     /**
@@ -277,6 +278,14 @@ class NovelReaderViewModel(
     fun showMenu() = mutableState.update { it.copy(menuVisible = true, autoScrolling = false) }
 
     fun setAutoScrolling(enabled: Boolean) = mutableState.update { it.copy(autoScrolling = enabled) }
+
+    /**
+     * A null query means the search bar is closed.
+     *
+     * The activity reads this before deciding whether to claim a key: a reader typing into the
+     * search field must not have their letters turned into page turns.
+     */
+    fun setSearchQuery(query: String?) = mutableState.update { it.copy(searchQuery = query) }
 
     /**
      * Actions raised outside the composition — from the key handler — for the screen to perform.
@@ -397,6 +406,7 @@ class NovelReaderViewModel(
         val error: NovelReaderError? = null,
         val brightnessOverlayValue: Int = 0,
         val autoScrolling: Boolean = false,
+        val searchQuery: String? = null,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }
