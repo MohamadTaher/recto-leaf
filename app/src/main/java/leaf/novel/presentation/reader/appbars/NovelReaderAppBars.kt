@@ -76,6 +76,8 @@ fun NovelReaderAppBars(
 
     onClickSettings: (NovelReaderSettingsTab) -> Unit,
     onToggleDayNight: () -> Unit,
+    autoScrolling: Boolean,
+    onToggleAutoScroll: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
 ) {
@@ -130,6 +132,8 @@ fun NovelReaderAppBars(
                         .windowInsetsPadding(WindowInsets.navigationBars),
                     onClickSettings = onClickSettings,
                     onToggleDayNight = onToggleDayNight,
+                    autoScrolling = autoScrolling,
+                    onToggleAutoScroll = onToggleAutoScroll,
                     additionalOptionsExpanded = additionalOptionsExpanded,
                     onAdditionalOptionsExpandedChange = onAdditionalOptionsExpandedChange,
                 )
@@ -149,6 +153,8 @@ fun NovelReaderAppBars(
 private fun NovelReaderBottomBar(
     onClickSettings: (NovelReaderSettingsTab) -> Unit,
     onToggleDayNight: () -> Unit,
+    autoScrolling: Boolean,
+    onToggleAutoScroll: () -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -184,6 +190,8 @@ private fun NovelReaderBottomBar(
             expanded = additionalOptionsExpanded,
             onExpandedChange = onAdditionalOptionsExpandedChange,
             onToggleDayNight = onToggleDayNight,
+            autoScrolling = autoScrolling,
+            onToggleAutoScroll = onToggleAutoScroll,
         )
     }
 }
@@ -200,6 +208,8 @@ private fun AdditionalOptionsMenu(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onToggleDayNight: () -> Unit,
+    autoScrolling: Boolean,
+    onToggleAutoScroll: () -> Unit,
 ) {
     Box {
         IconButton(onClick = { onExpandedChange(true) }) {
@@ -210,6 +220,24 @@ private fun AdditionalOptionsMenu(
         }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        stringResource(
+                            if (autoScrolling) {
+                                MR.strings.leaf_novel_action_stop_auto_scroll
+                            } else {
+                                MR.strings.leaf_novel_action_auto_scroll
+                            },
+                        ),
+                    )
+                },
+                onClick = {
+                    onExpandedChange(false)
+                    onToggleAutoScroll()
+                },
+            )
+
             DropdownMenuItem(
                 text = { Text(stringResource(MR.strings.leaf_novel_reader_day_night_mode)) },
                 onClick = {

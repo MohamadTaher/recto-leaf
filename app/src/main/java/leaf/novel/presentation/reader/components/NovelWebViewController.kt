@@ -35,4 +35,17 @@ class NovelWebViewController {
     fun pageDown() {
         webView?.pageDown(false)
     }
+
+    /**
+     * Scrolls on by [dy] pixels.
+     *
+     * Goes through the view the way a finger does, so `onScrollChanged` fires and reading progress
+     * keeps being recorded while auto scroll runs.
+     */
+    fun scrollBy(dy: Int) {
+        webView?.scrollBy(0, dy)
+    }
+
+    /** Whether there is any page left below, so auto scroll can stop at the end of a chapter. */
+    val canScrollDown: Boolean get() = webView?.canScrollVertically(1) == true
 }

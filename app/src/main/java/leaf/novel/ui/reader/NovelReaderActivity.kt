@@ -95,6 +95,7 @@ class NovelReaderActivity : BaseActivity() {
     }
 
     override fun onPause() {
+        viewModel.setAutoScrolling(false)
         viewModel.saveOnPause()
         super.onPause()
     }

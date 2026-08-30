@@ -29,6 +29,7 @@ import eu.kanade.presentation.reader.ReaderPageIndicator
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.system.readerBackgroundColor
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import leaf.novel.api.NovelChapterContent
@@ -85,6 +86,7 @@ fun NovelReaderScreen(
             NovelReaderAction.OPTIONS_MENU -> viewModel.toggleMenu()
             NovelReaderAction.PAGE_UP -> webViewController.pageUp()
             NovelReaderAction.PAGE_DOWN -> webViewController.pageDown()
+            NovelReaderAction.AUTO_SCROLL -> viewModel.setAutoScrolling(!state.autoScrolling)
             NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
@@ -113,6 +115,31 @@ fun NovelReaderScreen(
     // the flag set would pop it open again on its own the next time the bar came back.
     LaunchedEffect(state.menuVisible) {
         if (!state.menuVisible) additionalOptionsExpanded = false
+    }
+
+    val autoScrollSpeed by viewModel.novelReaderPreferences.autoScrollSpeed.collectAsState()
+
+    // A short tick with a fractional step, carried between ticks, so even the slowest speed creeps
+    // instead of jumping a whole pixel at a time. Scrolling through the view keeps progress
+    // recording, because it reports position from the same callback a finger drives.
+    LaunchedEffect(state.autoScrolling, autoScrollSpeed) {
+        if (!state.autoScrolling) return@LaunchedEffect
+
+        val perTick = autoScrollSpeed * AUTO_SCROLL_PX_PER_STEP * AUTO_SCROLL_TICK_MS / 1000f
+        var carry = 0f
+        while (true) {
+            delay(AUTO_SCROLL_TICK_MS)
+            if (!webViewController.canScrollDown) {
+                viewModel.setAutoScrolling(false)
+                break
+            }
+            carry += perTick
+            val step = carry.toInt()
+            if (step > 0) {
+                webViewController.scrollBy(step)
+                carry -= step
+            }
+        }
     }
 
     val chapter = state.currentChapter
@@ -210,6 +237,8 @@ fun NovelReaderScreen(
             onPercentChange = { seekRequests.tryEmit(it) },
             onClickSettings = { settingsTab = it },
             onToggleDayNight = viewModel::toggleDayNightMode,
+            autoScrolling = state.autoScrolling,
+            onToggleAutoScroll = { viewModel.setAutoScrolling(!state.autoScrolling) },
             additionalOptionsExpanded = additionalOptionsExpanded,
             onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },
         )
@@ -378,3 +407,9 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         marginBottom = marginBottom,
     )
 }
+
+/** One frame, so the creep is smooth rather than a series of visible jumps. */
+private const val AUTO_SCROLL_TICK_MS = 16L
+
+/** Six pixels a second per speed step, so the default of 5 is roughly a line a second. */
+private const val AUTO_SCROLL_PX_PER_STEP = 6
