@@ -157,7 +157,7 @@ class NovelReaderCssTest {
         document.contains("font-style: normal") shouldBe true
         document.contains("text-decoration: none") shouldBe true
         document.contains("text-shadow: none") shouldBe true
-        document.contains("text-align: left") shouldBe true
+        document.contains("text-align: start") shouldBe true
         document.contains("hyphens: manual") shouldBe true
     }
 
@@ -176,7 +176,7 @@ class NovelReaderCssTest {
         val doc = NovelReaderCss.document(content, style(justified = true), backgroundColor = WHITE)
 
         doc.contains("text-align: justify") shouldBe true
-        doc.contains("h1, h2, h3, h4, h5, h6 { text-align: left") shouldBe true
+        doc.contains("h1, h2, h3, h4, h5, h6 { text-align: start") shouldBe true
     }
 
     @Test
@@ -248,5 +248,17 @@ class NovelReaderCssTest {
         )
 
         document.contains("padding: 0px 0px 0px 0px") shouldBe true
+    }
+
+    /**
+     * The slider cannot reach here, but a preference restored from a backup can, and the tenths
+     * formatting would otherwise emit "0.-8" and take the whole declaration down with it.
+     */
+    @Test
+    fun `clamps a line spacing from below the slider range`() {
+        val document = NovelReaderCss.document(content, style(lineSpacing = -40), backgroundColor = WHITE)
+
+        document.contains("line-height: 0.7") shouldBe true
+        document.contains("line-height: 0.-") shouldBe false
     }
 }

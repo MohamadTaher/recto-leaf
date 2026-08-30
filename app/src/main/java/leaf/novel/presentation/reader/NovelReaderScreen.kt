@@ -109,6 +109,12 @@ fun NovelReaderScreen(
         viewModel.actions.collect { performAction(it) }
     }
 
+    // The menu hangs off the bottom bar, so when the chrome goes its anchor goes with it. Leaving
+    // the flag set would pop it open again on its own the next time the bar came back.
+    LaunchedEffect(state.menuVisible) {
+        if (!state.menuVisible) additionalOptionsExpanded = false
+    }
+
     val chapter = state.currentChapter
 
     // Where the reader currently is, seeded from the stored position and updated as it scrolls.
