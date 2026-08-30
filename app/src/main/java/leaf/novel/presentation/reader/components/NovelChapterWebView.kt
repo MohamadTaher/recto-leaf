@@ -169,6 +169,9 @@ fun NovelChapterWebView(
                     onSwipe = { currentOnSwipe(it) },
                 )
                 controller.attach(this)
+                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
+                    controller.findMatches = FindMatches(activeMatchOrdinal, numberOfMatches)
+                }
                 onScroll = { scrollY, range ->
                     if (restored.value) currentOnProgress(percentOf(scrollY, range, height))
                 }
@@ -188,6 +191,7 @@ fun NovelChapterWebView(
 
     LaunchedEffect(webView, document) {
         val view = webView ?: return@LaunchedEffect
+        controller.clearFind()
         restored.value = false
         pageFinished.value = false
         view.loadDataWithBaseURL(baseUrl, document, "text/html", "utf-8", null)

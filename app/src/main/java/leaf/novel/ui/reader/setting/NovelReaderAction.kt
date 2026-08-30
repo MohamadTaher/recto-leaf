@@ -21,6 +21,7 @@ enum class NovelReaderAction(val titleRes: StringResource) {
     PAGE_DOWN(MR.strings.leaf_novel_action_page_down),
     AUTO_SCROLL(MR.strings.leaf_novel_action_auto_scroll),
     READING_RULER(MR.strings.leaf_novel_reader_reading_ruler),
+    SEARCH(MR.strings.action_search),
     DAY_NIGHT_MODE(MR.strings.leaf_novel_reader_day_night_mode),
     TEXT_SELECTION(MR.strings.leaf_novel_action_text_selection),
     BRIGHTNESS(MR.strings.leaf_novel_action_brightness),

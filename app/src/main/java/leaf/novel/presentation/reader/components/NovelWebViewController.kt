@@ -2,6 +2,9 @@ package leaf.novel.presentation.reader.components
 
 import android.webkit.WebView
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 
 /**
  * A handle on the WebView showing the current chapter, for the things the reader drives from
@@ -48,4 +51,40 @@ class NovelWebViewController {
 
     /** Whether there is any page left below, so auto scroll can stop at the end of a chapter. */
     val canScrollDown: Boolean get() = webView?.canScrollVertically(1) == true
+
+    /**
+     * Matches from the last search: which one is showing, and how many there are.
+     *
+     * Reported by the view as it counts, so it climbs while a long chapter is scanned.
+     */
+    var findMatches: FindMatches by mutableStateOf(FindMatches.NONE)
+        internal set
+
+    /**
+     * Searches the chapter for [query], highlighting every match and scrolling to the first.
+     *
+     * This is the view's own find-in-page, which is a browser feature rather than a scripting one,
+     * so it works with JavaScript off — the reason the reader can keep it off at all.
+     */
+    fun find(query: String) {
+        webView?.findAllAsync(query)
+    }
+
+    /** Steps to the next match, wrapping at the ends. */
+    fun findNext(forward: Boolean) {
+        webView?.findNext(forward)
+    }
+
+    /** Drops the highlighting. A stale highlight outliving its search is the bug to avoid here. */
+    fun clearFind() {
+        webView?.clearMatches()
+        findMatches = FindMatches.NONE
+    }
+}
+
+/** How many matches a search found and which of them is showing, both as the view reports them. */
+data class FindMatches(val activeOrdinal: Int, val total: Int) {
+    companion object {
+        val NONE = FindMatches(activeOrdinal = 0, total = 0)
+    }
 }

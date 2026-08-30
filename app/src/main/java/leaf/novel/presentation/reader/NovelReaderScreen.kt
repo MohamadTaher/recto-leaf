@@ -92,6 +92,10 @@ fun NovelReaderScreen(
             NovelReaderAction.PAGE_DOWN -> webViewController.pageDown()
             NovelReaderAction.AUTO_SCROLL -> viewModel.setAutoScrolling(!state.autoScrolling)
             NovelReaderAction.READING_RULER -> viewModel.novelReaderPreferences.readingRuler.toggle()
+            NovelReaderAction.SEARCH -> {
+                viewModel.showMenu()
+                viewModel.setSearchQuery("")
+            }
             NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
@@ -120,6 +124,13 @@ fun NovelReaderScreen(
     // the flag set would pop it open again on its own the next time the bar came back.
     LaunchedEffect(state.menuVisible) {
         if (!state.menuVisible) additionalOptionsExpanded = false
+    }
+
+    // Live find-in-page: every keystroke re-searches, and closing the bar drops the highlighting.
+    // A stale highlight outliving its search is the characteristic bug here.
+    LaunchedEffect(state.searchQuery) {
+        val query = state.searchQuery
+        if (query.isNullOrBlank()) webViewController.clearFind() else webViewController.find(query)
     }
 
     val autoScrollSpeed by viewModel.novelReaderPreferences.autoScrollSpeed.collectAsState()
@@ -247,6 +258,10 @@ fun NovelReaderScreen(
             navigateUp = onBack,
             bookmarked = chapter?.bookmark == true,
             onToggleBookmarked = viewModel::toggleBookmark,
+            searchQuery = state.searchQuery,
+            onChangeSearchQuery = viewModel::setSearchQuery,
+            findMatches = webViewController.findMatches,
+            onFindNext = { webViewController.findNext(it) },
             onPreviousChapter = { viewModel.setCurrentChapter(state.currentIndex - 1) },
             enabledPrevious = state.currentIndex > 0,
             onNextChapter = { viewModel.setCurrentChapter(state.currentIndex + 1) },
@@ -258,6 +273,10 @@ fun NovelReaderScreen(
             autoScrolling = state.autoScrolling,
             readingRuler = readingRuler,
             onToggleReadingRuler = { viewModel.novelReaderPreferences.readingRuler.toggle() },
+            onStartSearch = {
+                viewModel.showMenu()
+                viewModel.setSearchQuery("")
+            },
             onToggleAutoScroll = { viewModel.setAutoScrolling(!state.autoScrolling) },
             additionalOptionsExpanded = additionalOptionsExpanded,
             onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },

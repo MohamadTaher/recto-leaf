@@ -1134,6 +1134,8 @@
     <string name="leaf_novel_action_stop_auto_scroll">Stop auto scroll</string>
     <string name="leaf_novel_reader_autoscroll_speed">Speed</string>
     <string name="leaf_novel_reader_reading_ruler">Reading ruler</string>
+    <string name="leaf_novel_reader_find_previous">Previous match</string>
+    <string name="leaf_novel_reader_find_next">Next match</string>
     <string name="leaf_novel_reader_heading_focused_reading">Focused reading</string>
     <string name="leaf_novel_reader_highlight_first_word">Highlight first word of sentence</string>
     <string name="leaf_novel_reader_highlight_initial_chars">Highlight initial chars of word</string>
