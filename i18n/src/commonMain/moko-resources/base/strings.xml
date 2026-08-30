@@ -1141,6 +1141,9 @@
     <string name="leaf_novel_reader_speech_rate">Speaking pace</string>
     <string name="leaf_novel_action_speed_read">Speed read</string>
     <string name="leaf_novel_action_stop_speed_read">Stop speed reading</string>
+    <string name="leaf_novel_action_export_settings">Back up reader settings</string>
+    <string name="leaf_novel_action_import_settings">Restore reader settings</string>
+    <string name="leaf_novel_reader_import_settings_confirm">This replaces every reader setting with the ones in the file. Your library and reading progress are not touched.</string>
     <string name="leaf_novel_reader_speed_read_wpm">Words per minute</string>
     <string name="leaf_novel_reader_speed_read_chunk">Words at a time</string>
     <string name="leaf_novel_reader_autoscroll_speed">Speed</string>

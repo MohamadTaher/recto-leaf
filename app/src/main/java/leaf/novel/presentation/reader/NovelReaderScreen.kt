@@ -1,6 +1,9 @@
 package leaf.novel.presentation.reader
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -10,12 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -24,6 +29,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +49,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.components.NovelChapterWebView
@@ -118,6 +125,18 @@ fun NovelReaderScreen(
     // A look, not a mode: it lasts until it is turned off again and stores nothing.
     var publisherFormatting by remember { mutableStateOf(false) }
     var openImage by remember { mutableStateOf<String?>(null) }
+    var confirmRestore by remember { mutableStateOf<Uri?>(null) }
+    val scope = rememberCoroutineScope()
+
+    // Mihon's own document picker, so the file lands wherever the reader keeps things and no
+    // storage permission is involved.
+    val exportSettings = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(SETTINGS_MIME_TYPE),
+    ) { uri -> uri?.let { scope.launch { viewModel.exportSettings(it) } } }
+
+    val pickSettings = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> confirmRestore = uri }
     val webViewController = remember { NovelWebViewController() }
 
     val chapter = state.currentChapter
@@ -495,6 +514,14 @@ fun NovelReaderScreen(
                     publisherFormatting = publisherFormatting,
                     speaking = state.speaking,
                     speedReading = state.speedReading,
+                    onExportSettings = {
+                        dismiss()
+                        exportSettings.launch(SETTINGS_FILE_NAME)
+                    },
+                    onImportSettings = {
+                        dismiss()
+                        pickSettings.launch(arrayOf(SETTINGS_MIME_TYPE))
+                    },
                     onSelect = { action ->
                         dismiss()
                         performAction(action)
@@ -518,6 +545,31 @@ fun NovelReaderScreen(
             readerPreferences = viewModel.readerPreferences,
             resolvedColors = colors,
             onDismissRequest = { settingsTab = null },
+        )
+    }
+
+    // Restoring overwrites every reader setting at once, which is the one irreversible thing on
+    // this menu — so it asks first.
+    confirmRestore?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { confirmRestore = null },
+            title = { Text(stringResource(MR.strings.leaf_novel_action_import_settings)) },
+            text = { Text(stringResource(MR.strings.leaf_novel_reader_import_settings_confirm)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRestore = null
+                        scope.launch { viewModel.importSettings(uri) }
+                    },
+                ) {
+                    Text(stringResource(MR.strings.action_ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRestore = null }) {
+                    Text(stringResource(MR.strings.action_cancel))
+                }
+            },
         )
     }
 
@@ -765,6 +817,10 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     )
 }
 
+/** What a settings export is called and what it is. Both only reach the document picker. */
+private const val SETTINGS_FILE_NAME = "recto-leaf-reader-settings.json"
+private const val SETTINGS_MIME_TYPE = "application/json"
+
 /** Speed reading counts phrases a minute, where the timer counts milliseconds. */
 private const val MILLIS_PER_MINUTE = 60_000
 
@@ -820,6 +876,8 @@ private fun ColumnScope.AdditionalOptions(
     publisherFormatting: Boolean,
     speaking: Boolean,
     speedReading: Boolean,
+    onExportSettings: () -> Unit,
+    onImportSettings: () -> Unit,
     onSelect: (NovelReaderAction) -> Unit,
 ) {
     DropdownMenuItem(
@@ -891,6 +949,18 @@ private fun ColumnScope.AdditionalOptions(
     DropdownMenuItem(
         text = { Text(stringResource(MR.strings.leaf_novel_reader_day_night_mode)) },
         onClick = { onSelect(NovelReaderAction.DAY_NIGHT_MODE) },
+    )
+
+    // Not actions, deliberately. Everything else in this menu is something a tap or a key could
+    // equally be bound to; a binding that silently overwrites every setting is not.
+    DropdownMenuItem(
+        text = { Text(stringResource(MR.strings.leaf_novel_action_export_settings)) },
+        onClick = onExportSettings,
+    )
+
+    DropdownMenuItem(
+        text = { Text(stringResource(MR.strings.leaf_novel_action_import_settings)) },
+        onClick = onImportSettings,
     )
 
     // Off by default, per the imported configuration, so it is not clutter for anyone who has not

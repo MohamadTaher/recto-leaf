@@ -1,6 +1,7 @@
 package leaf.novel.ui.reader
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -31,8 +32,10 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.api.NovelSource
+import leaf.novel.data.backup.NovelSettingsTransfer
 import leaf.novel.data.epub.NovelEpubException
 import leaf.novel.data.epub.novelEpubReader
 import leaf.novel.source.local.LocalNovelSource
@@ -45,6 +48,7 @@ import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderTheme
 import logcat.LogPriority
+import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withIOContext
@@ -99,6 +103,7 @@ class NovelReaderViewModel(
     private val fileSystem: NovelFileSystem,
     private val downloadProvider: DownloadProvider,
     private val sourceManager: SourceManager,
+    private val preferenceStore: PreferenceStore,
     val readerPreferences: ReaderPreferences,
     val novelReaderPreferences: NovelReaderPreferences,
 ) : ViewModel() {
@@ -413,6 +418,44 @@ class NovelReaderViewModel(
     }
 
     fun stopSpeedReading() = mutableState.update { it.copy(speedReading = false) }
+
+    // endregion
+
+    // region Settings transfer
+
+    /**
+     * Writes every `leaf_novel_` preference to [target].
+     *
+     * Through the document picker's own URI, so the file lands wherever the reader keeps things and
+     * no storage permission is involved.
+     */
+    suspend fun exportSettings(target: Uri): Boolean = withIOContext {
+        runCatching {
+            val backup = NovelSettingsTransfer.capture(preferenceStore.getAll())
+            context.contentResolver.openOutputStream(target, "wt")?.use { out ->
+                out.write(settingsJson.encodeToString(backup).toByteArray())
+            } ?: error("Could not open $target")
+        }
+            .onFailure { logcat(LogPriority.ERROR, it) { "Could not export reader settings" } }
+            .isSuccess
+    }
+
+    /** Reads a settings file back over the current settings. Overwrites; the caller confirms. */
+    suspend fun importSettings(source: Uri): Boolean = withIOContext {
+        runCatching {
+            val text = context.contentResolver.openInputStream(source)?.use { it.readBytes() }
+                ?: error("Could not open $source")
+            NovelSettingsTransfer.apply(settingsJson.decodeFromString(text.decodeToString()), preferenceStore)
+        }
+            .onFailure { logcat(LogPriority.WARN, it) { "Could not import reader settings" } }
+            .isSuccess
+    }
+
+    /** Lenient on read so a file written by a later stage still restores what this one understands. */
+    private val settingsJson = Json {
+        ignoreUnknownKeys = true
+        prettyPrint = true
+    }
 
     /** What is on the overlay now, or null when the mode is off. */
     val speedReadPhrase: String?
