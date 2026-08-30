@@ -121,6 +121,38 @@ class NovelReaderPreferences(
     val pinchFontSize: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_pinch_font_size", false)
 
+    // region Paging
+
+    /**
+     * Settings a paged reader would honour, stored ahead of one existing.
+     *
+     * Nothing reads them yet, deliberately: an unused write is honest, where a read that discards
+     * what it finds only looks wired. Pagination is what turns them on, and the settings screen
+     * says as much beside them.
+     */
+    val keepOneLineWhenPaging: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_keep_one_line_when_paging", false)
+
+    val trimTopBlankLines: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_trim_top_blank_lines", false)
+
+    val tiltToTurnPage: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_tilt_to_turn_page", false)
+
+    val flingHorizontallyToTurnPage: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_fling_horizontally_to_turn_page", false)
+
+    val disableVerticalScroll: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_disable_vertical_scroll", false)
+
+    val dualPageLayout: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_dual_page_layout", false)
+
+    val pageTurnSound: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_page_turn_sound", false)
+
+    // endregion
+
     // endregion
 
     // endregion

@@ -51,6 +51,7 @@ import tachiyomi.presentation.core.components.material.IconToggleButton
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
+import tachiyomi.presentation.core.util.secondaryItemAlpha
 
 /**
  * The three groups of settings the reader offers, in the order they appear.
@@ -367,6 +368,52 @@ private fun ColumnScope.MiscellaneousPage(
         label = stringResource(MR.strings.leaf_novel_reader_reminder_at),
         value = reminderAt,
         onChange = { novelReaderPreferences.reminderAt.set(it) },
+    )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_paging)
+
+    // Saying so is not optional: a setting that silently does nothing is a bug report waiting.
+    Text(
+        text = stringResource(MR.strings.leaf_novel_reader_paging_subtitle),
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier
+            .padding(horizontal = SettingsItemsPaddings.Horizontal)
+            .secondaryItemAlpha(),
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_keep_one_line),
+        pref = novelReaderPreferences.keepOneLineWhenPaging,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_trim_top_blank_lines),
+        pref = novelReaderPreferences.trimTopBlankLines,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_tilt_to_turn),
+        pref = novelReaderPreferences.tiltToTurnPage,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_fling_to_turn),
+        pref = novelReaderPreferences.flingHorizontallyToTurnPage,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_disable_vertical_scroll),
+        pref = novelReaderPreferences.disableVerticalScroll,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_dual_page),
+        pref = novelReaderPreferences.dualPageLayout,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_page_turn_sound),
+        pref = novelReaderPreferences.pageTurnSound,
     )
 }
 
