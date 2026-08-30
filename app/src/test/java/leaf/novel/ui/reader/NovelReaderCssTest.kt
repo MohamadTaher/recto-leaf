@@ -48,6 +48,7 @@ private fun style(
     centerImages: Boolean = true,
     paged: Boolean = false,
     dualPageLayout: Boolean = false,
+    trimTopBlankLines: Boolean = false,
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
     font = font,
@@ -80,6 +81,7 @@ private fun style(
     centerImages = centerImages,
     paged = paged,
     dualPageLayout = dualPageLayout,
+    trimTopBlankLines = trimTopBlankLines,
 )
 
 /**
@@ -241,6 +243,69 @@ class NovelReaderCssTest {
         val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
 
         document.contains("font-family:") shouldBe false
+    }
+
+    /**
+     * Regression test, and the one that would have caught paged mode shipping broken.
+     *
+     * The reader runs no JavaScript, so a page turn is the WebView's own `scrollBy` over the
+     * document. Hiding overflow anywhere leaves nothing for it to scroll: the range collapses to
+     * the viewport, `maxScroll` reads zero, and the chapter reports itself finished on sight.
+     */
+    @Test
+    fun `never hides the overflow a page turn scrolls through`() {
+        val document = NovelReaderCss.document(content, style(paged = true), colors = colors(WHITE))
+
+        document.contains("overflow: hidden") shouldBe false
+    }
+
+    @Test
+    fun `lays the chapter out in columns only when paged`() {
+        val scrolling = NovelReaderCss.document(content, style(), colors = colors(WHITE))
+        val paged = NovelReaderCss.document(content, style(paged = true), colors = colors(WHITE))
+
+        scrolling.contains("column-count") shouldBe false
+        // A capped height is what turns the text sideways instead of letting the page grow down.
+        paged.contains("column-count: 1") shouldBe true
+        paged.contains("height: 100vh") shouldBe true
+    }
+
+    @Test
+    fun `puts two columns on a page when dual page is on`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(paged = true, dualPageLayout = true),
+            colors = colors(WHITE),
+        )
+
+        document.contains("column-count: 2") shouldBe true
+    }
+
+    /** The gutter is the two side margins, because the body's padding only edges the whole strip. */
+    @Test
+    fun `gutters the pages with the margins the reader chose`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(paged = true, marginLeft = 20, marginRight = 10),
+            colors = colors(WHITE),
+        )
+
+        document.contains("column-gap: 30px") shouldBe true
+    }
+
+    @Test
+    fun `trims the top of a page only while paged`() {
+        val blank = NovelChapterContent(html = "<p></p><p>text</p>", head = "", baseUrl = null)
+
+        val scrolling = NovelReaderCss.document(blank, style(trimTopBlankLines = true), colors = colors(WHITE))
+        val paged = NovelReaderCss.document(
+            blank,
+            style(paged = true, trimTopBlankLines = true),
+            colors = colors(WHITE),
+        )
+
+        scrolling.contains("<p></p>") shouldBe true
+        paged.contains("<p></p>") shouldBe false
     }
 
     @Test
