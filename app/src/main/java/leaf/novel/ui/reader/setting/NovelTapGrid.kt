@@ -21,6 +21,9 @@ object NovelTapGrid {
     /** Bound to day/night mode by default, per the imported configuration. */
     const val BOTTOM_LEFT = 6
 
+    /** How close to an edge counts as an edge tap, when the reader asks those to be ignored. */
+    const val EDGE_MARGIN_DP = 24f
+
     /**
      * Resolves a tap into its cell.
      *
@@ -35,4 +38,13 @@ object NovelTapGrid {
         val row = ((y / height) * SIDE).toInt().coerceIn(0, SIDE - 1)
         return row * SIDE + column
     }
+
+    /**
+     * Whether a tap landed close enough to an edge to be ambiguous with a system gesture.
+     *
+     * Gesture navigation claims the sides and the foot of the screen, so on those phones an edge
+     * tap is as likely to have been a missed swipe as a deliberate tap on the page.
+     */
+    fun isNearEdge(x: Float, y: Float, width: Int, height: Int, marginPx: Float): Boolean =
+        x < marginPx || y < marginPx || x > width - marginPx || y > height - marginPx
 }

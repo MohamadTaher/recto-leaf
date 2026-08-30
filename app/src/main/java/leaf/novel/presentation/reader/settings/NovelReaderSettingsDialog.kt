@@ -39,6 +39,7 @@ import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelTapGrid
 import tachiyomi.core.common.preference.Preference
+import tachiyomi.core.common.preference.toggle
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.HeadingItem
@@ -108,7 +109,7 @@ fun NovelReaderSettingsDialog(
                 when (NovelReaderSettingsTab.entries[page]) {
                     NovelReaderSettingsTab.VISUAL -> VisualPage(novelReaderPreferences, readerPreferences)
                     NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
-                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(readerPreferences)
+                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(novelReaderPreferences, readerPreferences)
                 }
             }
         }
@@ -284,20 +285,38 @@ private fun ColumnScope.VisualPage(
 }
 
 @Composable
-private fun ColumnScope.MiscellaneousPage(readerPreferences: ReaderPreferences) {
+private fun ColumnScope.MiscellaneousPage(
+    novelReaderPreferences: NovelReaderPreferences,
+    readerPreferences: ReaderPreferences,
+) {
+    HeadingItem(MR.strings.leaf_novel_reader_heading_screen)
+
+    // The inverse of the fullscreen key rather than a second key meaning the same thing backwards.
+    val fullscreen by readerPreferences.fullscreen.collectAsState()
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_show_notification_bar),
+        checked = !fullscreen,
+        onClick = { readerPreferences.fullscreen.toggle() },
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.pref_keep_screen_on),
+        pref = readerPreferences.keepScreenOn,
+    )
+
     CheckboxItem(
         label = stringResource(MR.strings.pref_show_page_number),
         pref = readerPreferences.showPageNumber,
     )
 
     CheckboxItem(
-        label = stringResource(MR.strings.pref_fullscreen),
-        pref = readerPreferences.fullscreen,
+        label = stringResource(MR.strings.leaf_novel_reader_show_remaining_time),
+        pref = novelReaderPreferences.showRemainingTime,
     )
 
     CheckboxItem(
-        label = stringResource(MR.strings.pref_keep_screen_on),
-        pref = readerPreferences.keepScreenOn,
+        label = stringResource(MR.strings.leaf_novel_reader_disable_touch_edge),
+        pref = novelReaderPreferences.disableTouchEdge,
     )
 }
 
