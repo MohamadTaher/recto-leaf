@@ -276,7 +276,7 @@ private fun ColumnScope.VisualPage(
         val customBrightnessValue by readerPreferences.customBrightnessValue.collectAsState()
         SliderItem(
             value = customBrightnessValue,
-            valueRange = -75..100,
+            valueRange = NovelReaderPreferences.BRIGHTNESS_RANGE,
             steps = 0,
             label = stringResource(MR.strings.pref_custom_brightness),
             onChange = { readerPreferences.customBrightnessValue.set(it) },
@@ -412,6 +412,23 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         value = autoScrollSpeed,
         valueRange = NovelReaderPreferences.AUTO_SCROLL_SPEED_RANGE,
         onChange = { novelReaderPreferences.autoScrollSpeed.set(it) },
+    )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_value_gestures)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_edge_swipe_brightness),
+        pref = novelReaderPreferences.edgeSwipeBrightness,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_edge_swipe_font_size),
+        pref = novelReaderPreferences.edgeSwipeFontSize,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_pinch_font_size),
+        pref = novelReaderPreferences.pinchFontSize,
     )
 }
 
