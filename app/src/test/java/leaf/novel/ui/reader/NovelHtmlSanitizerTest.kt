@@ -118,4 +118,36 @@ class NovelHtmlSanitizerTest {
         out shouldContain "text"
         out shouldNotContain "href"
     }
+
+    @Test
+    fun `drops an empty paragraph`() {
+        NovelHtmlSanitizer.trimBlankLines("<p>one</p><p></p><p>two</p>") shouldBe "<p>one</p><p>two</p>"
+    }
+
+    @Test
+    fun `drops a paragraph holding only whitespace`() {
+        NovelHtmlSanitizer.trimBlankLines("<p>one</p><p>   </p><p>two</p>") shouldBe "<p>one</p><p>two</p>"
+    }
+
+    @Test
+    fun `collapses a run of line breaks to one`() {
+        NovelHtmlSanitizer.trimBlankLines("<p>one<br><br><br>two</p>") shouldBe "<p>one<br>two</p>"
+    }
+
+    @Test
+    fun `keeps a single line break`() {
+        NovelHtmlSanitizer.trimBlankLines("<p>one<br>two</p>") shouldBe "<p>one<br>two</p>"
+    }
+
+    /** A rule is a scene break, which is content: trimming padding must not take it. */
+    @Test
+    fun `keeps a horizontal rule`() {
+        NovelHtmlSanitizer.trimBlankLines("<p>one</p><hr><p>two</p>") shouldBe "<p>one</p><hr><p>two</p>"
+    }
+
+    /** Blank of text is not blank of content. */
+    @Test
+    fun `keeps a paragraph holding only an image`() {
+        NovelHtmlSanitizer.trimBlankLines("<p><img src=\"a.png\"></p>") shouldBe "<p><img src=\"a.png\"></p>"
+    }
 }

@@ -2,11 +2,56 @@ package leaf.novel.ui.reader
 
 import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.ui.reader.setting.NovelReaderStyle
 import org.junit.jupiter.api.Test
 
 private const val WHITE = 0xFFFFFFFF.toInt()
 private const val BLACK = 0xFF000000.toInt()
 private const val MIHON_GRAY = 0xFF2B2B2B.toInt()
+
+private fun style(
+    fontSizePx: Int = 18,
+    bold: Boolean = false,
+    italic: Boolean = false,
+    underline: Boolean = false,
+    shadow: Boolean = false,
+    antialias: Boolean = true,
+    justified: Boolean = false,
+    hyphenation: Boolean = false,
+    paragraphSpacing: Int = 60,
+    lineSpacing: Int = 4,
+    fontSpacing: Int = 0,
+    fontScale: Int = 0,
+    marginLeft: Int = 14,
+    marginRight: Int = 10,
+    marginTop: Int = 3,
+    marginBottom: Int = 3,
+    highlightFirstWord: Boolean = false,
+    highlightInitialChars: Boolean = false,
+    indentFirstLine: Boolean = true,
+    trimBlankLines: Boolean = false,
+) = NovelReaderStyle(
+    fontSizePx = fontSizePx,
+    bold = bold,
+    italic = italic,
+    underline = underline,
+    shadow = shadow,
+    antialias = antialias,
+    justified = justified,
+    hyphenation = hyphenation,
+    paragraphSpacing = paragraphSpacing,
+    lineSpacing = lineSpacing,
+    fontSpacing = fontSpacing,
+    fontScale = fontScale,
+    marginLeft = marginLeft,
+    marginRight = marginRight,
+    marginTop = marginTop,
+    marginBottom = marginBottom,
+    highlightFirstWord = highlightFirstWord,
+    highlightInitialChars = highlightInitialChars,
+    indentFirstLine = indentFirstLine,
+    trimBlankLines = trimBlankLines,
+)
 
 /**
  * The reader's stylesheet has to win the cascade against whatever the book brought with it without
@@ -49,7 +94,7 @@ class NovelReaderCssTest {
      */
     @Test
     fun `the descendant reset does not target body itself`() {
-        val document = NovelReaderCss.document(content, fontSizePx = 18, backgroundColor = BLACK)
+        val document = NovelReaderCss.document(content, style(), backgroundColor = BLACK)
 
         document.contains("body, body *") shouldBe false
         document.contains("body * { color:") shouldBe true
@@ -63,7 +108,7 @@ class NovelReaderCssTest {
             baseUrl = null,
         )
 
-        val document = NovelReaderCss.document(styled, fontSizePx = 18, backgroundColor = BLACK)
+        val document = NovelReaderCss.document(styled, style(), backgroundColor = BLACK)
 
         // The book's stylesheet must survive, but ours has to come after it to win the cascade.
         document.indexOf("<style>body { background: #fff") shouldBe document.indexOf(styled.head)
@@ -72,20 +117,156 @@ class NovelReaderCssTest {
 
     @Test
     fun `renders the requested font size`() {
-        val document = NovelReaderCss.document(content, fontSizePx = 22, backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(fontSizePx = 22), backgroundColor = WHITE)
         document.contains("font-size: 22px") shouldBe true
     }
 
     @Test
     fun `keeps wide content from scrolling the page sideways`() {
-        val document = NovelReaderCss.document(content, fontSizePx = 18, backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
         document.contains("max-width: 100%") shouldBe true
         document.contains("overflow-x: auto") shouldBe true
     }
 
     @Test
     fun `embeds the chapter body`() {
-        val document = NovelReaderCss.document(content, fontSizePx = 18, backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
         document.contains("<p>text</p>") shouldBe true
+    }
+
+    @Test
+    fun `emits every text styling flag when it is on`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(
+                bold = true,
+                italic = true,
+                underline = true,
+                shadow = true,
+                justified = true,
+                hyphenation = true,
+            ),
+            backgroundColor = WHITE,
+        )
+
+        document.contains("font-weight: bold") shouldBe true
+        document.contains("font-style: italic") shouldBe true
+        document.contains("text-decoration: underline") shouldBe true
+        document.contains("text-shadow: 0 1px 2px") shouldBe true
+        document.contains("text-align: justify") shouldBe true
+        document.contains("hyphens: auto") shouldBe true
+    }
+
+    @Test
+    fun `emits the off value for every text styling flag by default`() {
+        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+
+        document.contains("font-weight: normal") shouldBe true
+        document.contains("font-style: normal") shouldBe true
+        document.contains("text-decoration: none") shouldBe true
+        document.contains("text-shadow: none") shouldBe true
+        document.contains("text-align: start") shouldBe true
+        document.contains("hyphens: manual") shouldBe true
+    }
+
+    @Test
+    fun `smooths text by default and stops when asked`() {
+        NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+            .contains("-webkit-font-smoothing: antialiased") shouldBe true
+
+        NovelReaderCss.document(content, style(antialias = false), backgroundColor = WHITE)
+            .contains("-webkit-font-smoothing: auto") shouldBe true
+    }
+
+    /** Justifying the body must not reach the headings, which the stylesheet aligns itself. */
+    @Test
+    fun `headings keep their own alignment when the body is justified`() {
+        val doc = NovelReaderCss.document(content, style(justified = true), backgroundColor = WHITE)
+
+        doc.contains("text-align: justify") shouldBe true
+        doc.contains("h1, h2, h3, h4, h5, h6 { text-align: start") shouldBe true
+    }
+
+    @Test
+    fun `maps line spacing across its range`() {
+        fun doc(v: Int) = NovelReaderCss.document(content, style(lineSpacing = v), backgroundColor = WHITE)
+
+        doc(-5).contains("line-height: 0.7") shouldBe true
+        doc(4).contains("line-height: 1.6") shouldBe true
+        doc(20).contains("line-height: 3.2") shouldBe true
+    }
+
+    @Test
+    fun `maps paragraph spacing across its range`() {
+        fun doc(v: Int) = NovelReaderCss.document(content, style(paragraphSpacing = v), backgroundColor = WHITE)
+
+        doc(0).contains("margin: 0 0 0.00em") shouldBe true
+        doc(60).contains("margin: 0 0 0.60em") shouldBe true
+        doc(200).contains("margin: 0 0 2.00em") shouldBe true
+    }
+
+    /** Font spacing goes below zero to tighten, so the sign has to survive the formatting. */
+    @Test
+    fun `maps font spacing across its range, negatives included`() {
+        fun doc(v: Int) = NovelReaderCss.document(content, style(fontSpacing = v), backgroundColor = WHITE)
+
+        doc(-4).contains("letter-spacing: -0.04em") shouldBe true
+        doc(0).contains("letter-spacing: 0.00em") shouldBe true
+        doc(20).contains("letter-spacing: 0.20em") shouldBe true
+    }
+
+    @Test
+    fun `font scale nudges the chosen size and at zero leaves it alone`() {
+        fun doc(scale: Int) =
+            NovelReaderCss.document(content, style(fontScale = scale), backgroundColor = WHITE)
+
+        doc(0).contains("font-size: 18px") shouldBe true
+        doc(-4).contains("font-size: 16px") shouldBe true
+        doc(20).contains("font-size: 27px") shouldBe true
+    }
+
+    /**
+     * CSS shorthand runs top, right, bottom, left. Four distinct values rather than the defaults,
+     * because a swapped pair renders plausibly and is invisible in any test that reuses a number.
+     */
+    @Test
+    fun `lays the four margins out in shorthand order`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(marginLeft = 1, marginRight = 2, marginTop = 3, marginBottom = 4),
+            backgroundColor = WHITE,
+        )
+
+        document.contains("padding: 3px 2px 4px 1px") shouldBe true
+    }
+
+    @Test
+    fun `defaults to the imported asymmetric margins`() {
+        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+
+        document.contains("padding: 3px 10px 3px 14px") shouldBe true
+    }
+
+    @Test
+    fun `allows a margin of zero on every side`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(marginLeft = 0, marginRight = 0, marginTop = 0, marginBottom = 0),
+            backgroundColor = WHITE,
+        )
+
+        document.contains("padding: 0px 0px 0px 0px") shouldBe true
+    }
+
+    /**
+     * The slider cannot reach here, but a preference restored from a backup can, and the tenths
+     * formatting would otherwise emit "0.-8" and take the whole declaration down with it.
+     */
+    @Test
+    fun `clamps a line spacing from below the slider range`() {
+        val document = NovelReaderCss.document(content, style(lineSpacing = -40), backgroundColor = WHITE)
+
+        document.contains("line-height: 0.7") shouldBe true
+        document.contains("line-height: 0.-") shouldBe false
     }
 }
