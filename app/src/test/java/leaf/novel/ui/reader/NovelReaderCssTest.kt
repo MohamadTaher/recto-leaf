@@ -2,15 +2,22 @@ package leaf.novel.ui.reader
 
 import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.ui.reader.setting.NovelLinkColor
+import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderStyle
+import leaf.novel.ui.reader.setting.NovelReaderTheme
 import org.junit.jupiter.api.Test
 
 private const val WHITE = 0xFFFFFFFF.toInt()
 private const val BLACK = 0xFF000000.toInt()
 private const val MIHON_GRAY = 0xFF2B2B2B.toInt()
 
+/** What the screen resolves before calling: Follow Mihon derives the foreground, as it always did. */
+private fun colors(background: Int) = NovelReaderTheme.FOLLOW_MIHON.colors(background)
+
 private fun style(
     fontSizePx: Int = 18,
+    font: NovelReaderFont = NovelReaderFont.SYSTEM,
     bold: Boolean = false,
     italic: Boolean = false,
     underline: Boolean = false,
@@ -30,8 +37,10 @@ private fun style(
     highlightInitialChars: Boolean = false,
     indentFirstLine: Boolean = true,
     trimBlankLines: Boolean = false,
+    linkColor: NovelLinkColor = NovelLinkColor.DEFAULT,
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
+    font = font,
     bold = bold,
     italic = italic,
     underline = underline,
@@ -51,6 +60,7 @@ private fun style(
     highlightInitialChars = highlightInitialChars,
     indentFirstLine = indentFirstLine,
     trimBlankLines = trimBlankLines,
+    linkColor = linkColor,
 )
 
 /**
@@ -94,7 +104,7 @@ class NovelReaderCssTest {
      */
     @Test
     fun `the descendant reset does not target body itself`() {
-        val document = NovelReaderCss.document(content, style(), backgroundColor = BLACK)
+        val document = NovelReaderCss.document(content, style(), colors = colors(BLACK))
 
         document.contains("body, body *") shouldBe false
         document.contains("body * { color:") shouldBe true
@@ -108,7 +118,7 @@ class NovelReaderCssTest {
             baseUrl = null,
         )
 
-        val document = NovelReaderCss.document(styled, style(), backgroundColor = BLACK)
+        val document = NovelReaderCss.document(styled, style(), colors = colors(BLACK))
 
         // The book's stylesheet must survive, but ours has to come after it to win the cascade.
         document.indexOf("<style>body { background: #fff") shouldBe document.indexOf(styled.head)
@@ -117,20 +127,38 @@ class NovelReaderCssTest {
 
     @Test
     fun `renders the requested font size`() {
-        val document = NovelReaderCss.document(content, style(fontSizePx = 22), backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(fontSizePx = 22), colors = colors(WHITE))
         document.contains("font-size: 22px") shouldBe true
     }
 
     @Test
+    fun `leaves the book font alone by default`() {
+        val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
+
+        document.contains("font-family:") shouldBe false
+    }
+
+    @Test
+    fun `emits the chosen generic font family`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(font = NovelReaderFont.SERIF),
+            colors = colors(WHITE),
+        )
+
+        document.contains("font-family: serif;") shouldBe true
+    }
+
+    @Test
     fun `keeps wide content from scrolling the page sideways`() {
-        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
         document.contains("max-width: 100%") shouldBe true
         document.contains("overflow-x: auto") shouldBe true
     }
 
     @Test
     fun `embeds the chapter body`() {
-        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
         document.contains("<p>text</p>") shouldBe true
     }
 
@@ -146,7 +174,7 @@ class NovelReaderCssTest {
                 justified = true,
                 hyphenation = true,
             ),
-            backgroundColor = WHITE,
+            colors = colors(WHITE),
         )
 
         document.contains("font-weight: bold") shouldBe true
@@ -159,7 +187,7 @@ class NovelReaderCssTest {
 
     @Test
     fun `emits the off value for every text styling flag by default`() {
-        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
 
         document.contains("font-weight: normal") shouldBe true
         document.contains("font-style: normal") shouldBe true
@@ -171,17 +199,17 @@ class NovelReaderCssTest {
 
     @Test
     fun `smooths text by default and stops when asked`() {
-        NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+        NovelReaderCss.document(content, style(), colors = colors(WHITE))
             .contains("-webkit-font-smoothing: antialiased") shouldBe true
 
-        NovelReaderCss.document(content, style(antialias = false), backgroundColor = WHITE)
+        NovelReaderCss.document(content, style(antialias = false), colors = colors(WHITE))
             .contains("-webkit-font-smoothing: auto") shouldBe true
     }
 
     /** Justifying the body must not reach the headings, which the stylesheet aligns itself. */
     @Test
     fun `headings keep their own alignment when the body is justified`() {
-        val doc = NovelReaderCss.document(content, style(justified = true), backgroundColor = WHITE)
+        val doc = NovelReaderCss.document(content, style(justified = true), colors = colors(WHITE))
 
         doc.contains("text-align: justify") shouldBe true
         doc.contains("h1, h2, h3, h4, h5, h6 { text-align: start") shouldBe true
@@ -189,7 +217,7 @@ class NovelReaderCssTest {
 
     @Test
     fun `maps line spacing across its range`() {
-        fun doc(v: Int) = NovelReaderCss.document(content, style(lineSpacing = v), backgroundColor = WHITE)
+        fun doc(v: Int) = NovelReaderCss.document(content, style(lineSpacing = v), colors = colors(WHITE))
 
         doc(-5).contains("line-height: 0.7") shouldBe true
         doc(4).contains("line-height: 1.6") shouldBe true
@@ -198,7 +226,7 @@ class NovelReaderCssTest {
 
     @Test
     fun `maps paragraph spacing across its range`() {
-        fun doc(v: Int) = NovelReaderCss.document(content, style(paragraphSpacing = v), backgroundColor = WHITE)
+        fun doc(v: Int) = NovelReaderCss.document(content, style(paragraphSpacing = v), colors = colors(WHITE))
 
         doc(0).contains("margin: 0 0 0.00em") shouldBe true
         doc(60).contains("margin: 0 0 0.60em") shouldBe true
@@ -208,7 +236,7 @@ class NovelReaderCssTest {
     /** Font spacing goes below zero to tighten, so the sign has to survive the formatting. */
     @Test
     fun `maps font spacing across its range, negatives included`() {
-        fun doc(v: Int) = NovelReaderCss.document(content, style(fontSpacing = v), backgroundColor = WHITE)
+        fun doc(v: Int) = NovelReaderCss.document(content, style(fontSpacing = v), colors = colors(WHITE))
 
         doc(-4).contains("letter-spacing: -0.04em") shouldBe true
         doc(0).contains("letter-spacing: 0.00em") shouldBe true
@@ -218,7 +246,7 @@ class NovelReaderCssTest {
     @Test
     fun `font scale nudges the chosen size and at zero leaves it alone`() {
         fun doc(scale: Int) =
-            NovelReaderCss.document(content, style(fontScale = scale), backgroundColor = WHITE)
+            NovelReaderCss.document(content, style(fontScale = scale), colors = colors(WHITE))
 
         doc(0).contains("font-size: 18px") shouldBe true
         doc(-4).contains("font-size: 16px") shouldBe true
@@ -234,7 +262,7 @@ class NovelReaderCssTest {
         val document = NovelReaderCss.document(
             content,
             style(marginLeft = 1, marginRight = 2, marginTop = 3, marginBottom = 4),
-            backgroundColor = WHITE,
+            colors = colors(WHITE),
         )
 
         document.contains("padding: 3px 2px 4px 1px") shouldBe true
@@ -242,7 +270,7 @@ class NovelReaderCssTest {
 
     @Test
     fun `defaults to the imported asymmetric margins`() {
-        val document = NovelReaderCss.document(content, style(), backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
 
         document.contains("padding: 3px 10px 3px 14px") shouldBe true
     }
@@ -252,7 +280,7 @@ class NovelReaderCssTest {
         val document = NovelReaderCss.document(
             content,
             style(marginLeft = 0, marginRight = 0, marginTop = 0, marginBottom = 0),
-            backgroundColor = WHITE,
+            colors = colors(WHITE),
         )
 
         document.contains("padding: 0px 0px 0px 0px") shouldBe true
@@ -264,9 +292,40 @@ class NovelReaderCssTest {
      */
     @Test
     fun `clamps a line spacing from below the slider range`() {
-        val document = NovelReaderCss.document(content, style(lineSpacing = -40), backgroundColor = WHITE)
+        val document = NovelReaderCss.document(content, style(lineSpacing = -40), colors = colors(WHITE))
 
         document.contains("line-height: 0.7") shouldBe true
         document.contains("line-height: 0.-") shouldBe false
+    }
+
+    /**
+     * The default link colour is the muted foreground the reader used before it was a setting, and
+     * it has to keep following the theme. The hr rule and the selection highlight take the same
+     * colour, so they are the check that a chosen colour has not leaked past the links.
+     */
+    @Test
+    fun `leaves links to the theme by default`() {
+        val onWhite = NovelReaderCss.document(content, style(), colors = colors(WHITE))
+        val onBlack = NovelReaderCss.document(content, style(), colors = colors(BLACK))
+
+        onWhite.contains("a { color: rgba(26, 26, 26, ") shouldBe true
+        onBlack.contains("a { color: rgba(222, 222, 222, ") shouldBe true
+    }
+
+    @Test
+    fun `draws links in a chosen colour, whatever the theme`() {
+        val onWhite = NovelReaderCss.document(content, style(linkColor = NovelLinkColor.TEAL), colors = colors(WHITE))
+        val onBlack = NovelReaderCss.document(content, style(linkColor = NovelLinkColor.TEAL), colors = colors(BLACK))
+
+        onWhite.contains("a { color: rgba(38, 166, 154, 1.0) !important; }") shouldBe true
+        onBlack.contains("a { color: rgba(38, 166, 154, 1.0) !important; }") shouldBe true
+    }
+
+    @Test
+    fun `leaves the page furniture on the theme colour when links are not`() {
+        val document = NovelReaderCss.document(content, style(linkColor = NovelLinkColor.RED), colors = colors(WHITE))
+
+        document.contains("border-top: 1px solid rgba(26, 26, 26, ") shouldBe true
+        document.contains("::selection { background: rgba(26, 26, 26, ") shouldBe true
     }
 }

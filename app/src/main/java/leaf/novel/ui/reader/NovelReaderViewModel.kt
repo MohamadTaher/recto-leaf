@@ -43,6 +43,7 @@ import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.SourceContentProvider
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
+import leaf.novel.ui.reader.setting.NovelReaderTheme
 import logcat.LogPriority
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.lang.launchNonCancellable
@@ -318,13 +319,30 @@ class NovelReaderViewModel(
     }
 
     /**
-     * Flips the shared reader theme between its black and white values.
+     * Flips between the reader's chosen day and night themes.
      *
-     * The theme is a ReaderPreferences key both readers share — the novel reader deliberately has
-     * no settings system of its own — so the image reader changes background with it.
+     * While both are still [NovelReaderTheme.FOLLOW_MIHON] there is nothing of the fork's own to
+     * flip, so it falls back to flipping the shared reader theme between its black and white values
+     * — which is all this action ever did, and it keeps the image reader following along. Once a
+     * reader picks a pair, writing the shared key as well would move manga's background for a
+     * setting that no longer decides this one.
      */
-    fun toggleDayNightMode() = readerPreferences.readerTheme.getAndSet {
-        if (it == READER_THEME_WHITE) READER_THEME_BLACK else READER_THEME_WHITE
+    fun toggleDayNightMode() {
+        val day = novelReaderPreferences.dayTheme.get()
+        val night = novelReaderPreferences.nightTheme.get()
+        if (day == NovelReaderTheme.FOLLOW_MIHON && night == NovelReaderTheme.FOLLOW_MIHON) {
+            readerPreferences.readerTheme.getAndSet {
+                if (it == READER_THEME_WHITE) READER_THEME_BLACK else READER_THEME_WHITE
+            }
+            return
+        }
+        novelReaderPreferences.theme.getAndSet { if (it == night) day else night }
+    }
+
+    /** Steps to the next theme, wrapping, for whatever is bound to it. */
+    fun cycleTheme() = novelReaderPreferences.theme.getAndSet {
+        val themes = NovelReaderTheme.entries
+        themes[(themes.indexOf(it) + 1) % themes.size]
     }
 
     fun setBrightnessOverlayValue(value: Int) = mutableState.update { it.copy(brightnessOverlayValue = value) }

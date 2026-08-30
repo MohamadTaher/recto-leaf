@@ -26,6 +26,9 @@ class NovelReaderPreferences(
 
     val fontSize: Preference<Int> = preferenceStore.getInt("leaf_novel_font_size", DEFAULT_FONT_SIZE)
 
+    val font: Preference<NovelReaderFont> =
+        preferenceStore.getEnum("leaf_novel_font", NovelReaderFont.SYSTEM)
+
     // region Text styling
 
     val bold: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_bold", false)
@@ -71,6 +74,33 @@ class NovelReaderPreferences(
 
     val marginBottom: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_bottom", 3)
 
+    // region Colours
+
+    /** The colour of a link in the book's text. [NovelLinkColor.DEFAULT] leaves it to the theme. */
+    val linkColor: Preference<NovelLinkColor> =
+        preferenceStore.getEnum("leaf_novel_link_color", NovelLinkColor.DEFAULT)
+
+    /**
+     * The background and text colour the page is drawn in.
+     *
+     * [NovelReaderTheme.FOLLOW_MIHON] defers to the shared reader theme and derives the text colour
+     * from it, which is what the reader did before this was a setting.
+     */
+    val theme: Preference<NovelReaderTheme> =
+        preferenceStore.getEnum("leaf_novel_theme", NovelReaderTheme.FOLLOW_MIHON)
+
+    /**
+     * The pair day/night mode flips between.
+     *
+     * Both start at [NovelReaderTheme.FOLLOW_MIHON], where there is nothing to flip — so the action
+     * goes on flipping the shared reader theme between white and black, exactly as it does today.
+     */
+    val dayTheme: Preference<NovelReaderTheme> =
+        preferenceStore.getEnum("leaf_novel_day_theme", NovelReaderTheme.FOLLOW_MIHON)
+
+    val nightTheme: Preference<NovelReaderTheme> =
+        preferenceStore.getEnum("leaf_novel_night_theme", NovelReaderTheme.FOLLOW_MIHON)
+
     // region Focused reading
 
     val readingRuler: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_reading_ruler", false)
@@ -86,8 +116,21 @@ class NovelReaderPreferences(
     val disableTouchEdge: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_disable_touch_edge", false)
 
-    val showRemainingTime: Preference<Boolean> =
-        preferenceStore.getBoolean("leaf_novel_show_remaining_time", false)
+    // region Mini status bar
+
+    val showStatusBar: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_show_status_bar", true)
+
+    /**
+     * Where each item of the bar sits, or that it does not appear.
+     *
+     * A placement per item rather than a list per section: every row is then a single choice, which
+     * the settings screen can already show, and a section is whatever points at it.
+     */
+    val statusSlots: Map<NovelStatusItem, Preference<NovelStatusPlacement>> =
+        NovelStatusItem.entries.associateWith { item ->
+            preferenceStore.getEnum("leaf_novel_status_slot_${item.name.lowercase()}", item.default)
+        }
 
     // region Typesetting
 
@@ -165,6 +208,10 @@ class NovelReaderPreferences(
 
     // endregion
 
+    // endregion
+
+    // endregion
+
     // region Controls
 
     /**
@@ -199,6 +246,12 @@ class NovelReaderPreferences(
     val swipes: Map<NovelReaderSwipe, Preference<NovelReaderAction>> =
         NovelReaderSwipe.entries.associateWith { swipe ->
             preferenceStore.getEnum("leaf_novel_swipe_${swipe.name.lowercase()}", swipe.default)
+        }
+
+    /** One binding per section of the mini status bar, tap and long tap. */
+    val statusTaps: Map<NovelStatusBarTap, Preference<NovelReaderAction>> =
+        NovelStatusBarTap.entries.associateWith { tap ->
+            preferenceStore.getEnum("leaf_novel_status_${tap.name.lowercase()}", tap.default)
         }
 
     // endregion
