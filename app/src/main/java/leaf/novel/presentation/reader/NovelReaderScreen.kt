@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -97,9 +98,6 @@ fun NovelReaderScreen(
     var showChapters by remember { mutableStateOf(false) }
     val webViewController = remember { NovelWebViewController() }
 
-    val tapActions = viewModel.novelReaderPreferences.tapZones.map { it.collectAsState().value }
-    val longTapAction by viewModel.novelReaderPreferences.longTap.collectAsState()
-
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
         when (action) {
@@ -134,6 +132,47 @@ fun NovelReaderScreen(
         }
     }
 
+    // Bindings are read when the gesture happens rather than collected. Nothing on screen displays
+    // one, so subscribing to all fourteen would be a dozen subscriptions with nothing to show.
+
+    /** Runs a bound action, reporting whether it claimed the gesture. */
+    fun performBinding(action: NovelReaderAction): Boolean {
+        if (action == NovelReaderAction.NONE) return false
+        performAction(action)
+        return true
+    }
+
+    fun performLongPress(): Boolean {
+        val action = viewModel.novelReaderPreferences.longTap.get()
+        // Choosing text selection means leaving the WebView's own long press alone.
+        if (action == NovelReaderAction.TEXT_SELECTION) return false
+        return performBinding(action)
+    }
+
+    fun performEdgeDrag(edge: NovelTapGrid.Edge, steps: Int): Boolean {
+        val preferences = viewModel.novelReaderPreferences
+        val enabled = when (edge) {
+            NovelTapGrid.Edge.LEFT -> preferences.edgeSwipeBrightness.get()
+            NovelTapGrid.Edge.RIGHT -> preferences.edgeSwipeFontSize.get()
+        }
+        if (enabled && steps != 0) {
+            when (edge) {
+                NovelTapGrid.Edge.LEFT -> adjustBrightness(viewModel.readerPreferences, steps)
+                NovelTapGrid.Edge.RIGHT -> adjustFontSize(preferences, steps)
+            }
+        }
+        return enabled
+    }
+
+    fun performPinch(scale: Float) {
+        viewModel.novelReaderPreferences.fontSize.getAndSet {
+            (it * scale).roundToInt().coerceIn(
+                NovelReaderPreferences.MIN_FONT_SIZE,
+                NovelReaderPreferences.MAX_FONT_SIZE,
+            )
+        }
+    }
+
     // Keys are dispatched by the activity, which cannot reach the composition, so they arrive as
     // requests and are performed here alongside the taps.
     LaunchedEffect(Unit) {
@@ -164,10 +203,19 @@ fun NovelReaderScreen(
         }
     }
 
-    // The menu hangs off the bottom bar, so when the chrome goes its anchor goes with it. Leaving
-    // the flag set would pop it open again on its own the next time the bar came back.
+    // Both of these hang off the chrome, so when it goes they go with it. An expanded menu left
+    // set would pop open on its own the next time the bar came back, and a search left open would
+    // go on swallowing the key bindings with nothing on screen to explain why.
     LaunchedEffect(state.menuVisible) {
-        if (!state.menuVisible) additionalOptionsExpanded = false
+        if (!state.menuVisible) {
+            additionalOptionsExpanded = false
+            viewModel.setSearchQuery(null)
+        }
+    }
+
+    // Back closes the search rather than the book, which is what the gesture means everywhere else.
+    BackHandler(enabled = state.searchQuery != null) {
+        viewModel.setSearchQuery(null)
     }
 
     // Live find-in-page: every keystroke re-searches, and closing the bar drops the highlighting.
@@ -181,8 +229,6 @@ fun NovelReaderScreen(
     val readingRuler by viewModel.novelReaderPreferences.readingRuler.collectAsState()
     val showRemainingTime by viewModel.novelReaderPreferences.showRemainingTime.collectAsState()
     val disableTouchEdge by viewModel.novelReaderPreferences.disableTouchEdge.collectAsState()
-    val edgeSwipeBrightness by viewModel.novelReaderPreferences.edgeSwipeBrightness.collectAsState()
-    val edgeSwipeFontSize by viewModel.novelReaderPreferences.edgeSwipeFontSize.collectAsState()
     val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
 
     // A short tick with a fractional step, carried between ticks, so even the slowest speed creeps
@@ -252,47 +298,15 @@ fun NovelReaderScreen(
                         controller = webViewController,
                         ignoreEdgeTaps = disableTouchEdge,
                         pinchEnabled = pinchFontSize,
-                        onPinch = { scale ->
-                            viewModel.novelReaderPreferences.fontSize.getAndSet {
-                                (it * scale).roundToInt().coerceIn(
-                                    NovelReaderPreferences.MIN_FONT_SIZE,
-                                    NovelReaderPreferences.MAX_FONT_SIZE,
-                                )
-                            }
+                        onPinch = ::performPinch,
+                        onEdgeDrag = ::performEdgeDrag,
+                        onTapCell = { cell ->
+                            performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
                         },
-                        onEdgeDrag = { edge, steps ->
-                            val enabled = when (edge) {
-                                NovelTapGrid.Edge.LEFT -> edgeSwipeBrightness
-                                NovelTapGrid.Edge.RIGHT -> edgeSwipeFontSize
-                            }
-                            if (enabled && steps != 0) {
-                                when (edge) {
-                                    NovelTapGrid.Edge.LEFT ->
-                                        adjustBrightness(viewModel.readerPreferences, steps)
-                                    NovelTapGrid.Edge.RIGHT ->
-                                        adjustFontSize(viewModel.novelReaderPreferences, steps)
-                                }
-                            }
-                            enabled
-                        },
-                        onTapCell = { performAction(tapActions[it]) },
                         onSwipe = { swipe ->
-                            val bound = viewModel.novelReaderPreferences.swipes.getValue(swipe).get()
-                            if (bound == NovelReaderAction.NONE) {
-                                false
-                            } else {
-                                performAction(bound)
-                                true
-                            }
+                            performBinding(viewModel.novelReaderPreferences.swipes.getValue(swipe).get())
                         },
-                        onLongPress = {
-                            if (longTapAction == NovelReaderAction.TEXT_SELECTION) {
-                                false
-                            } else {
-                                performAction(longTapAction)
-                                true
-                            }
-                        },
+                        onLongPress = ::performLongPress,
                         onExternalLink = { uriHandler.openUri(it) },
                     )
                 }

@@ -205,7 +205,7 @@ fun NovelChapterWebView(
 
     LaunchedEffect(webView, document) {
         val view = webView ?: return@LaunchedEffect
-        controller.clearFind()
+
         restored.value = false
         pageFinished.value = false
         view.loadDataWithBaseURL(baseUrl, document, "text/html", "utf-8", null)
@@ -219,6 +219,9 @@ fun NovelChapterWebView(
             view.scrollTo(0, view.scrollTargetOf(initialPercent))
         }
         restored.value = true
+        // The reload dropped any highlighting, so a search still open is run again over the
+        // rebuilt document rather than left showing nothing.
+        controller.reapplyFind()
 
         // A chapter shorter than the viewport can never be scrolled, so it is complete on sight.
         if (maxScroll <= 0) currentOnProgress(100)
