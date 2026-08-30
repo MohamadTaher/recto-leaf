@@ -19,8 +19,14 @@ enum class NovelReaderSwipe(val titleRes: StringResource) {
     ;
 
     companion object {
-        /** Below this a movement is a drag or a stray flick rather than a swipe worth acting on. */
-        const val MIN_DISTANCE_PX = 80f
+        /**
+         * Below this a movement is a drag or a stray flick rather than a swipe worth acting on.
+         *
+         * In dp, and converted by the caller. Touch coordinates arrive in physical pixels, so a
+         * pixel threshold would ask for three times the finger travel on a low-density screen that
+         * it does on a high-density one.
+         */
+        const val MIN_DISTANCE_DP = 32f
 
         /**
          * The direction a fling travelled, or null when it was too short to mean anything.
@@ -28,10 +34,10 @@ enum class NovelReaderSwipe(val titleRes: StringResource) {
          * The larger axis wins outright, so a diagonal reads as whichever of the two it is more of
          * and there is no dead band in which an almost-straight swipe does nothing at all.
          */
-        fun of(dx: Float, dy: Float): NovelReaderSwipe? {
+        fun of(dx: Float, dy: Float, minDistancePx: Float): NovelReaderSwipe? {
             val horizontal = abs(dx) >= abs(dy)
             val distance = if (horizontal) abs(dx) else abs(dy)
-            if (distance < MIN_DISTANCE_PX) return null
+            if (distance < minDistancePx) return null
 
             return when {
                 horizontal && dx < 0 -> RIGHT_TO_LEFT

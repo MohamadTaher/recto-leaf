@@ -35,7 +35,9 @@ object NovelReaderCss {
         val muted = foregroundFor(backgroundColor).withAlpha(ACCENT_ALPHA).toCssColor()
 
         val fontSizePx = scaledFontSizePx(style)
-        val lineHeight = tenths(LINE_HEIGHT_BASE_TENTHS + style.lineSpacing)
+        val lineHeight = tenths(
+            (LINE_HEIGHT_BASE_TENTHS + style.lineSpacing).coerceAtLeast(MIN_LINE_HEIGHT_TENTHS),
+        )
         val letterSpacing = hundredths(style.fontSpacing)
         val paragraphSpacing = hundredths(style.paragraphSpacing)
 
@@ -62,7 +64,7 @@ object NovelReaderCss {
               line-height: $lineHeight;
               margin: 0;
               padding: ${style.marginTop}px ${style.marginRight}px ${style.marginBottom}px ${style.marginLeft}px;
-              text-align: ${if (style.justified) "justify" else "left"};
+              text-align: ${if (style.justified) "justify" else "start"};
               hyphens: ${if (style.hyphenation) "auto" else "manual"};
               word-break: break-word;
               overflow-wrap: break-word;
@@ -70,7 +72,7 @@ object NovelReaderCss {
             /* Descendants only: including `body` here would beat its own background above. */
             body * { color: $foreground !important; background-color: transparent !important; }
             p { margin: 0 0 ${paragraphSpacing}em; text-indent: ${FIRST_LINE_INDENT_EM}em; }
-            h1, h2, h3, h4, h5, h6 { text-align: left; line-height: 1.3; }
+            h1, h2, h3, h4, h5, h6 { text-align: start; line-height: 1.3; }
             img, svg, video { max-width: 100%; height: auto; }
             pre, table { overflow-x: auto; display: block; max-width: 100%; }
             hr { border: none; border-top: 1px solid $muted; }
@@ -111,7 +113,7 @@ object NovelReaderCss {
      * against each descendant's own font size, where a percentage would inherit one fixed length and
      * crowd any text the book sets larger.
      *
-     * Only ever called with the line-height range, which cannot reach zero, so no sign handling.
+     * The caller clamps before calling, so this never sees a negative and never has to format one.
      */
     private fun tenths(value: Int): String = "${value / 10}.${value % 10}"
 
@@ -139,6 +141,15 @@ object NovelReaderCss {
 
     /** A line spacing of 0 is single-spaced; the imported default of 4 lands on 1.6. */
     private const val LINE_HEIGHT_BASE_TENTHS = 12
+
+    /**
+     * The floor the line height is clamped to.
+     *
+     * The slider cannot go below it, but a preference restored from a backup or written by an
+     * older range can, and an unclamped negative would format as "0.-8" and take the whole
+     * declaration down with it.
+     */
+    private const val MIN_LINE_HEIGHT_TENTHS = 7
 
     /** One step of the fine font scale, in per-mille: 2.5% of the chosen size. */
     private const val FONT_SCALE_STEP = 25

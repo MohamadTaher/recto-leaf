@@ -2,8 +2,11 @@ package leaf.novel.presentation.reader.components
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Rect
 import android.view.ActionMode
 import android.view.GestureDetector
+import android.view.Menu
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.webkit.WebResourceRequest
@@ -65,13 +68,39 @@ private class NovelWebView(context: Context) : WebView(context) {
         return mode
     }
 
-    /** Delegates all of it but the end, which is the part that clears [isSelecting]. */
+    /**
+     * Delegates all of it but the end, which is the part that clears [isSelecting].
+     *
+     * A [ActionMode.Callback2] rather than the narrower [ActionMode.Callback], because the
+     * selection callback the WebView hands us is one, and `onGetContentRect` is what puts the
+     * floating toolbar beside the selected text instead of over the whole page. Wrapping it in the
+     * plain interface would drop that override on the floor and the toolbar would lose its place.
+     */
     private inner class TrackedCallback(
         private val delegate: ActionMode.Callback,
-    ) : ActionMode.Callback by delegate {
+    ) : ActionMode.Callback2() {
+
+        override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean =
+            delegate.onCreateActionMode(mode, menu)
+
+        override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean =
+            delegate.onPrepareActionMode(mode, menu)
+
+        override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean =
+            delegate.onActionItemClicked(mode, item)
+
         override fun onDestroyActionMode(mode: ActionMode) {
             selectionMode = null
             delegate.onDestroyActionMode(mode)
+        }
+
+        // The view is nullable here: the default implementation null-checks it before measuring.
+        override fun onGetContentRect(mode: ActionMode, view: View?, outRect: Rect) {
+            if (delegate is ActionMode.Callback2) {
+                delegate.onGetContentRect(mode, view, outRect)
+            } else {
+                super.onGetContentRect(mode, view, outRect)
+            }
         }
     }
 }
@@ -241,6 +270,7 @@ private fun NovelWebView.attachTapDetector(
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
 ) {
+    val minSwipeDistancePx = NovelReaderSwipe.MIN_DISTANCE_DP * resources.displayMetrics.density
     val detector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
@@ -253,7 +283,8 @@ private fun NovelWebView.attachTapDetector(
                 // A selection handle being dragged across the page is a fling like any other, so
                 // selection wins outright while it is up.
                 if (e1 == null || isSelecting) return false
-                val swipe = NovelReaderSwipe.of(e2.x - e1.x, e2.y - e1.y) ?: return false
+                val swipe = NovelReaderSwipe.of(e2.x - e1.x, e2.y - e1.y, minSwipeDistancePx)
+                    ?: return false
                 return onSwipe(swipe)
             }
         },
