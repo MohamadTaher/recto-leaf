@@ -127,6 +127,8 @@ fun NovelReaderScreen(
     var publisherFormatting by remember { mutableStateOf(false) }
     var openImage by remember { mutableStateOf<String?>(null) }
     var confirmRestore by remember { mutableStateOf<Uri?>(null) }
+    var showSpeechControls by remember { mutableStateOf(false) }
+    var confirmSpeech by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -136,6 +138,7 @@ fun NovelReaderScreen(
     val settingsSaved = stringResource(MR.strings.leaf_novel_reader_settings_saved)
     val settingsRestored = stringResource(MR.strings.leaf_novel_reader_settings_restored)
     val settingsFailed = stringResource(MR.strings.leaf_novel_reader_settings_failed)
+    val speechUnavailable = stringResource(MR.strings.leaf_novel_reader_speech_unavailable)
 
     // Mihon's own document picker, so the file lands wherever the reader keeps things and no
     // storage permission is involved.
@@ -166,6 +169,14 @@ fun NovelReaderScreen(
         mutableIntStateOf(chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0)
     }
 
+    fun requestSpeechStart() {
+        if (viewModel.novelReaderPreferences.speechConfirmBeforeSpeak.get()) {
+            confirmSpeech = true
+        } else {
+            viewModel.startSpeaking(livePercent)
+        }
+    }
+
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
         when (action) {
@@ -178,6 +189,7 @@ fun NovelReaderScreen(
             NovelReaderAction.SHOW_CHAPTERS -> showChapters = true
             NovelReaderAction.BOOK_INFORMATION -> onOpenEntry()
             NovelReaderAction.SEARCH -> {
+                viewModel.stopSpeaking()
                 viewModel.showMenu()
                 viewModel.setSearchQuery("")
             }
@@ -185,7 +197,10 @@ fun NovelReaderScreen(
             NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
             NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
             NovelReaderAction.PUBLISHER_FORMATTING -> publisherFormatting = !publisherFormatting
-            NovelReaderAction.SPEAK -> viewModel.toggleSpeaking()
+            NovelReaderAction.SPEAK -> {
+                showSpeechControls = true
+                if (!state.speaking) requestSpeechStart()
+            }
             NovelReaderAction.SPEED_READ -> viewModel.toggleSpeedReading(livePercent)
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
@@ -290,6 +305,13 @@ fun NovelReaderScreen(
         }
     }
 
+    LaunchedEffect(state.speechUnavailable) {
+        if (state.speechUnavailable) {
+            showSpeechControls = false
+            snackbarHostState.showSnackbar(speechUnavailable)
+        }
+    }
+
     // Back closes the search rather than the book, which is what the gesture means everywhere else.
     BackHandler(enabled = state.searchQuery != null) {
         viewModel.setSearchQuery(null)
@@ -369,11 +391,15 @@ fun NovelReaderScreen(
         MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     }
 
-    // Speech scrolls the page to keep what it is saying on screen. The position is estimated from
-    // how much of the chapter's text sits behind the current utterance — the reader cannot ask the
-    // WebView where a paragraph actually is without JavaScript, and it runs none.
-    LaunchedEffect(state.speaking, state.speechFraction) {
-        if (state.speaking) seekRequests.tryEmit((state.speechFraction * 100).roundToInt())
+    // WebView's native find facility highlights the exact visible text and brings it on screen,
+    // without enabling JavaScript for book content. Repeated sections advance to their occurrence.
+    LaunchedEffect(state.speaking, state.speechText, state.speechOccurrence) {
+        val text = state.speechText
+        if (state.speaking && text != null) {
+            webViewController.highlightSpeech(text, state.speechOccurrence)
+        } else {
+            webViewController.clearSpeechHighlight()
+        }
     }
 
     // The same shape as auto scroll: one tick, one step. The page follows underneath so that
@@ -572,6 +598,55 @@ fun NovelReaderScreen(
             readerPreferences = viewModel.readerPreferences,
             resolvedColors = colors,
             onDismissRequest = { settingsTab = null },
+        )
+    }
+
+    if (showSpeechControls) {
+        NovelSpeechSheet(
+            speaking = state.speaking,
+            paused = state.speechPaused,
+            index = state.speechIndex,
+            count = state.speechCount,
+            currentText = state.speechText,
+            preferences = viewModel.novelReaderPreferences,
+            onPlayPause = {
+                if (state.speaking) {
+                    viewModel.toggleSpeechPlayback(livePercent)
+                } else {
+                    requestSpeechStart()
+                }
+            },
+            onPrevious = { viewModel.seekSpeech(-1) },
+            onNext = { viewModel.seekSpeech(1) },
+            onStop = viewModel::stopSpeaking,
+            onSettingsChanged = viewModel::applySpeechSettings,
+            onTimerChanged = viewModel::applySpeechTimer,
+            onDivisionChanged = {
+                if (state.speaking) viewModel.restartSpeaking(livePercent, state.speechPaused)
+            },
+            onDismissRequest = { showSpeechControls = false },
+        )
+    }
+
+    if (confirmSpeech) {
+        AlertDialog(
+            onDismissRequest = { confirmSpeech = false },
+            text = { Text(stringResource(MR.strings.leaf_novel_reader_speech_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmSpeech = false
+                        viewModel.startSpeaking(livePercent)
+                    },
+                ) {
+                    Text(stringResource(MR.strings.leaf_novel_action_speak))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSpeech = false }) {
+                    Text(stringResource(MR.strings.action_cancel))
+                }
+            },
         )
     }
 
@@ -945,7 +1020,7 @@ private fun ColumnScope.AdditionalOptions(
                 Text(
                     stringResource(
                         if (speaking) {
-                            MR.strings.leaf_novel_action_stop_speaking
+                            MR.strings.leaf_novel_reader_speech_controls
                         } else {
                             MR.strings.leaf_novel_action_speak
                         },

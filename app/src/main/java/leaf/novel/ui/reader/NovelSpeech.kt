@@ -34,20 +34,22 @@ object NovelSpeech {
         }
     }
 
-    /**
-     * How far through the chapter's text the utterance at [index] begins, as a fraction.
-     *
-     * Weighted by length rather than by count, because a page of prose is about as tall as it is
-     * long: counting utterances would race ahead through dialogue and lag through description. It
-     * is still an estimate — the reader cannot ask the WebView where a paragraph is without
-     * JavaScript, and the reader does not run any.
-     */
-    fun fractionAt(index: Int, utterances: List<String>): Float {
-        if (utterances.isEmpty()) return 0f
-        val total = utterances.sumOf { it.length }
-        if (total <= 0) return 0f
-        val before = utterances.take(index.coerceIn(0, utterances.size)).sumOf { it.length }
-        return (before.toFloat() / total).coerceIn(0f, 1f)
+    /** The unit nearest [fraction] through the prose, weighted by text length. */
+    fun indexAt(fraction: Float, utterances: List<String>): Int {
+        if (utterances.isEmpty()) return 0
+        val target = utterances.sumOf { it.length } * fraction.coerceIn(0f, 1f)
+        var before = 0
+        utterances.forEachIndexed { index, utterance ->
+            if (before + utterance.length > target) return index
+            before += utterance.length
+        }
+        return utterances.lastIndex
+    }
+
+    /** Which identical visible match [index] names, for WebView's native text highlighting. */
+    fun occurrenceAt(index: Int, utterances: List<String>): Int {
+        val current = utterances.getOrNull(index) ?: return 0
+        return utterances.take(index.coerceAtLeast(0)).count { it == current }
     }
 
     /**

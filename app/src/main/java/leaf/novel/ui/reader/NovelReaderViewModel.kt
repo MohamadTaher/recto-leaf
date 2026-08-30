@@ -20,7 +20,9 @@ import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -66,6 +68,7 @@ import tachiyomi.domain.source.service.SourceManager
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 
 /** Why the reader could not show something. The first four are fatal; the last is per-chapter. */
 enum class NovelReaderError {
@@ -330,23 +333,34 @@ class NovelReaderViewModel(
     /** The chapter's own markup, kept so speech can be cut from it without re-fetching. */
     private var currentHtml: String? = null
 
-    /** The pieces currently queued, for turning a spoken position into a scroll position. */
+    /** The pieces currently queued, for exposing the active text and its repeated occurrence. */
     private var speechUtterances: List<String> = emptyList()
 
+    private var speechStopJob: Job? = null
+
     /**
-     * Starts or stops reading the open chapter aloud.
+     * Starts reading the open chapter aloud at [percentRead].
      *
      * The utterances are cut afresh each time, so changing how the chapter is divided takes effect
      * on the next start rather than needing the chapter reopened.
      */
-    fun toggleSpeaking() {
-        if (state.value.speaking) {
-            stopSpeaking()
-            return
-        }
+    fun startSpeaking(percentRead: Int) {
+        if (state.value.speaking) return
+        queueSpeech(percentRead)
+    }
 
+    /** Rebuilds the queue when its division changes while the control sheet is open. */
+    fun restartSpeaking(percentRead: Int, paused: Boolean) {
+        queueSpeech(percentRead)
+        if (paused) speaker?.pause()
+    }
+
+    private fun queueSpeech(percentRead: Int) {
         val html = currentHtml ?: return
-        val utterances = NovelSpeech.utterances(html, novelReaderPreferences.speechDivision.get())
+        // The replacement rules are also the TTS character filters: visible and spoken prose use
+        // the same existing mechanism rather than maintaining two almost-identical rule lists.
+        val spokenHtml = NovelTextReplacements.apply(html, novelReaderPreferences.textReplacements.get())
+        val utterances = NovelSpeech.utterances(spokenHtml, novelReaderPreferences.speechDivision.get())
         if (utterances.isEmpty()) return
 
         stopSpeedReading()
@@ -354,13 +368,21 @@ class NovelReaderViewModel(
             speaker = created
             // Mirrored into the reader's own state so the screen has one thing to collect, and so
             // speech sits beside auto scroll rather than in a stream of its own.
+            var wasSpeaking = false
             created.speech
                 .onEach { speech ->
+                    if (!wasSpeaking && speech.speaking) scheduleSpeechStop()
+                    if (wasSpeaking && !speech.speaking) cancelSpeechStop()
+                    wasSpeaking = speech.speaking
                     mutableState.update {
                         it.copy(
                             speaking = speech.speaking,
+                            speechPaused = speech.paused,
+                            speechIndex = speech.index,
+                            speechCount = speechUtterances.size,
+                            speechText = speechUtterances.getOrNull(speech.index),
+                            speechOccurrence = NovelSpeech.occurrenceAt(speech.index, speechUtterances),
                             speechUnavailable = speech.initialised && !speech.available,
-                            speechFraction = NovelSpeech.fractionAt(speech.index, speechUtterances),
                         )
                     }
                 }
@@ -368,12 +390,62 @@ class NovelReaderViewModel(
         }
 
         speechUtterances = utterances
-        mutableState.update { it.copy(autoScrolling = false) }
-        engine.start(utterances, novelReaderPreferences.speechRate.get())
+        mutableState.update { it.copy(autoScrolling = false, searchQuery = null) }
+        engine.start(
+            text = utterances,
+            fromIndex = NovelSpeech.indexAt(percentRead / 100f, utterances),
+            rate = novelReaderPreferences.speechRate.get(),
+            pitch = novelReaderPreferences.speechPitch.get(),
+            intervalMs = novelReaderPreferences.speechIntervalMs.get(),
+            mixAudio = novelReaderPreferences.speechMixAudio.get(),
+        )
+    }
+
+    fun toggleSpeechPlayback(percentRead: Int) {
+        when {
+            !state.value.speaking -> startSpeaking(percentRead)
+            state.value.speechPaused -> speaker?.resume()
+            else -> speaker?.pause()
+        }
+    }
+
+    fun seekSpeech(units: Int) {
+        speaker?.seekBy(units)
+    }
+
+    /** Applies changed controls without rebuilding or re-fetching the chapter. */
+    fun applySpeechSettings() {
+        speaker?.update(
+            rate = novelReaderPreferences.speechRate.get(),
+            pitch = novelReaderPreferences.speechPitch.get(),
+            intervalMs = novelReaderPreferences.speechIntervalMs.get(),
+            mixAudio = novelReaderPreferences.speechMixAudio.get(),
+        )
     }
 
     fun stopSpeaking() {
+        cancelSpeechStop()
         speaker?.stop()
+    }
+
+    fun applySpeechTimer() {
+        if (state.value.speaking) scheduleSpeechStop()
+    }
+
+    private fun scheduleSpeechStop() {
+        speechStopJob?.cancel()
+        speechStopJob = null
+        val after = novelReaderPreferences.speechStopAfterMinutes.get()
+        if (after <= 0) return
+        speechStopJob = viewModelScope.launch {
+            delay(after.minutes)
+            stopSpeaking()
+        }
+    }
+
+    private fun cancelSpeechStop() {
+        speechStopJob?.cancel()
+        speechStopJob = null
     }
 
     // endregion
@@ -629,8 +701,11 @@ class NovelReaderViewModel(
         val searchQuery: String? = null,
         val chapterWords: Int = 0,
         val speaking: Boolean = false,
-        /** How far through the chapter speech has reached, for the page to follow. */
-        val speechFraction: Float = 0f,
+        val speechPaused: Boolean = false,
+        val speechIndex: Int = 0,
+        val speechCount: Int = 0,
+        val speechText: String? = null,
+        val speechOccurrence: Int = 0,
         val speedReading: Boolean = false,
         val speedReadIndex: Int = 0,
         /** Set once the engine has bound and reported that the phone has no voice at all. */

@@ -218,6 +218,23 @@ class NovelReaderPreferences(
     /** Speaking pace in tenths, so 10 is the engine's own normal. */
     val speechRate: Preference<Int> = preferenceStore.getInt("leaf_novel_tts_rate", 10)
 
+    /** Voice pitch in tenths, where 10 leaves the system voice unchanged. */
+    val speechPitch: Preference<Int> = preferenceStore.getInt("leaf_novel_tts_pitch", 10)
+
+    val speechIntervalMs: Preference<Int> =
+        preferenceStore.getInt("leaf_novel_tts_interval_ms", 30)
+
+    /** Zero leaves speech running until the chapter ends or the reader stops it. */
+    val speechStopAfterMinutes: Preference<Int> =
+        preferenceStore.getInt("leaf_novel_tts_stop_after_minutes", 0)
+
+    val speechConfirmBeforeSpeak: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_tts_confirm_before_speak", false)
+
+    /** Opts out of Android audio focus so another audio app may keep playing. */
+    val speechMixAudio: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_tts_mix_audio", false)
+
     // region Speed reading
 
     val speedReadWpm: Preference<Int> = preferenceStore.getInt("leaf_novel_speed_read_wpm", 300)
@@ -373,6 +390,9 @@ class NovelReaderPreferences(
         val MARGIN_RANGE = 0..200
         val AUTO_SCROLL_SPEED_RANGE = 1..20
         val SPEECH_RATE_RANGE = 3..25
+        val SPEECH_PITCH_RANGE = 5..20
+        val SPEECH_INTERVAL_RANGE = 0..1_000
+        val SPEECH_STOP_AFTER_RANGE = 0..120
         val SPEED_READ_WPM_RANGE = 100..900
         val SPEED_READ_CHUNK_RANGE = 1..3
         val BLUELIGHT_INTENSITY_RANGE = 0..100
