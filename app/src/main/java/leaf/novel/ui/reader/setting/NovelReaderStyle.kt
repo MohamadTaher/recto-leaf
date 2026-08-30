@@ -41,4 +41,9 @@ data class NovelReaderStyle(
     val indentFirstLine: Boolean,
     val trimBlankLines: Boolean,
     val linkColor: NovelLinkColor,
+    val noteColor: NovelLinkColor,
+    val disableBookCss: Boolean,
+    val useBookFonts: Boolean,
+    val inlineFootnotes: Boolean,
+    val printPageNumbers: Boolean,
 )

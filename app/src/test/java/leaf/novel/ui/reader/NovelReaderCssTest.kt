@@ -38,6 +38,11 @@ private fun style(
     indentFirstLine: Boolean = true,
     trimBlankLines: Boolean = false,
     linkColor: NovelLinkColor = NovelLinkColor.DEFAULT,
+    noteColor: NovelLinkColor = NovelLinkColor.DEFAULT,
+    disableBookCss: Boolean = true,
+    useBookFonts: Boolean = false,
+    inlineFootnotes: Boolean = true,
+    printPageNumbers: Boolean = false,
 ) = NovelReaderStyle(
     fontSizePx = fontSizePx,
     font = font,
@@ -61,6 +66,11 @@ private fun style(
     indentFirstLine = indentFirstLine,
     trimBlankLines = trimBlankLines,
     linkColor = linkColor,
+    noteColor = noteColor,
+    disableBookCss = disableBookCss,
+    useBookFonts = useBookFonts,
+    inlineFootnotes = inlineFootnotes,
+    printPageNumbers = printPageNumbers,
 )
 
 /**
@@ -71,6 +81,12 @@ private fun style(
 class NovelReaderCssTest {
 
     private val content = NovelChapterContent(html = "<p>text</p>", head = "", baseUrl = null)
+
+    private val styledContent = NovelChapterContent(
+        html = "<p>text</p>",
+        head = "<style>body { background: #fff; color: #000 }</style>",
+        baseUrl = null,
+    )
 
     @Test
     fun `treats black as dark`() {
@@ -112,17 +128,97 @@ class NovelReaderCssTest {
 
     @Test
     fun `body keeps a background declared after the book's own head styles`() {
-        val styled = NovelChapterContent(
-            html = "<p>text</p>",
-            head = "<style>body { background: #fff; color: #000 }</style>",
-            baseUrl = null,
+        val document = NovelReaderCss.document(
+            styledContent,
+            style(disableBookCss = false),
+            colors = colors(BLACK),
         )
 
-        val document = NovelReaderCss.document(styled, style(), colors = colors(BLACK))
-
         // The book's stylesheet must survive, but ours has to come after it to win the cascade.
-        document.indexOf("<style>body { background: #fff") shouldBe document.indexOf(styled.head)
-        (document.indexOf(styled.head) < document.indexOf("-webkit-text-size-adjust")) shouldBe true
+        (document.indexOf(styledContent.head) > 0) shouldBe true
+        (document.indexOf(styledContent.head) < document.indexOf("-webkit-text-size-adjust")) shouldBe true
+    }
+
+    @Test
+    fun `drops the book's own head when its CSS is disabled`() {
+        val document = NovelReaderCss.document(styledContent, style(), colors = colors(BLACK))
+
+        document.contains(styledContent.head) shouldBe false
+        // Ours is still there; only the book's went.
+        document.contains("-webkit-text-size-adjust") shouldBe true
+        document.contains("<p>text</p>") shouldBe true
+    }
+
+    /**
+     * A book's rules land on `p`, which beats ours on `body` on specificity alone — so a chosen
+     * face only actually wins if it says so.
+     */
+    @Test
+    fun `forces a chosen face over whatever the book asks for`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(font = NovelReaderFont.SERIF),
+            colors = colors(WHITE),
+        )
+
+        document.contains("font-family: serif !important;") shouldBe true
+    }
+
+    @Test
+    fun `has no opinion on the face when the book's fonts are wanted`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(font = NovelReaderFont.SERIF, useBookFonts = true),
+            colors = colors(WHITE),
+        )
+
+        document.contains("font-family:") shouldBe false
+    }
+
+    /**
+     * The preview keeps the book's head whatever the CSS setting says, and drops the descendant
+     * colour reset — that reset is exactly what hides the publisher's own colours.
+     */
+    @Test
+    fun `the publisher preview keeps the book's formatting and drops ours`() {
+        val document = NovelReaderCss.document(
+            styledContent,
+            style(marginLeft = 99, justified = true),
+            colors = colors(WHITE),
+            publisherFormatting = true,
+        )
+
+        document.contains(styledContent.head) shouldBe true
+        document.contains("body * { color:") shouldBe false
+        document.contains("padding: 3px") shouldBe false
+        document.contains("text-align: justify") shouldBe false
+        document.contains("<p>text</p>") shouldBe true
+    }
+
+    @Test
+    fun `the publisher preview still forces the reader's background`() {
+        val document = NovelReaderCss.document(
+            styledContent,
+            style(),
+            colors = colors(BLACK),
+            publisherFormatting = true,
+        )
+
+        document.contains("background: rgba(0, 0, 0, 1.0) !important") shouldBe true
+        // Not important, unlike everywhere else: a book showing its own colours is the point.
+        document.contains("color: rgba(222, 222, 222, 1.0);") shouldBe true
+    }
+
+    @Test
+    fun `styles a folded-in note in its own colour`() {
+        val document = NovelReaderCss.document(
+            content,
+            style(noteColor = NovelLinkColor.AMBER),
+            colors = colors(WHITE),
+        )
+
+        document.contains("aside.${NovelEpubMarkup.NOTE_CLASS}") shouldBe true
+        document.contains("color: rgba(214, 158, 46, 1.0) !important") shouldBe true
     }
 
     @Test
@@ -136,17 +232,6 @@ class NovelReaderCssTest {
         val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
 
         document.contains("font-family:") shouldBe false
-    }
-
-    @Test
-    fun `emits the chosen generic font family`() {
-        val document = NovelReaderCss.document(
-            content,
-            style(font = NovelReaderFont.SERIF),
-            colors = colors(WHITE),
-        )
-
-        document.contains("font-family: serif;") shouldBe true
     }
 
     @Test

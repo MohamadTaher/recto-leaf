@@ -110,6 +110,8 @@ fun NovelReaderScreen(
 
     var additionalOptionsExpanded by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+    // A look, not a mode: it lasts until it is turned off again and stores nothing.
+    var publisherFormatting by remember { mutableStateOf(false) }
     val webViewController = remember { NovelWebViewController() }
 
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
@@ -130,6 +132,7 @@ fun NovelReaderScreen(
             NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
             NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
             NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
+            NovelReaderAction.PUBLISHER_FORMATTING -> publisherFormatting = !publisherFormatting
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
             NovelReaderAction.TEXT_SELECTION -> Unit
@@ -248,6 +251,7 @@ fun NovelReaderScreen(
 
     val autoScrollSpeed by viewModel.novelReaderPreferences.autoScrollSpeed.collectAsState()
     val readingRuler by viewModel.novelReaderPreferences.readingRuler.collectAsState()
+    val publisherPreview by viewModel.novelReaderPreferences.publisherPreview.collectAsState()
     val showStatusBar by viewModel.novelReaderPreferences.showStatusBar.collectAsState()
     val statusPlacements = viewModel.novelReaderPreferences.statusSlots
         .mapValues { (_, preference) -> preference.collectAsState().value }
@@ -316,6 +320,7 @@ fun NovelReaderScreen(
                         // The bar is permanent where the indicators it replaced were a floating
                         // label, so the page gives up the space rather than running underneath it.
                         bottomInset = if (showStatusBar) NovelStatusBarHeight else 0.dp,
+                        publisherFormatting = publisherFormatting,
                         style = style,
                         colors = colors,
                         percentRead = livePercent,
@@ -401,6 +406,8 @@ fun NovelReaderScreen(
                 AdditionalOptions(
                     autoScrolling = state.autoScrolling,
                     readingRuler = readingRuler,
+                    publisherPreview = publisherPreview,
+                    publisherFormatting = publisherFormatting,
                     onSelect = { action ->
                         dismiss()
                         performAction(action)
@@ -442,6 +449,7 @@ private fun ChapterContent(
     viewModel: NovelReaderViewModel,
     chapter: Chapter,
     bottomInset: Dp,
+    publisherFormatting: Boolean,
     style: NovelReaderStyle,
     colors: NovelReaderColors,
     percentRead: Int,
@@ -482,8 +490,8 @@ private fun ChapterContent(
             }
         }
         else -> {
-            val document = remember(chapterContent, style, colors) {
-                NovelReaderCss.document(chapterContent, style, colors)
+            val document = remember(chapterContent, style, colors, publisherFormatting) {
+                NovelReaderCss.document(chapterContent, style, colors, publisherFormatting)
             }
             NovelChapterWebView(
                 document = document,
@@ -603,6 +611,11 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
     val indentFirstLine by preferences.indentFirstLine.collectAsState()
     val trimBlankLines by preferences.trimBlankLines.collectAsState()
     val linkColor by preferences.linkColor.collectAsState()
+    val noteColor by preferences.noteColor.collectAsState()
+    val disableBookCss by preferences.disableBookCss.collectAsState()
+    val useBookFonts by preferences.useBookFonts.collectAsState()
+    val inlineFootnotes by preferences.inlineFootnotes.collectAsState()
+    val printPageNumbers by preferences.printPageNumbers.collectAsState()
 
     return NovelReaderStyle(
         fontSizePx = fontSize,
@@ -627,6 +640,11 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         indentFirstLine = indentFirstLine,
         trimBlankLines = trimBlankLines,
         linkColor = linkColor,
+        noteColor = noteColor,
+        disableBookCss = disableBookCss,
+        useBookFonts = useBookFonts,
+        inlineFootnotes = inlineFootnotes,
+        printPageNumbers = printPageNumbers,
     )
 }
 
@@ -678,6 +696,8 @@ private fun adjustFontSize(preferences: NovelReaderPreferences, steps: Int) {
 private fun ColumnScope.AdditionalOptions(
     autoScrolling: Boolean,
     readingRuler: Boolean,
+    publisherPreview: Boolean,
+    publisherFormatting: Boolean,
     onSelect: (NovelReaderAction) -> Unit,
 ) {
     DropdownMenuItem(
@@ -720,4 +740,15 @@ private fun ColumnScope.AdditionalOptions(
         text = { Text(stringResource(MR.strings.leaf_novel_reader_day_night_mode)) },
         onClick = { onSelect(NovelReaderAction.DAY_NIGHT_MODE) },
     )
+
+    // Off by default, per the imported configuration, so it is not clutter for anyone who has not
+    // asked for it. Moon+ puts it on the top bar; that bar is upstream and takes no extra action,
+    // and this menu is where the fork keeps the things you start.
+    if (publisherPreview) {
+        RadioMenuItem(
+            text = { Text(stringResource(MR.strings.leaf_novel_action_publisher_formatting)) },
+            isChecked = publisherFormatting,
+            onClick = { onSelect(NovelReaderAction.PUBLISHER_FORMATTING) },
+        )
+    }
 }

@@ -28,13 +28,24 @@ object NovelReaderCss {
         content: NovelChapterContent,
         style: NovelReaderStyle,
         colors: NovelReaderColors,
+        publisherFormatting: Boolean = false,
     ): String {
+        if (publisherFormatting) return publisherDocument(content, colors)
+
         val background = colors.background.toCssColor()
         val foreground = colors.foreground.toCssColor()
         val muted = colors.foreground.withAlpha(ACCENT_ALPHA).toCssColor()
         // A chosen colour is a fixed one; the default keeps following whatever the theme reads as.
         val link = style.linkColor.argb?.toCssColor() ?: muted
-        val fontFamily = style.font.cssFamily?.let { "font-family: $it;" }.orEmpty()
+        val note = style.noteColor.argb?.toCssColor() ?: muted
+        // Asking for the book's fonts means having no opinion of our own, so the declaration is
+        // dropped rather than overridden — and when we do have one it has to beat the book's rules
+        // on `p`, which are more specific than ours on `body`.
+        val fontFamily = style.font.cssFamily
+            ?.takeUnless { style.useBookFonts }
+            ?.let { "font-family: $it !important;" }
+            .orEmpty()
+        val bookHead = if (style.disableBookCss) "" else content.head
 
         val fontSizePx = scaledFontSizePx(style)
         val lineHeight = tenths(
@@ -46,6 +57,8 @@ object NovelReaderCss {
         val firstLineIndent = if (style.indentFirstLine) FIRST_LINE_INDENT_EM else NO_INDENT_EM
         val chapterHtml = content.html
             .let { if (style.trimBlankLines) NovelHtmlSanitizer.trimBlankLines(it) else it }
+            .let { if (style.inlineFootnotes) NovelEpubMarkup.inlineFootnotes(it) else it }
+            .let { if (style.printPageNumbers) NovelEpubMarkup.showPageNumbers(it) else it }
             .let { if (style.highlightFirstWord) NovelTextEmphasis.firstWordOfSentence(it) else it }
             .let { if (style.highlightInitialChars) NovelTextEmphasis.initialCharsOfWord(it) else it }
 
@@ -55,7 +68,7 @@ object NovelReaderCss {
             <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-            ${content.head}
+            $bookHead
             <style>
             :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
             html { -webkit-text-size-adjust: 100%; }
@@ -86,11 +99,50 @@ object NovelReaderCss {
             pre, table { overflow-x: auto; display: block; max-width: 100%; }
             hr { border: none; border-top: 1px solid $muted; }
             a { color: $link !important; }
+            aside.${NovelEpubMarkup.NOTE_CLASS} {
+              color: $note !important;
+              font-size: 0.9em;
+              margin: 0 0 ${paragraphSpacing}em;
+              padding-left: 0.9em;
+              border-left: 2px solid $note;
+              text-indent: 0;
+            }
+            .${NovelEpubMarkup.PAGE_CLASS} { color: $muted !important; font-size: 0.7em; vertical-align: super; }
             ::selection { background: $muted; }
             </style>
             </head>
             <body>
             $chapterHtml
+            </body>
+            </html>
+        """.trimIndent()
+    }
+
+    /**
+     * The chapter as its publisher laid it out, for the preview.
+     *
+     * The book's own head is kept whatever the CSS setting says — that is the whole point — and the
+     * reader's stylesheet shrinks to the two colours that keep the page from being white-on-white
+     * against the reader's background. The text colour is deliberately *not* `!important` here,
+     * where everywhere else it is: a book that sets its own colours is showing them.
+     */
+    private fun publisherDocument(content: NovelChapterContent, colors: NovelReaderColors): String {
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+            ${content.head}
+            <style>
+            :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
+            html { -webkit-text-size-adjust: 100%; }
+            body { background: ${colors.background.toCssColor()} !important; color: ${colors.foreground.toCssColor()}; }
+            img, svg, video { max-width: 100%; height: auto; }
+            </style>
+            </head>
+            <body>
+            ${content.html}
             </body>
             </html>
         """.trimIndent()
