@@ -209,6 +209,13 @@ class NovelReaderPreferences(
     /** Speaking pace in tenths, so 10 is the engine's own normal. */
     val speechRate: Preference<Int> = preferenceStore.getInt("leaf_novel_tts_rate", 10)
 
+    // region Speed reading
+
+    val speedReadWpm: Preference<Int> = preferenceStore.getInt("leaf_novel_speed_read_wpm", 300)
+
+    /** How many words go on screen at once. Beyond three it stops being speed reading. */
+    val speedReadChunk: Preference<Int> = preferenceStore.getInt("leaf_novel_speed_read_chunk", 1)
+
     // region Eye care
 
     val bluelight: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_bluelight", false)
@@ -262,6 +269,8 @@ class NovelReaderPreferences(
 
     val pageTurnSound: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_page_turn_sound", false)
+
+    // endregion
 
     // endregion
 
@@ -343,6 +352,8 @@ class NovelReaderPreferences(
         val MARGIN_RANGE = 0..200
         val AUTO_SCROLL_SPEED_RANGE = 1..20
         val SPEECH_RATE_RANGE = 3..25
+        val SPEED_READ_WPM_RANGE = 100..900
+        val SPEED_READ_CHUNK_RANGE = 1..3
         val BLUELIGHT_INTENSITY_RANGE = 0..100
         val REMINDER_MINUTES_RANGE = 0..120
 

@@ -1139,6 +1139,10 @@
     <string name="leaf_novel_speech_sentence">Sentence</string>
     <string name="leaf_novel_reader_speech_divide_by">Divide content by</string>
     <string name="leaf_novel_reader_speech_rate">Speaking pace</string>
+    <string name="leaf_novel_action_speed_read">Speed read</string>
+    <string name="leaf_novel_action_stop_speed_read">Stop speed reading</string>
+    <string name="leaf_novel_reader_speed_read_wpm">Words per minute</string>
+    <string name="leaf_novel_reader_speed_read_chunk">Words at a time</string>
     <string name="leaf_novel_reader_autoscroll_speed">Speed</string>
     <string name="leaf_novel_reader_heading_value_gestures">Adjust by touch</string>
     <string name="leaf_novel_reader_edge_swipe_brightness">Swipe left edge to adjust brightness</string>

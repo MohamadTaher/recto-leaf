@@ -683,6 +683,25 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         onChange = { novelReaderPreferences.speechRate.set(it) },
     )
 
+    HeadingItem(MR.strings.leaf_novel_action_speed_read)
+
+    val speedReadWpm by novelReaderPreferences.speedReadWpm.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_speed_read_wpm),
+        value = speedReadWpm,
+        valueRange = NovelReaderPreferences.SPEED_READ_WPM_RANGE,
+        steps = 0,
+        onChange = { novelReaderPreferences.speedReadWpm.set(it) },
+    )
+
+    val speedReadChunk by novelReaderPreferences.speedReadChunk.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_speed_read_chunk),
+        value = speedReadChunk,
+        valueRange = NovelReaderPreferences.SPEED_READ_CHUNK_RANGE,
+        onChange = { novelReaderPreferences.speedReadChunk.set(it) },
+    )
+
     HeadingItem(MR.strings.leaf_novel_reader_heading_value_gestures)
 
     CheckboxItem(
