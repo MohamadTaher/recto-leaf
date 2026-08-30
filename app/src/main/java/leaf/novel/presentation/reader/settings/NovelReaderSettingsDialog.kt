@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -30,6 +31,7 @@ import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderKey
@@ -43,6 +45,7 @@ import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.SettingsChipRow
 import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
+import tachiyomi.presentation.core.components.material.IconToggleButton
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
@@ -300,6 +303,11 @@ private fun ColumnScope.MiscellaneousPage(readerPreferences: ReaderPreferences) 
 
 @Composable
 private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferences) {
+    HeadingItem(MR.strings.rotation_type)
+
+    val orientation by novelReaderPreferences.orientation.collectAsState()
+    OrientationGrid(selected = orientation) { novelReaderPreferences.orientation.set(it) }
+
     HeadingItem(MR.strings.leaf_novel_reader_heading_tap_zones)
 
     TapZoneGrid(novelReaderPreferences.tapZones)
@@ -462,3 +470,44 @@ private fun ActionPicker(
         }
     }
 }
+
+/**
+ * The orientations, laid out without a lazy grid.
+ *
+ * The shared icon grid is a LazyVerticalGrid and this page is already inside a vertical scroll, so
+ * a lazy grid here would be measured with an unbounded height and throw. The buttons themselves
+ * are still the shared ones, so it reads as the same picker the image reader shows.
+ */
+@Composable
+private fun OrientationGrid(selected: ReaderOrientation, onSelect: (ReaderOrientation) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = SettingsItemsPaddings.Horizontal,
+                vertical = SettingsItemsPaddings.Vertical,
+            ),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+    ) {
+        NovelReaderPreferences.ORIENTATIONS.chunked(ORIENTATIONS_PER_ROW).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+            ) {
+                row.forEach { orientation ->
+                    IconToggleButton(
+                        checked = orientation == selected,
+                        onCheckedChange = { onSelect(orientation) },
+                        imageVector = orientation.icon,
+                        title = stringResource(orientation.stringRes),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                // Keeps a short final row the same width as a full one.
+                repeat(ORIENTATIONS_PER_ROW - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+private const val ORIENTATIONS_PER_ROW = 3

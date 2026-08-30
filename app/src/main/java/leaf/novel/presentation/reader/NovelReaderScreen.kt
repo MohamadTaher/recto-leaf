@@ -101,6 +101,7 @@ fun NovelReaderScreen(
                 viewModel.setSearchQuery("")
             }
             NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
+            NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
             NovelReaderAction.TEXT_SELECTION -> Unit
