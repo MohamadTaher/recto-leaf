@@ -45,6 +45,7 @@ import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelReaderTheme
+import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import leaf.novel.ui.reader.setting.NovelStatusBarTap
 import leaf.novel.ui.reader.setting.NovelStatusItem
 import leaf.novel.ui.reader.setting.NovelStatusPlacement
@@ -662,6 +663,24 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         value = autoScrollSpeed,
         valueRange = NovelReaderPreferences.AUTO_SCROLL_SPEED_RANGE,
         onChange = { novelReaderPreferences.autoScrollSpeed.set(it) },
+    )
+
+    HeadingItem(MR.strings.leaf_novel_action_speak)
+
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_speech_divide_by),
+        preference = novelReaderPreferences.speechDivision,
+        options = NovelSpeechDivision.entries,
+        labelOf = { stringResource(it.titleRes) },
+    )
+
+    val speechRate by novelReaderPreferences.speechRate.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_speech_rate),
+        value = speechRate,
+        valueRange = NovelReaderPreferences.SPEECH_RATE_RANGE,
+        steps = 0,
+        onChange = { novelReaderPreferences.speechRate.set(it) },
     )
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_value_gestures)

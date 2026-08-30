@@ -1133,6 +1133,12 @@
     <string name="leaf_novel_action_book_information">Book information</string>
     <string name="leaf_novel_action_auto_scroll">Auto scroll</string>
     <string name="leaf_novel_action_stop_auto_scroll">Stop auto scroll</string>
+    <string name="leaf_novel_action_speak">Read aloud</string>
+    <string name="leaf_novel_action_stop_speaking">Stop reading aloud</string>
+    <string name="leaf_novel_speech_paragraph">Paragraph</string>
+    <string name="leaf_novel_speech_sentence">Sentence</string>
+    <string name="leaf_novel_reader_speech_divide_by">Divide content by</string>
+    <string name="leaf_novel_reader_speech_rate">Speaking pace</string>
     <string name="leaf_novel_reader_autoscroll_speed">Speed</string>
     <string name="leaf_novel_reader_heading_value_gestures">Adjust by touch</string>
     <string name="leaf_novel_reader_edge_swipe_brightness">Swipe left edge to adjust brightness</string>

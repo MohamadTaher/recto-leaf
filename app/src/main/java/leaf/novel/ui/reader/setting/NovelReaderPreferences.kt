@@ -201,6 +201,14 @@ class NovelReaderPreferences(
     val tapImageToOpen: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_tap_image_to_open", true)
 
+    // region Speech
+
+    val speechDivision: Preference<NovelSpeechDivision> =
+        preferenceStore.getEnum("leaf_novel_tts_divide_by", NovelSpeechDivision.PARAGRAPH)
+
+    /** Speaking pace in tenths, so 10 is the engine's own normal. */
+    val speechRate: Preference<Int> = preferenceStore.getInt("leaf_novel_tts_rate", 10)
+
     // region Eye care
 
     val bluelight: Preference<Boolean> = preferenceStore.getBoolean("leaf_novel_bluelight", false)
@@ -254,6 +262,8 @@ class NovelReaderPreferences(
 
     val pageTurnSound: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_page_turn_sound", false)
+
+    // endregion
 
     // endregion
 
@@ -332,6 +342,7 @@ class NovelReaderPreferences(
         val FONT_SCALE_RANGE = -4..20
         val MARGIN_RANGE = 0..200
         val AUTO_SCROLL_SPEED_RANGE = 1..20
+        val SPEECH_RATE_RANGE = 3..25
         val BLUELIGHT_INTENSITY_RANGE = 0..100
         val REMINDER_MINUTES_RANGE = 0..120
 
@@ -349,6 +360,7 @@ class NovelReaderPreferences(
  */
 private fun defaultTapAction(cell: Int): NovelReaderAction = when (cell) {
     NovelTapGrid.CENTRE -> NovelReaderAction.OPTIONS_MENU
+    NovelTapGrid.TOP_LEFT -> NovelReaderAction.SPEAK
     NovelTapGrid.BOTTOM_LEFT -> NovelReaderAction.DAY_NIGHT_MODE
     else -> NovelReaderAction.NONE
 }
