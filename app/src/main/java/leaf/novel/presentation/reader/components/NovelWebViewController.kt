@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 class NovelWebViewController {
 
     private var webView: WebView? = null
+    private var activeQuery: String? = null
 
     internal fun attach(view: WebView) {
         webView = view
@@ -67,6 +68,7 @@ class NovelWebViewController {
      * so it works with JavaScript off — the reason the reader can keep it off at all.
      */
     fun find(query: String) {
+        activeQuery = query
         webView?.findAllAsync(query)
     }
 
@@ -77,8 +79,21 @@ class NovelWebViewController {
 
     /** Drops the highlighting. A stale highlight outliving its search is the bug to avoid here. */
     fun clearFind() {
+        activeQuery = null
         webView?.clearMatches()
         findMatches = FindMatches.NONE
+    }
+
+    /**
+     * Runs the search again after the document has been rebuilt.
+     *
+     * Changing a style setting reloads the page, which takes the highlighting and the count with
+     * it. Without this the bar would sit there holding a query with nothing highlighted and no
+     * matches counted, which reads as a search that found nothing.
+     */
+    internal fun reapplyFind() {
+        findMatches = FindMatches.NONE
+        activeQuery?.let { webView?.findAllAsync(it) }
     }
 }
 
