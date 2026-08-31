@@ -35,6 +35,7 @@ enum class NovelReaderAction(val titleRes: StringResource) {
     VISUAL_OPTIONS(MR.strings.leaf_novel_reader_tab_visual),
     CONTROL_OPTIONS(MR.strings.leaf_novel_reader_tab_control),
     MISCELLANEOUS(MR.strings.leaf_novel_reader_tab_misc),
+    ADVANCED_OPTIONS(MR.strings.leaf_novel_reader_tab_advanced),
     ADDITIONAL_OPTIONS(MR.strings.leaf_novel_reader_additional_options),
     CLOSE(MR.strings.action_close),
 }

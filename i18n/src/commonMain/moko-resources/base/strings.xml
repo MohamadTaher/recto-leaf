@@ -1100,6 +1100,7 @@
     <string name="leaf_novel_reader_tab_visual">Visual</string>
     <string name="leaf_novel_reader_tab_control">Control</string>
     <string name="leaf_novel_reader_tab_misc">Misc</string>
+    <string name="leaf_novel_reader_tab_advanced">Advanced</string>
     <string name="leaf_novel_reader_additional_options">Additional options</string>
     <string name="leaf_novel_reader_day_night_mode">Day/night mode</string>
     <string name="leaf_novel_reader_heading_tap_zones">Tap zones</string>
@@ -1197,6 +1198,7 @@
     <string name="leaf_novel_reader_heading_bar_buttons">Reader bar buttons</string>
     <string name="leaf_novel_reader_bar_button">Button %1$d</string>
     <string name="leaf_novel_reader_heading_typesetting">Typesetting</string>
+    <string name="leaf_novel_reader_heading_settings_backup">Reader settings</string>
     <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
     <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>
     <string name="leaf_novel_reader_heading_replacements">Find and replace</string>
@@ -1217,6 +1219,7 @@
     <string name="leaf_novel_reader_publisher_preview">Offer publisher formatting preview</string>
     <string name="leaf_novel_action_publisher_formatting">Publisher formatting</string>
     <string name="leaf_novel_reader_heading_eye_care">Eye care</string>
+    <string name="leaf_novel_reader_heading_link_colors">Link colors</string>
     <string name="leaf_novel_reader_bluelight">Bluelight filter</string>
     <string name="leaf_novel_reader_bluelight_intensity">Filter strength</string>
     <string name="leaf_novel_reader_heading_paging">Paging</string>

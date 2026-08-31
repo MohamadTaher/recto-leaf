@@ -54,9 +54,11 @@ object NovelReaderCss {
         val fontSizePx = scaledFontSizePx(style)
         val lineHeight = tenths(lineHeightTenths(style))
         val letterSpacing = hundredths(style.fontSpacing)
-        val paragraphSpacing = hundredths(style.paragraphSpacing)
+        val paragraphSpacing = scaledEm(style.paragraphSpacing)
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
-        val firstLineIndent = if (style.indentFirstLine) FIRST_LINE_INDENT_EM else NO_INDENT_EM
+        val firstLineIndent = scaledEm(style.paragraphIndent)
+        val marginLeft = halfPixels(style.marginLeft)
+        val marginRight = halfPixels(style.marginRight)
         val chapterHtml = content.html
             // First, so a rule matches what the book said rather than what the aids below have
             // since made of it.
@@ -97,7 +99,9 @@ object NovelReaderCss {
               letter-spacing: ${letterSpacing}em;
               line-height: $lineHeight;
               margin: 0;
-              padding: ${style.marginTop}px ${style.marginRight}px ${style.marginBottom}px ${style.marginLeft}px;
+              box-sizing: border-box;
+              min-height: 100vh;
+              padding: 0 ${marginRight}px 0 ${marginLeft}px !important;
               text-align: ${if (style.justified) "justify" else "start"};
               hyphens: ${if (style.hyphenation) "auto" else "manual"};
               word-break: break-word;
@@ -160,7 +164,7 @@ object NovelReaderCss {
             body {
               height: 100vh;
               column-count: $columns;
-              column-gap: ${style.marginLeft + style.marginRight}px;
+              column-gap: ${halfPixels(style.marginLeft + style.marginRight)}px;
               column-fill: auto;
             }
             /* A heading or an image split across a column boundary is the characteristic defect. */
@@ -213,6 +217,9 @@ object NovelReaderCss {
     fun lineHeightDp(style: NovelReaderStyle): Int =
         scaledFontSizePx(style) * lineHeightTenths(style) / 10
 
+    /** A margin setting rendered with its hidden 0.5 multiplier, in dp/CSS pixels. */
+    fun marginDp(value: Int): Float = value / 2f
+
     private fun lineHeightTenths(style: NovelReaderStyle): Int =
         (LINE_HEIGHT_BASE_TENTHS + style.lineSpacing).coerceAtLeast(MIN_LINE_HEIGHT_TENTHS)
 
@@ -248,6 +255,12 @@ object NovelReaderCss {
         return "$sign${magnitude / 100}.${(magnitude % 100).toString().padStart(2, '0')}"
     }
 
+    /** Paragraph values use a 1.5 multiplier while keeping the setting itself on a 0–200 scale. */
+    private fun scaledEm(value: Int): String = hundredths(value * 3 / 2)
+
+    /** Margin values use a 0.5 multiplier and retain halves for odd restored values. */
+    private fun halfPixels(value: Int): String = marginDp(value).toString()
+
     // The same arithmetic android.graphics.Color performs, done here so the whole object stays
     // free of Android types and therefore testable on the JVM.
     private fun Int.alpha(): Int = (this ushr 24) and 0xFF
@@ -270,10 +283,6 @@ object NovelReaderCss {
 
     private const val SINGLE_COLUMN = 1
     private const val DUAL_COLUMNS = 2
-
-    /** The usual novel indent: enough to see, not enough to notice. */
-    private const val FIRST_LINE_INDENT_EM = "1.2"
-    private const val NO_INDENT_EM = "0.0"
 
     /** Soft enough to lift text off the page without smearing it at small sizes. */
     private const val TEXT_SHADOW = "0 1px 2px rgba(0, 0, 0, 0.35)"

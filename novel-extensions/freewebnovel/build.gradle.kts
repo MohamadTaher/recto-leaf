@@ -8,6 +8,8 @@ android {
 
     defaultConfig {
         applicationId = "leaf.novel.extension.en.freewebnovel"
+        versionCode = 3
+        versionName = "1.6.2"
 
         manifestPlaceholders["extensionName"] = "FreeWebNovel"
         manifestPlaceholders["extensionClass"] = ".FreeWebNovel"
