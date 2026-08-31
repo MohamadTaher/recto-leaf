@@ -249,12 +249,6 @@ class NovelReaderPreferences(
     val bluelightIntensity: Preference<Int> =
         preferenceStore.getInt("leaf_novel_bluelight_intensity", 50)
 
-    /** Minutes of reading before a nudge to rest. Zero is off. */
-    val reminderMinutes: Preference<Int> = preferenceStore.getInt("leaf_novel_reminder_minutes", 0)
-
-    /** A time of day as HH:mm. Empty is off. */
-    val reminderAt: Preference<String> = preferenceStore.getString("leaf_novel_reminder_at", "")
-
     // region Value gestures
 
     val edgeSwipeBrightness: Preference<Boolean> =
@@ -396,7 +390,6 @@ class NovelReaderPreferences(
         val SPEED_READ_WPM_RANGE = 100..900
         val SPEED_READ_CHUNK_RANGE = 1..3
         val BLUELIGHT_INTENSITY_RANGE = 0..100
-        val REMINDER_MINUTES_RANGE = 0..120
 
         /** The image reader brightness range: below zero the overlay dims rather than the window. */
         val BRIGHTNESS_RANGE = -75..100

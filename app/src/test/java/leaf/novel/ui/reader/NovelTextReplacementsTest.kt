@@ -121,6 +121,14 @@ class NovelTextReplacementsTest {
     }
 
     @Test
+    fun `runs app-wide rules before rules for this novel`() {
+        val appWide = rules(NovelTextReplacement(pattern = "a", replacement = "b"))
+        val novel = rules(NovelTextReplacement(pattern = "b", replacement = "c"))
+
+        NovelTextReplacements.apply("a", NovelTextReplacements.combine(appWide, novel)) shouldBe "c"
+    }
+
+    @Test
     fun `survives a rules string that is not valid JSON`() {
         NovelTextReplacements.apply("foo", "{not json") shouldBe "foo"
         NovelTextReplacements.parse("{not json") shouldBe emptyList()

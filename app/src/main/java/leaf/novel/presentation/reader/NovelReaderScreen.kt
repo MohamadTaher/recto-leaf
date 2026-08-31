@@ -64,8 +64,8 @@ import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
-import leaf.novel.ui.reader.NovelReadingReminder
 import leaf.novel.ui.reader.NovelReadingTime
+import leaf.novel.ui.reader.NovelTextReplacements
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderColors
@@ -83,9 +83,7 @@ import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.clickableNoIndication
 import tachiyomi.presentation.core.util.collectAsState
-import java.time.LocalTime
 import kotlin.math.roundToInt
-import kotlin.time.Duration.Companion.minutes
 
 /**
  * The reader screen: one chapter at a time in a WebView, with menu-on-tap chrome over it.
@@ -105,7 +103,10 @@ fun NovelReaderScreen(
 
     val readerTheme by viewModel.readerPreferences.readerTheme.collectAsState()
     val novelTheme by viewModel.novelReaderPreferences.theme.collectAsState()
-    val style = novelReaderStyle(viewModel.novelReaderPreferences)
+    val style = novelReaderStyle(
+        preferences = viewModel.novelReaderPreferences,
+        novelTextReplacements = viewModel.novelTextReplacements(),
+    )
     // Resolved once and handed to the stylesheet, the WebView, the page behind it and the status
     // bar alike, so none of them can disagree about what colour the page is.
     val customColors = viewModel.novelReaderPreferences.customThemes.map { slot ->
@@ -290,29 +291,6 @@ fun NovelReaderScreen(
     // requests and are performed here alongside the taps.
     LaunchedEffect(Unit) {
         viewModel.actions.collect { performAction(it) }
-    }
-
-    val reminderMinutes by viewModel.novelReaderPreferences.reminderMinutes.collectAsState()
-    val reminderAt by viewModel.novelReaderPreferences.reminderAt.collectAsState()
-    val reminderMessage = stringResource(MR.strings.leaf_novel_reader_reminder_message)
-
-    // Nudges rather than alarms: both only run while the reader is open, so neither is scheduled
-    // with the system.
-    LaunchedEffect(reminderMinutes) {
-        if (reminderMinutes <= 0) return@LaunchedEffect
-        while (true) {
-            delay(reminderMinutes.minutes)
-            snackbarHostState.showSnackbar(reminderMessage)
-        }
-    }
-
-    LaunchedEffect(reminderAt) {
-        val target = NovelReadingReminder.minutesOfDay(reminderAt) ?: return@LaunchedEffect
-        while (true) {
-            val now = LocalTime.now()
-            delay(NovelReadingReminder.millisUntilNext(now.hour * 60 + now.minute, target))
-            snackbarHostState.showSnackbar(reminderMessage)
-        }
     }
 
     // Both of these hang off the chrome, so when it goes they go with it. An expanded menu left
@@ -659,6 +637,8 @@ fun NovelReaderScreen(
         NovelReaderSettingsDialog(
             initialTab = tab,
             novelReaderPreferences = viewModel.novelReaderPreferences,
+            novelTextReplacements = viewModel.novelTextReplacements(),
+            onNovelTextReplacementsChange = viewModel::setNovelTextReplacements,
             readerPreferences = viewModel.readerPreferences,
             resolvedColors = colors,
             onDismissRequest = { settingsTab = null },
@@ -903,7 +883,10 @@ private fun NovelReaderErrorMessage(error: NovelReaderError, modifier: Modifier 
  * so the document below it re-keys only when a value actually changed.
  */
 @Composable
-private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderStyle {
+private fun novelReaderStyle(
+    preferences: NovelReaderPreferences,
+    novelTextReplacements: String,
+): NovelReaderStyle {
     val fontSize by preferences.fontSize.collectAsState()
     val font by preferences.font.collectAsState()
     val bold by preferences.bold.collectAsState()
@@ -961,7 +944,7 @@ private fun novelReaderStyle(preferences: NovelReaderPreferences): NovelReaderSt
         indentFirstLine = indentFirstLine,
         trimBlankLines = trimBlankLines,
         trimTopBlankLines = trimTopBlankLines,
-        textReplacements = textReplacements,
+        textReplacements = NovelTextReplacements.combine(textReplacements, novelTextReplacements),
         linkColor = linkColor,
         noteColor = noteColor,
         disableBookCss = disableBookCss,

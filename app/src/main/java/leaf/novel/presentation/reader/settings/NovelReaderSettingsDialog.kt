@@ -99,6 +99,8 @@ private val themes = listOf(
 fun NovelReaderSettingsDialog(
     initialTab: NovelReaderSettingsTab,
     novelReaderPreferences: NovelReaderPreferences,
+    novelTextReplacements: String,
+    onNovelTextReplacementsChange: (String) -> Unit,
     readerPreferences: ReaderPreferences,
     resolvedColors: NovelReaderColors,
     onDismissRequest: () -> Unit,
@@ -126,7 +128,12 @@ fun NovelReaderSettingsDialog(
                     NovelReaderSettingsTab.VISUAL ->
                         VisualPage(novelReaderPreferences, readerPreferences, resolvedColors)
                     NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
-                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(novelReaderPreferences, readerPreferences)
+                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(
+                        novelReaderPreferences,
+                        novelTextReplacements,
+                        onNovelTextReplacementsChange,
+                        readerPreferences,
+                    )
                 }
             }
         }
@@ -418,6 +425,8 @@ private fun ColumnScope.VisualPage(
 @Composable
 private fun ColumnScope.MiscellaneousPage(
     novelReaderPreferences: NovelReaderPreferences,
+    novelTextReplacements: String,
+    onNovelTextReplacementsChange: (String) -> Unit,
     readerPreferences: ReaderPreferences,
 ) {
     HeadingItem(MR.strings.leaf_novel_reader_heading_screen)
@@ -487,7 +496,11 @@ private fun ColumnScope.MiscellaneousPage(
         pref = novelReaderPreferences.trimBlankLines,
     )
 
-    TextReplacements(novelReaderPreferences.textReplacements)
+    TextReplacements(
+        appWidePreference = novelReaderPreferences.textReplacements,
+        novelRules = novelTextReplacements,
+        onNovelRulesChange = onNovelTextReplacementsChange,
+    )
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_format)
 
@@ -564,23 +577,6 @@ private fun ColumnScope.MiscellaneousPage(
             pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         )
     }
-
-    val reminderMinutes by novelReaderPreferences.reminderMinutes.collectAsState()
-    SliderItem(
-        label = stringResource(MR.strings.leaf_novel_reader_reminder_minutes),
-        value = reminderMinutes,
-        valueRange = NovelReaderPreferences.REMINDER_MINUTES_RANGE,
-        steps = 0,
-        valueString = if (reminderMinutes == 0) stringResource(MR.strings.off) else "$reminderMinutes",
-        onChange = { novelReaderPreferences.reminderMinutes.set(it) },
-    )
-
-    val reminderAt by novelReaderPreferences.reminderAt.collectAsState()
-    TextItem(
-        label = stringResource(MR.strings.leaf_novel_reader_reminder_at),
-        value = reminderAt,
-        onChange = { novelReaderPreferences.reminderAt.set(it) },
-    )
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_paging)
 
