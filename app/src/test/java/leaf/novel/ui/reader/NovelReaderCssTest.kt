@@ -414,26 +414,25 @@ class NovelReaderCssTest {
         doc(20).contains("font-size: 27px") shouldBe true
     }
 
-    /**
-     * CSS shorthand runs top, right, bottom, left. Four distinct values rather than the defaults,
-     * because a swapped pair renders plausibly and is invisible in any test that reuses a number.
-     */
+    /** Horizontal margins belong to the document; vertical margins frame the WebView viewport. */
     @Test
-    fun `lays the four margins out in shorthand order`() {
+    fun `scales horizontal and vertical margins in their respective layers`() {
         val document = NovelReaderCss.document(
             content,
             style(marginLeft = 1, marginRight = 2, marginTop = 3, marginBottom = 4),
             colors = colors(WHITE),
         )
 
-        document.contains("padding: 1.5px 1.0px 2.0px 0.5px !important") shouldBe true
+        document.contains("padding: 0 1.0px 0 0.5px !important") shouldBe true
+        NovelReaderCss.marginDp(3) shouldBe 1.5f
+        NovelReaderCss.marginDp(4) shouldBe 2f
     }
 
     @Test
     fun `defaults to the imported asymmetric margins`() {
         val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
 
-        document.contains("padding: 1.5px 5.0px 1.5px 7.0px !important") shouldBe true
+        document.contains("padding: 0 5.0px 0 7.0px !important") shouldBe true
     }
 
     @Test
@@ -444,7 +443,7 @@ class NovelReaderCssTest {
             colors = colors(WHITE),
         )
 
-        document.contains("padding: 0.0px 0.0px 0.0px 0.0px !important") shouldBe true
+        document.contains("padding: 0 0.0px 0 0.0px !important") shouldBe true
     }
 
     /**

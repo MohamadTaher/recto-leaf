@@ -59,8 +59,6 @@ object NovelReaderCss {
         val firstLineIndent = scaledEm(style.paragraphIndent)
         val marginLeft = halfPixels(style.marginLeft)
         val marginRight = halfPixels(style.marginRight)
-        val marginTop = halfPixels(style.marginTop)
-        val marginBottom = halfPixels(style.marginBottom)
         val chapterHtml = content.html
             // First, so a rule matches what the book said rather than what the aids below have
             // since made of it.
@@ -103,7 +101,7 @@ object NovelReaderCss {
               margin: 0;
               box-sizing: border-box;
               min-height: 100vh;
-              padding: ${marginTop}px ${marginRight}px ${marginBottom}px ${marginLeft}px !important;
+              padding: 0 ${marginRight}px 0 ${marginLeft}px !important;
               text-align: ${if (style.justified) "justify" else "start"};
               hyphens: ${if (style.hyphenation) "auto" else "manual"};
               word-break: break-word;
@@ -219,6 +217,9 @@ object NovelReaderCss {
     fun lineHeightDp(style: NovelReaderStyle): Int =
         scaledFontSizePx(style) * lineHeightTenths(style) / 10
 
+    /** A margin setting rendered with its hidden 0.5 multiplier, in dp/CSS pixels. */
+    fun marginDp(value: Int): Float = value / 2f
+
     private fun lineHeightTenths(style: NovelReaderStyle): Int =
         (LINE_HEIGHT_BASE_TENTHS + style.lineSpacing).coerceAtLeast(MIN_LINE_HEIGHT_TENTHS)
 
@@ -258,7 +259,7 @@ object NovelReaderCss {
     private fun scaledEm(value: Int): String = hundredths(value * 3 / 2)
 
     /** Margin values use a 0.5 multiplier and retain halves for odd restored values. */
-    private fun halfPixels(value: Int): String = "${value / 2}.${if (value % 2 == 0) 0 else 5}"
+    private fun halfPixels(value: Int): String = marginDp(value).toString()
 
     // The same arithmetic android.graphics.Color performs, done here so the whole object stays
     // free of Android types and therefore testable on the JVM.
