@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,12 +32,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.AdaptiveSheet
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Close
+import mihon.icons.materialsymbols.rounded.KeyboardArrowLeft
+import mihon.icons.materialsymbols.rounded.KeyboardArrowRight
 import mihon.icons.materialsymbols.rounded.Pause
 import mihon.icons.materialsymbols.rounded.PlayArrow
 import mihon.icons.materialsymbols.rounded.Settings
@@ -57,10 +62,14 @@ fun NovelSpeechPanel(
     paused: Boolean,
     index: Int,
     count: Int,
+    previousPageEnabled: Boolean,
+    nextPageEnabled: Boolean,
     preferences: NovelReaderPreferences,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onPreviousPage: () -> Unit,
+    onNextPage: () -> Unit,
     onStop: () -> Unit,
     onSettings: () -> Unit,
     onSettingsChanged: () -> Unit,
@@ -107,6 +116,24 @@ fun NovelSpeechPanel(
                     )
                 }
                 IconButton(
+                    onClick = onPreviousPage,
+                    enabled = previousPageEnabled,
+                    modifier = Modifier.size(SPEECH_BUTTON_SIZE),
+                ) {
+                    Row {
+                        Icon(
+                            imageVector = MaterialSymbols.Rounded.KeyboardArrowLeft,
+                            contentDescription = null,
+                            modifier = Modifier.size(SPEECH_PAGE_ICON_SIZE),
+                        )
+                        Icon(
+                            imageVector = MaterialSymbols.Rounded.KeyboardArrowLeft,
+                            contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_previous_page),
+                            modifier = Modifier.size(SPEECH_PAGE_ICON_SIZE),
+                        )
+                    }
+                }
+                IconButton(
                     onClick = onPrevious,
                     enabled = speaking && index > 0,
                     modifier = Modifier.size(SPEECH_BUTTON_SIZE),
@@ -144,6 +171,24 @@ fun NovelSpeechPanel(
                         contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_next),
                         modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
+                }
+                IconButton(
+                    onClick = onNextPage,
+                    enabled = nextPageEnabled,
+                    modifier = Modifier.size(SPEECH_BUTTON_SIZE),
+                ) {
+                    Row {
+                        Icon(
+                            imageVector = MaterialSymbols.Rounded.KeyboardArrowRight,
+                            contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_next_page),
+                            modifier = Modifier.size(SPEECH_PAGE_ICON_SIZE),
+                        )
+                        Icon(
+                            imageVector = MaterialSymbols.Rounded.KeyboardArrowRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(SPEECH_PAGE_ICON_SIZE),
+                        )
+                    }
                 }
                 IconButton(onClick = onSettings, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
                     Icon(
@@ -341,6 +386,9 @@ private fun LabeledSlider(
     onDecrease: () -> Unit,
     onIncrease: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colors = SliderDefaults.colors()
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -361,6 +409,25 @@ private fun LabeledSlider(
             onValueChange = onValueChange,
             valueRange = valueRange,
             onValueChangeFinished = onValueChangeFinished,
+            colors = colors,
+            interactionSource = interactionSource,
+            thumb = {
+                SliderDefaults.Thumb(
+                    interactionSource = interactionSource,
+                    colors = colors,
+                    thumbSize = SPEECH_SLIDER_THUMB_SIZE,
+                )
+            },
+            track = { state ->
+                SliderDefaults.Track(
+                    sliderState = state,
+                    modifier = Modifier.height(SPEECH_SLIDER_TRACK_HEIGHT),
+                    colors = colors,
+                    drawStopIndicator = null,
+                    thumbTrackGapSize = 0.dp,
+                    trackInsideCornerSize = 0.dp,
+                )
+            },
             modifier = Modifier
                 .weight(1f)
                 .height(SPEECH_SLIDER_HEIGHT),
@@ -385,6 +452,9 @@ private fun LabeledSlider(
 private val SPEECH_SLIDER_LABEL_WIDTH = 64.dp
 private val SPEECH_SLIDER_VALUE_WIDTH = 32.dp
 private val SPEECH_SLIDER_HEIGHT = 32.dp
+private val SPEECH_SLIDER_TRACK_HEIGHT = 2.dp
+private val SPEECH_SLIDER_THUMB_SIZE = DpSize(14.dp, 14.dp)
 private val SPEECH_STEP_BUTTON_SIZE = 32.dp
-private val SPEECH_BUTTON_SIZE = 36.dp
-private val SPEECH_ICON_SIZE = 22.dp
+private val SPEECH_BUTTON_SIZE = 32.dp
+private val SPEECH_ICON_SIZE = 20.dp
+private val SPEECH_PAGE_ICON_SIZE = 14.dp
