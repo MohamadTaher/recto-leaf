@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.FlowRowScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.rememberPagerState
@@ -137,6 +140,7 @@ fun NovelReaderSettingsDialog(
                     )
                     NovelReaderSettingsTab.ADVANCED -> AdvancedPage(
                         novelReaderPreferences,
+                        readerPreferences,
                         onExportSettings,
                         onImportSettings,
                     )
@@ -305,18 +309,6 @@ private fun ColumnScope.VisualPage(
         pref = novelReaderPreferences.tapImageToOpen,
     )
 
-    SectionHeading(MR.strings.leaf_novel_reader_heading_focused_reading)
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_highlight_first_word),
-        pref = novelReaderPreferences.highlightFirstWord,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_highlight_initial_chars),
-        pref = novelReaderPreferences.highlightInitialChars,
-    )
-
     SectionHeading(MR.strings.pref_category_theme)
 
     // The fork's own theme sets a background and a text colour together, which Mihon's key cannot
@@ -390,64 +382,6 @@ private fun ColumnScope.VisualPage(
         }
     }
 
-    // Beside the theme row because both are colour. Each chip wears the colour it selects, so the
-    // row shows what it does without a swatch component of its own; Default has none to wear and
-    // takes the label colour, which is exactly the theme-derived ink it stands for.
-    val linkColor by novelReaderPreferences.linkColor.collectAsState()
-    ChipSettingRow(stringResource(MR.strings.leaf_novel_reader_link_color)) {
-        NovelLinkColor.entries.map { candidate ->
-            FilterChip(
-                selected = linkColor == candidate,
-                onClick = { novelReaderPreferences.linkColor.set(candidate) },
-                label = {
-                    Text(
-                        text = stringResource(candidate.titleRes),
-                        color = candidate.argb?.let(::Color) ?: Color.Unspecified,
-                    )
-                },
-            )
-        }
-    }
-
-    // Both keys are already honoured by NovelReaderActivity; what they have never had is a control.
-    // Range and presentation are the image reader's: below zero the window holds minimum brightness
-    // and the shared content overlay makes up the difference.
-    CheckboxItem(
-        label = stringResource(MR.strings.pref_custom_brightness),
-        pref = readerPreferences.customBrightness,
-    )
-    val customBrightness by readerPreferences.customBrightness.collectAsState()
-    if (customBrightness) {
-        val customBrightnessValue by readerPreferences.customBrightnessValue.collectAsState()
-        SliderItem(
-            value = customBrightnessValue,
-            valueRange = NovelReaderPreferences.BRIGHTNESS_RANGE,
-            steps = 0,
-            label = stringResource(MR.strings.pref_custom_brightness),
-            onChange = { readerPreferences.customBrightnessValue.set(it) },
-            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        )
-    }
-
-    SectionHeading(MR.strings.leaf_novel_reader_heading_eye_care)
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_bluelight),
-        pref = novelReaderPreferences.bluelight,
-    )
-
-    val bluelight by novelReaderPreferences.bluelight.collectAsState()
-    if (bluelight) {
-        val intensity by novelReaderPreferences.bluelightIntensity.collectAsState()
-        SliderItem(
-            label = stringResource(MR.strings.leaf_novel_reader_bluelight_intensity),
-            value = intensity,
-            valueRange = NovelReaderPreferences.BLUELIGHT_INTENSITY_RANGE,
-            steps = 19,
-            onChange = { novelReaderPreferences.bluelightIntensity.set(it) },
-            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        )
-    }
 }
 
 @Composable
@@ -566,6 +500,7 @@ private fun ColumnScope.MiscellaneousPage(
 @Composable
 private fun ColumnScope.AdvancedPage(
     novelReaderPreferences: NovelReaderPreferences,
+    readerPreferences: ReaderPreferences,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
 ) {
@@ -575,6 +510,73 @@ private fun ColumnScope.AdvancedPage(
         label = stringResource(MR.strings.leaf_novel_reader_trim_blank_lines),
         pref = novelReaderPreferences.trimBlankLines,
     )
+
+    SectionHeading(MR.strings.leaf_novel_reader_heading_focused_reading)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_highlight_first_word),
+        pref = novelReaderPreferences.highlightFirstWord,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_highlight_initial_chars),
+        pref = novelReaderPreferences.highlightInitialChars,
+    )
+
+    SectionHeading(MR.strings.leaf_novel_reader_heading_eye_care)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.pref_custom_brightness),
+        pref = readerPreferences.customBrightness,
+    )
+    val customBrightness by readerPreferences.customBrightness.collectAsState()
+    if (customBrightness) {
+        val customBrightnessValue by readerPreferences.customBrightnessValue.collectAsState()
+        SliderItem(
+            value = customBrightnessValue,
+            valueRange = NovelReaderPreferences.BRIGHTNESS_RANGE,
+            steps = 0,
+            label = stringResource(MR.strings.pref_custom_brightness),
+            onChange = { readerPreferences.customBrightnessValue.set(it) },
+            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
+    }
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_bluelight),
+        pref = novelReaderPreferences.bluelight,
+    )
+
+    val bluelight by novelReaderPreferences.bluelight.collectAsState()
+    if (bluelight) {
+        val intensity by novelReaderPreferences.bluelightIntensity.collectAsState()
+        SliderItem(
+            label = stringResource(MR.strings.leaf_novel_reader_bluelight_intensity),
+            value = intensity,
+            valueRange = NovelReaderPreferences.BLUELIGHT_INTENSITY_RANGE,
+            steps = 19,
+            onChange = { novelReaderPreferences.bluelightIntensity.set(it) },
+            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
+    }
+
+    SectionHeading(MR.strings.leaf_novel_reader_heading_link_colors)
+
+    val linkColor by novelReaderPreferences.linkColor.collectAsState()
+    ChipSettingRow(stringResource(MR.strings.leaf_novel_reader_link_color)) {
+        NovelLinkColor.entries.map { candidate ->
+            FilterChip(
+                selected = linkColor == candidate,
+                onClick = { novelReaderPreferences.linkColor.set(candidate) },
+                label = {
+                    Text(
+                        text = stringResource(candidate.titleRes),
+                        color = candidate.argb?.let(::Color) ?: Color.Unspecified,
+                    )
+                },
+            )
+        }
+    }
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_format)
 
@@ -635,13 +637,24 @@ private fun ColumnScope.AdvancedPage(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Max)
             .padding(horizontal = SettingsItemsPaddings.Horizontal),
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
     ) {
-        OutlinedButton(onClick = onExportSettings, modifier = Modifier.weight(1f)) {
+        OutlinedButton(
+            onClick = onExportSettings,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+        ) {
             Text(stringResource(MR.strings.leaf_novel_action_export_settings))
         }
-        OutlinedButton(onClick = onImportSettings, modifier = Modifier.weight(1f)) {
+        OutlinedButton(
+            onClick = onImportSettings,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+        ) {
             Text(stringResource(MR.strings.leaf_novel_action_import_settings))
         }
     }
@@ -759,26 +772,28 @@ private fun ImageSizeRow(selected: NovelImageSize, onSelect: (NovelImageSize) ->
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(IntrinsicSize.Max)
                 .padding(
                     horizontal = SettingsItemsPaddings.Horizontal,
                     vertical = SettingsItemsPaddings.Vertical,
                 ),
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
         ) {
-            NovelImageSize.entries.forEachIndexed { index, candidate ->
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = when (index) {
-                        0 -> Alignment.CenterStart
-                        NovelImageSize.entries.lastIndex -> Alignment.CenterEnd
-                        else -> Alignment.Center
+            NovelImageSize.entries.forEach { candidate ->
+                FilterChip(
+                    selected = selected == candidate,
+                    onClick = { onSelect(candidate) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    label = {
+                        Text(
+                            text = stringResource(candidate.titleRes),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     },
-                ) {
-                    FilterChip(
-                        selected = selected == candidate,
-                        onClick = { onSelect(candidate) },
-                        label = { Text(stringResource(candidate.titleRes)) },
-                    )
-                }
+                )
             }
         }
     }

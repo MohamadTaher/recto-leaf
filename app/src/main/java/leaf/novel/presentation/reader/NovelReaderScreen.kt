@@ -845,12 +845,16 @@ private fun ChapterContent(
                 onSwipe = onSwipe,
                 onInternalLink = viewModel::openChapterByEntry,
                 onExternalLink = onExternalLink,
-                // The reader is edge-to-edge, so without this the first and last lines of a chapter
-                // sit under the status and navigation bars. Insets are zero once fullscreen hides them.
+                // System insets keep the chapter out of the device bars. Vertical reader margins
+                // live here instead of on the HTML body so they remain visible throughout a
+                // scrolling chapter, not only at its first and last line.
                 modifier = Modifier
                     .fillMaxSize()
                     .systemBarsPadding()
-                    .padding(bottom = bottomInset),
+                    .padding(
+                        top = NovelReaderCss.marginDp(style.marginTop).dp,
+                        bottom = bottomInset + NovelReaderCss.marginDp(style.marginBottom).dp,
+                    ),
             )
         }
     }

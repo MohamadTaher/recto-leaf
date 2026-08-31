@@ -1219,6 +1219,7 @@
     <string name="leaf_novel_reader_publisher_preview">Offer publisher formatting preview</string>
     <string name="leaf_novel_action_publisher_formatting">Publisher formatting</string>
     <string name="leaf_novel_reader_heading_eye_care">Eye care</string>
+    <string name="leaf_novel_reader_heading_link_colors">Link colors</string>
     <string name="leaf_novel_reader_bluelight">Bluelight filter</string>
     <string name="leaf_novel_reader_bluelight_intensity">Filter strength</string>
     <string name="leaf_novel_reader_heading_paging">Paging</string>
