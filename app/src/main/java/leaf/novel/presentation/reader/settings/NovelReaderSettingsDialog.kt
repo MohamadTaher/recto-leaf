@@ -26,17 +26,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import leaf.novel.presentation.reader.appbars.NovelBarButtons
+import leaf.novel.ui.reader.setting.NovelCustomTheme
+import leaf.novel.ui.reader.setting.NovelImageSize
+import leaf.novel.ui.reader.setting.NovelLinkColor
 import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderColors
+import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
+import leaf.novel.ui.reader.setting.NovelReaderTheme
+import leaf.novel.ui.reader.setting.NovelSpeechDivision
+import leaf.novel.ui.reader.setting.NovelStatusBarTap
+import leaf.novel.ui.reader.setting.NovelStatusItem
+import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.toggle
@@ -86,7 +99,10 @@ private val themes = listOf(
 fun NovelReaderSettingsDialog(
     initialTab: NovelReaderSettingsTab,
     novelReaderPreferences: NovelReaderPreferences,
+    novelTextReplacements: String,
+    onNovelTextReplacementsChange: (String) -> Unit,
     readerPreferences: ReaderPreferences,
+    resolvedColors: NovelReaderColors,
     onDismissRequest: () -> Unit,
 ) {
     val tabTitles = listOf(
@@ -109,9 +125,15 @@ fun NovelReaderSettingsDialog(
                     .verticalScroll(rememberScrollState()),
             ) {
                 when (NovelReaderSettingsTab.entries[page]) {
-                    NovelReaderSettingsTab.VISUAL -> VisualPage(novelReaderPreferences, readerPreferences)
+                    NovelReaderSettingsTab.VISUAL ->
+                        VisualPage(novelReaderPreferences, readerPreferences, resolvedColors)
                     NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
-                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(novelReaderPreferences, readerPreferences)
+                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(
+                        novelReaderPreferences,
+                        novelTextReplacements,
+                        onNovelTextReplacementsChange,
+                        readerPreferences,
+                    )
                 }
             }
         }
@@ -122,6 +144,7 @@ fun NovelReaderSettingsDialog(
 private fun ColumnScope.VisualPage(
     novelReaderPreferences: NovelReaderPreferences,
     readerPreferences: ReaderPreferences,
+    resolvedColors: NovelReaderColors,
 ) {
     val fontSize by novelReaderPreferences.fontSize.collectAsState()
     SliderItem(
@@ -130,6 +153,17 @@ private fun ColumnScope.VisualPage(
         valueRange = NovelReaderPreferences.MIN_FONT_SIZE..NovelReaderPreferences.MAX_FONT_SIZE,
         onChange = { novelReaderPreferences.fontSize.set(it) },
     )
+
+    val font by novelReaderPreferences.font.collectAsState()
+    SettingsChipRow(MR.strings.leaf_novel_reader_font) {
+        NovelReaderFont.entries.map { candidate ->
+            FilterChip(
+                selected = font == candidate,
+                onClick = { novelReaderPreferences.font.set(candidate) },
+                label = { Text(stringResource(candidate.titleRes)) },
+            )
+        }
+    }
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_text_styling)
 
@@ -242,6 +276,29 @@ private fun ColumnScope.VisualPage(
         onChange = { novelReaderPreferences.marginBottom.set(it) },
     )
 
+    HeadingItem(MR.strings.leaf_novel_reader_heading_images)
+
+    val imageSize by novelReaderPreferences.imageSize.collectAsState()
+    SettingsChipRow(MR.strings.leaf_novel_reader_image_size) {
+        NovelImageSize.entries.map { candidate ->
+            FilterChip(
+                selected = imageSize == candidate,
+                onClick = { novelReaderPreferences.imageSize.set(candidate) },
+                label = { Text(stringResource(candidate.titleRes)) },
+            )
+        }
+    }
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_center_images),
+        pref = novelReaderPreferences.centerImages,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_tap_image_to_open),
+        pref = novelReaderPreferences.tapImageToOpen,
+    )
+
     HeadingItem(MR.strings.leaf_novel_reader_heading_focused_reading)
 
     CheckboxItem(
@@ -254,6 +311,66 @@ private fun ColumnScope.VisualPage(
         pref = novelReaderPreferences.highlightInitialChars,
     )
 
+    // The fork's own theme sets a background and a text colour together, which Mihon's key cannot
+    // model. Follow Mihon defers to the row below, so that row stays where it is rather than being
+    // hidden behind this one — it is what the default choice here means.
+    val novelTheme by novelReaderPreferences.theme.collectAsState()
+    val themeLabel: @Composable (NovelReaderTheme) -> String = { candidate ->
+        val slot = candidate.slot?.let(novelReaderPreferences.customThemes::getOrNull)
+        val named = slot?.name?.collectAsState()?.value.orEmpty()
+        named.ifBlank { stringResource(candidate.titleRes) }
+    }
+
+    SettingsChipRow(MR.strings.leaf_novel_reader_theme) {
+        NovelReaderTheme.entries.map { candidate ->
+            FilterChip(
+                selected = novelTheme == candidate,
+                // An empty slot is seeded from what is on screen, so picking one starts from a page
+                // the reader can still read rather than from transparent on transparent.
+                onClick = {
+                    candidate.slot
+                        ?.let(novelReaderPreferences.customThemes::getOrNull)
+                        ?.seedFrom(resolvedColors)
+                    novelReaderPreferences.theme.set(candidate)
+                },
+                label = { Text(themeLabel(candidate)) },
+            )
+        }
+    }
+
+    // Only for the slot being used, and inline rather than in a sheet of its own: the page behind
+    // this dialog is already drawn in the theme being edited, so it is the preview.
+    novelTheme.slot?.let(novelReaderPreferences.customThemes::getOrNull)?.let { custom ->
+        val customName by custom.name.collectAsState()
+        TextItem(
+            label = stringResource(MR.strings.leaf_novel_reader_custom_theme_name),
+            value = customName,
+            onChange = { custom.name.set(it) },
+        )
+
+        HeadingItem(MR.strings.leaf_novel_reader_custom_background)
+        ChannelSliders(custom.background)
+
+        HeadingItem(MR.strings.leaf_novel_reader_custom_text)
+        ChannelSliders(custom.foreground)
+    }
+
+    // Day/night flips between these two. Left both at Follow Mihon they are the same value and
+    // nothing to flip, which is exactly when the action falls back to Mihon's own key.
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_day_theme),
+        preference = novelReaderPreferences.dayTheme,
+        options = NovelReaderTheme.entries,
+        labelOf = themeLabel,
+    )
+
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_night_theme),
+        preference = novelReaderPreferences.nightTheme,
+        options = NovelReaderTheme.entries,
+        labelOf = themeLabel,
+    )
+
     val readerTheme by readerPreferences.readerTheme.collectAsState()
     SettingsChipRow(MR.strings.pref_reader_theme) {
         themes.map { (labelRes, value) ->
@@ -261,6 +378,25 @@ private fun ColumnScope.VisualPage(
                 selected = readerTheme == value,
                 onClick = { readerPreferences.readerTheme.set(value) },
                 label = { Text(stringResource(labelRes)) },
+            )
+        }
+    }
+
+    // Beside the theme row because both are colour. Each chip wears the colour it selects, so the
+    // row shows what it does without a swatch component of its own; Default has none to wear and
+    // takes the label colour, which is exactly the theme-derived ink it stands for.
+    val linkColor by novelReaderPreferences.linkColor.collectAsState()
+    SettingsChipRow(MR.strings.leaf_novel_reader_link_color) {
+        NovelLinkColor.entries.map { candidate ->
+            FilterChip(
+                selected = linkColor == candidate,
+                onClick = { novelReaderPreferences.linkColor.set(candidate) },
+                label = {
+                    Text(
+                        text = stringResource(candidate.titleRes),
+                        color = candidate.argb?.let(::Color) ?: Color.Unspecified,
+                    )
+                },
             )
         }
     }
@@ -289,6 +425,8 @@ private fun ColumnScope.VisualPage(
 @Composable
 private fun ColumnScope.MiscellaneousPage(
     novelReaderPreferences: NovelReaderPreferences,
+    novelTextReplacements: String,
+    onNovelTextReplacementsChange: (String) -> Unit,
     readerPreferences: ReaderPreferences,
 ) {
     HeadingItem(MR.strings.leaf_novel_reader_heading_screen)
@@ -307,19 +445,44 @@ private fun ColumnScope.MiscellaneousPage(
     )
 
     CheckboxItem(
-        label = stringResource(MR.strings.pref_show_page_number),
-        pref = readerPreferences.showPageNumber,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_show_remaining_time),
-        pref = novelReaderPreferences.showRemainingTime,
-    )
-
-    CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_disable_touch_edge),
         pref = novelReaderPreferences.disableTouchEdge,
     )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_status_bar)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_show_status_bar),
+        pref = novelReaderPreferences.showStatusBar,
+    )
+
+    // Only while there is a bar to place them in. Eight rows configuring something switched off is
+    // the same silent-no-op the paging heading has to carry a subtitle to excuse.
+    val showStatusBar by novelReaderPreferences.showStatusBar.collectAsState()
+    if (showStatusBar) {
+        NovelStatusItem.entries.forEach { item ->
+            EnumSelectItem(
+                label = stringResource(item.titleRes),
+                preference = novelReaderPreferences.statusSlots.getValue(item),
+                options = NovelStatusPlacement.entries,
+                labelOf = { stringResource(it.titleRes) },
+            )
+        }
+    }
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_bar_buttons)
+
+    // One row per position rather than a list that reorders: the order of the rows is the order of
+    // the bar, duplicates collapse, and an empty bar falls back to the four it has always had — so
+    // nothing has to be blocked while editing and there is always a way back.
+    novelReaderPreferences.barButtons.forEachIndexed { slot, preference ->
+        EnumSelectItem(
+            label = stringResource(MR.strings.leaf_novel_reader_bar_button, slot + 1),
+            preference = preference,
+            options = NovelBarButtons.CANDIDATES,
+            labelOf = { stringResource(it.titleRes) },
+        )
+    }
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_typesetting)
 
@@ -331,6 +494,68 @@ private fun ColumnScope.MiscellaneousPage(
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_trim_blank_lines),
         pref = novelReaderPreferences.trimBlankLines,
+    )
+
+    TextReplacements(
+        appWidePreference = novelReaderPreferences.textReplacements,
+        novelRules = novelTextReplacements,
+        onNovelRulesChange = onNovelTextReplacementsChange,
+    )
+
+    HeadingItem(MR.strings.leaf_novel_reader_heading_format)
+
+    // Print page numbers only exist in a book that carries them, and there is no way to know that
+    // from here without opening it — so the heading says so rather than the setting doing nothing.
+    Text(
+        text = stringResource(MR.strings.leaf_novel_reader_format_subtitle),
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier
+            .padding(horizontal = SettingsItemsPaddings.Horizontal)
+            .secondaryItemAlpha(),
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_disable_book_css),
+        pref = novelReaderPreferences.disableBookCss,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_use_book_fonts),
+        pref = novelReaderPreferences.useBookFonts,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_inline_footnotes),
+        pref = novelReaderPreferences.inlineFootnotes,
+    )
+
+    val inlineFootnotes by novelReaderPreferences.inlineFootnotes.collectAsState()
+    if (inlineFootnotes) {
+        val noteColor by novelReaderPreferences.noteColor.collectAsState()
+        SettingsChipRow(MR.strings.leaf_novel_reader_note_color) {
+            NovelLinkColor.entries.map { candidate ->
+                FilterChip(
+                    selected = noteColor == candidate,
+                    onClick = { novelReaderPreferences.noteColor.set(candidate) },
+                    label = {
+                        Text(
+                            text = stringResource(candidate.titleRes),
+                            color = candidate.argb?.let(::Color) ?: Color.Unspecified,
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_print_page_numbers),
+        pref = novelReaderPreferences.printPageNumbers,
+    )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_publisher_preview),
+        pref = novelReaderPreferences.publisherPreview,
     )
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_eye_care)
@@ -353,38 +578,32 @@ private fun ColumnScope.MiscellaneousPage(
         )
     }
 
-    val reminderMinutes by novelReaderPreferences.reminderMinutes.collectAsState()
-    SliderItem(
-        label = stringResource(MR.strings.leaf_novel_reader_reminder_minutes),
-        value = reminderMinutes,
-        valueRange = NovelReaderPreferences.REMINDER_MINUTES_RANGE,
-        steps = 0,
-        valueString = if (reminderMinutes == 0) stringResource(MR.strings.off) else "$reminderMinutes",
-        onChange = { novelReaderPreferences.reminderMinutes.set(it) },
-    )
-
-    val reminderAt by novelReaderPreferences.reminderAt.collectAsState()
-    TextItem(
-        label = stringResource(MR.strings.leaf_novel_reader_reminder_at),
-        value = reminderAt,
-        onChange = { novelReaderPreferences.reminderAt.set(it) },
-    )
-
     HeadingItem(MR.strings.leaf_novel_reader_heading_paging)
 
-    // Saying so is not optional: a setting that silently does nothing is a bug report waiting.
-    Text(
-        text = stringResource(MR.strings.leaf_novel_reader_paging_subtitle),
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier
-            .padding(horizontal = SettingsItemsPaddings.Horizontal)
-            .secondaryItemAlpha(),
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_paged),
+        pref = novelReaderPreferences.paged,
     )
 
+    // These two are about turning a page, not about how the page is laid out, so they work — and
+    // are offered — in either mode. Keeping a line is in fact the only one of the seven that does
+    // *nothing* while paged: columns cannot overlap.
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_keep_one_line),
         pref = novelReaderPreferences.keepOneLineWhenPaging,
     )
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_reader_page_turn_sound),
+        pref = novelReaderPreferences.pageTurnSound,
+    )
+
+    // The rest describe a layout that only exists while paged mode is on, and are gated at their
+    // call sites as well as here. Showing one that cannot be reached to switch off again is how a
+    // reader ends up stuck on a page they cannot scroll. Stage 17's "stored now, takes effect
+    // later" subtitle is gone with all of them: it is no longer true of any.
+    val paged by novelReaderPreferences.paged.collectAsState()
+    if (!paged) return
 
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_trim_top_blank_lines),
@@ -409,11 +628,6 @@ private fun ColumnScope.MiscellaneousPage(
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_dual_page),
         pref = novelReaderPreferences.dualPageLayout,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_page_turn_sound),
-        pref = novelReaderPreferences.pageTurnSound,
     )
 }
 
@@ -451,6 +665,15 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         )
     }
 
+    HeadingItem(MR.strings.leaf_novel_reader_heading_status_bar)
+
+    NovelStatusBarTap.entries.forEach { tap ->
+        ActionSelectItem(
+            label = stringResource(tap.titleRes),
+            preference = novelReaderPreferences.statusTaps.getValue(tap),
+        )
+    }
+
     HeadingItem(MR.strings.leaf_novel_action_auto_scroll)
 
     val autoScrollSpeed by novelReaderPreferences.autoScrollSpeed.collectAsState()
@@ -459,6 +682,43 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         value = autoScrollSpeed,
         valueRange = NovelReaderPreferences.AUTO_SCROLL_SPEED_RANGE,
         onChange = { novelReaderPreferences.autoScrollSpeed.set(it) },
+    )
+
+    HeadingItem(MR.strings.leaf_novel_action_speak)
+
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_speech_divide_by),
+        preference = novelReaderPreferences.speechDivision,
+        options = NovelSpeechDivision.entries,
+        labelOf = { stringResource(it.titleRes) },
+    )
+
+    val speechRate by novelReaderPreferences.speechRate.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_speech_rate),
+        value = speechRate,
+        valueRange = NovelReaderPreferences.SPEECH_RATE_RANGE,
+        steps = 0,
+        onChange = { novelReaderPreferences.speechRate.set(it) },
+    )
+
+    HeadingItem(MR.strings.leaf_novel_action_speed_read)
+
+    val speedReadWpm by novelReaderPreferences.speedReadWpm.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_speed_read_wpm),
+        value = speedReadWpm,
+        valueRange = NovelReaderPreferences.SPEED_READ_WPM_RANGE,
+        steps = 0,
+        onChange = { novelReaderPreferences.speedReadWpm.set(it) },
+    )
+
+    val speedReadChunk by novelReaderPreferences.speedReadChunk.collectAsState()
+    SliderItem(
+        label = stringResource(MR.strings.leaf_novel_reader_speed_read_chunk),
+        value = speedReadChunk,
+        valueRange = NovelReaderPreferences.SPEED_READ_CHUNK_RANGE,
+        onChange = { novelReaderPreferences.speedReadChunk.set(it) },
     )
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_value_gestures)
@@ -531,9 +791,11 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
             )
         }
 
-        ActionPicker(
+        EnumPicker(
             expanded = expanded,
             selected = action,
+            options = NovelReaderAction.entries,
+            labelOf = { stringResource(it.titleRes) },
             onDismissRequest = { expanded = false },
             onSelect = preference::set,
         )
@@ -541,16 +803,70 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
 }
 
 /**
- * A row naming what is bound, which opens the picker anchored to itself.
+ * One opaque colour as three sliders, the way the image reader's colour filter page edits its own.
+ *
+ * Alpha is not offered: a page you can see through is not a theme, and the fully transparent value
+ * is what [NovelCustomTheme] reads as an empty slot.
+ */
+@Composable
+private fun ChannelSliders(preference: Preference<Int>) {
+    val color by preference.collectAsState()
+
+    CHANNELS.forEach { (labelRes, shift) ->
+        SliderItem(
+            label = stringResource(labelRes),
+            value = (color shr shift) and CHANNEL_MAX,
+            valueRange = 0..CHANNEL_MAX,
+            steps = 0,
+            onChange = { value ->
+                preference.set(
+                    (color and (CHANNEL_MAX shl shift).inv()) or
+                        (value shl shift) or
+                        OPAQUE,
+                )
+            },
+            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
+    }
+}
+
+private val CHANNELS = listOf(
+    MR.strings.color_filter_r_value to 16,
+    MR.strings.color_filter_g_value to 8,
+    MR.strings.color_filter_b_value to 0,
+)
+
+private const val CHANNEL_MAX = 0xFF
+
+/** Every colour the editor writes is opaque, which is also what marks the slot as used. */
+private const val OPAQUE = 0xFF shl 24
+
+/** An action binding, which is what most of these rows are. */
+@Composable
+private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAction>) {
+    EnumSelectItem(label, preference, NovelReaderAction.entries) { stringResource(it.titleRes) }
+}
+
+/**
+ * A row naming what is chosen, which opens the picker anchored to itself.
  *
  * Deliberately not the shared select row. That one is an `ExposedDropdownMenuBox`, which measures
  * the space it has against the window and throws outright when there is less of it than the menu
  * needs — and a row low in this dialog has exactly that little. The plain dropdown below is a popup
  * that does no such arithmetic, and it is what the grid above already uses.
+ *
+ * Generic over the enum rather than over actions alone: the status bar chooses a placement per item
+ * from the same shape of row, and one row that takes its options is smaller than two that differ
+ * only in their type.
  */
 @Composable
-private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAction>) {
-    val action by preference.collectAsState()
+private fun <T : Enum<T>> EnumSelectItem(
+    label: String,
+    preference: Preference<T>,
+    options: List<T>,
+    labelOf: @Composable (T) -> String,
+) {
+    val selected by preference.collectAsState()
     var expanded by remember { mutableStateOf(false) }
 
     Box {
@@ -567,33 +883,37 @@ private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAc
         ) {
             Text(text = label, style = MaterialTheme.typography.bodyMedium)
             Text(
-                text = stringResource(action.titleRes),
+                text = labelOf(selected),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
 
-        ActionPicker(
+        EnumPicker(
             expanded = expanded,
-            selected = action,
+            selected = selected,
+            options = options,
+            labelOf = labelOf,
             onDismissRequest = { expanded = false },
             onSelect = preference::set,
         )
     }
 }
 
-/** The one list of actions, shared by the grid and the rows so the two can never drift apart. */
+/** The one picker, shared by the grid and the rows so the two can never drift apart. */
 @Composable
-private fun ActionPicker(
+private fun <T : Enum<T>> EnumPicker(
     expanded: Boolean,
-    selected: NovelReaderAction,
+    selected: T,
+    options: List<T>,
+    labelOf: @Composable (T) -> String,
     onDismissRequest: () -> Unit,
-    onSelect: (NovelReaderAction) -> Unit,
+    onSelect: (T) -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest) {
-        NovelReaderAction.entries.forEach { candidate ->
+        options.forEach { candidate ->
             RadioMenuItem(
-                text = { Text(stringResource(candidate.titleRes)) },
+                text = { Text(labelOf(candidate)) },
                 isChecked = candidate == selected,
                 onClick = {
                     onDismissRequest()

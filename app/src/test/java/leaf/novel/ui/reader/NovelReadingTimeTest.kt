@@ -52,4 +52,14 @@ class NovelReadingTimeTest {
         NovelReadingTime.minutesRemaining(words = 1000, percentRead = -20) shouldBe 5
         NovelReadingTime.minutesRemaining(words = 1000, percentRead = 500) shouldBe 0
     }
+
+    @Test
+    fun `lists the chapter's words in reading order`() {
+        NovelReadingTime.words("<p>One two</p><p>three</p>") shouldBe listOf("One", "two", "three")
+    }
+
+    @Test
+    fun `drops the whitespace between blocks rather than counting it`() {
+        NovelReadingTime.words("<p>  One  </p> <p>   </p><p>two</p>") shouldBe listOf("One", "two")
+    }
 }

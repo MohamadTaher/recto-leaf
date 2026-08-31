@@ -9,6 +9,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.SoundEffectConstants
 import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -28,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import leaf.novel.ui.reader.NovelStatusLine
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
@@ -47,21 +49,51 @@ import kotlin.math.roundToInt
 @SuppressLint("ViewConstructor")
 private class NovelWebView(context: Context) : WebView(context) {
 
-    var onScroll: ((scrollY: Int, range: Int) -> Unit)? = null
+    var onScroll: ((offset: Int, range: Int) -> Unit)? = null
+
+    /**
+     * Whether the chapter is laid out as a row of pages rather than one long column.
+     *
+     * Every measurement below then reads the horizontal axis instead of the vertical one. The
+     * arithmetic is identical either way, so the axis is the only thing that differs — which is
+     * what lets a stored position go on meaning the same in both modes.
+     */
+    var paged: Boolean = false
 
     private var selectionMode: ActionMode? = null
 
     /** Selection runs in an action mode, which is the only signal the view offers that it is on. */
     val isSelecting: Boolean get() = selectionMode != null
 
-    val verticalScrollRange: Int get() = computeVerticalScrollRange()
+    /** The whole extent of the content along whichever axis it is laid out on. */
+    val scrollRange: Int
+        get() = if (paged) computeHorizontalScrollRange() else computeVerticalScrollRange()
+
+    /** How much of that axis one screenful covers. */
+    val viewportExtent: Int get() = if (paged) width else height
+
+    /** Where the content currently sits along it. */
+    val scrollOffset: Int get() = if (paged) scrollX else scrollY
 
     /** The furthest the content can scroll, which is what a stored percent is a fraction of. */
-    val maxScroll: Int get() = (verticalScrollRange - height).coerceAtLeast(0)
+    val maxScroll: Int get() = (scrollRange - viewportExtent).coerceAtLeast(0)
 
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
-        onScroll?.invoke(t, computeVerticalScrollRange())
+        onScroll?.invoke(scrollOffset, scrollRange)
+    }
+
+    /**
+     * Moves by whole screenfuls along the reading axis, which is what a page turn is.
+     *
+     * [overlap] is how much of the current page to leave showing on the next one. Columns cannot
+     * overlap, so the caller passes zero while paged.
+     */
+    fun turnPage(pages: Int, overlap: Int, sound: Boolean) {
+        // Columns cannot overlap, so keeping a line only means anything while scrolling.
+        val step = (viewportExtent - if (paged) 0 else overlap).coerceAtLeast(1) * pages
+        if (paged) scrollBy(step, 0) else scrollBy(0, step)
+        if (sound) playSoundEffect(SoundEffectConstants.CLICK)
     }
 
     override fun startActionMode(callback: ActionMode.Callback?, type: Int): ActionMode? {
@@ -136,7 +168,14 @@ fun NovelChapterWebView(
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
+    paged: Boolean,
+    pageOverlapPx: Int,
+    pageTurnSound: Boolean,
+    blockVerticalScroll: Boolean,
+    flingTurnsPage: Boolean,
     ignoreEdgeTaps: Boolean,
+    tapImageEnabled: Boolean,
+    onImageTap: (String) -> Unit,
     pinchEnabled: Boolean,
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
@@ -155,7 +194,13 @@ fun NovelChapterWebView(
     val currentOnTapCell by rememberUpdatedState(onTapCell)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnSwipe by rememberUpdatedState(onSwipe)
+    val currentPageOverlapPx by rememberUpdatedState(pageOverlapPx)
+    val currentPageTurnSound by rememberUpdatedState(pageTurnSound)
+    val currentBlockVerticalScroll by rememberUpdatedState(blockVerticalScroll)
+    val currentFlingTurnsPage by rememberUpdatedState(flingTurnsPage)
     val currentIgnoreEdgeTaps by rememberUpdatedState(ignoreEdgeTaps)
+    val currentTapImageEnabled by rememberUpdatedState(tapImageEnabled)
+    val currentOnImageTap by rememberUpdatedState(onImageTap)
     val currentPinchEnabled by rememberUpdatedState(pinchEnabled)
     val currentOnPinch by rememberUpdatedState(onPinch)
     val currentOnEdgeDrag by rememberUpdatedState(onEdgeDrag)
@@ -178,21 +223,32 @@ fun NovelChapterWebView(
                     onLongPress = { currentOnLongPress() },
                     onSwipe = { currentOnSwipe(it) },
                     ignoreEdgeTaps = { currentIgnoreEdgeTaps },
+                    blockVerticalScroll = { currentBlockVerticalScroll },
+                    flingTurnsPage = { currentFlingTurnsPage },
+                    turnPage = { pages -> turnPage(pages, currentPageOverlapPx, currentPageTurnSound) },
+                    tapImageEnabled = { currentTapImageEnabled },
+                    onImageTap = { currentOnImageTap(it) },
                     pinchEnabled = { currentPinchEnabled },
                     onPinch = { currentOnPinch(it) },
                     onEdgeDrag = { edge, steps -> currentOnEdgeDrag(edge, steps) },
                 )
-                controller.attach(this)
-                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
-                    controller.findMatches = FindMatches(activeMatchOrdinal, numberOfMatches)
+                controller.attach(this) { pages ->
+                    turnPage(pages, currentPageOverlapPx, currentPageTurnSound)
                 }
-                onScroll = { scrollY, range ->
-                    if (restored.value) currentOnProgress(percentOf(scrollY, range, height))
+                setFindListener { activeMatchOrdinal, numberOfMatches, doneCounting ->
+                    controller.onFindResult(activeMatchOrdinal, numberOfMatches, doneCounting)
+                }
+                onScroll = { offset, range ->
+                    controller.screens = NovelStatusLine.screens(offset, range, viewportExtent)
+                    if (restored.value) currentOnProgress(percentOf(offset, range, viewportExtent))
                 }
                 webView = this
             }
         },
         update = { view ->
+            // Set before the document that depends on it loads, so the very first measurement of a
+            // paged chapter already reads the horizontal axis.
+            view.paged = paged
             view.setBackgroundColor(backgroundColor)
         },
         onRelease = { view ->
@@ -215,10 +271,11 @@ fun NovelChapterWebView(
         // Content height is not final at onPageFinished — images and the book's own stylesheet are
         // still settling — so restoring there lands in the wrong place on a long chapter.
         val maxScroll = view.awaitStableMaxScroll()
-        if (maxScroll > 0 && initialPercent > 0) {
-            view.scrollTo(0, view.scrollTargetOf(initialPercent))
-        }
+        if (maxScroll > 0 && initialPercent > 0) view.seekTo(initialPercent)
         restored.value = true
+        // onScrollChanged only fires on a change, so a chapter opened at the top would leave the
+        // status bar reading 1/1 until the first drag. Seed it from the settled measurement.
+        controller.screens = NovelStatusLine.screens(view.scrollOffset, view.scrollRange, view.viewportExtent)
         // The reload dropped any highlighting, so a search still open is run again over the
         // rebuilt document rather than left showing nothing.
         controller.reapplyFind()
@@ -230,7 +287,7 @@ fun NovelChapterWebView(
     LaunchedEffect(webView, seekRequests) {
         val view = webView ?: return@LaunchedEffect
         seekRequests.collect { percent ->
-            if (view.maxScroll > 0) view.scrollTo(0, view.scrollTargetOf(percent))
+            if (view.maxScroll > 0) view.seekTo(percent)
         }
     }
 }
@@ -238,6 +295,18 @@ fun NovelChapterWebView(
 /** Turns a percent through the chapter into the pixel offset that shows it. */
 private fun NovelWebView.scrollTargetOf(percent: Int): Int =
     (maxScroll * percent / 100f).roundToInt().coerceIn(0, maxScroll)
+
+/**
+ * Jumps to a percent through the chapter, along whichever axis it is laid out on.
+ *
+ * A percent rather than a page index even while paged: the stored position then means the same in
+ * both modes, so switching between them lands on the same words and no column of the database has
+ * to change meaning.
+ */
+private fun NovelWebView.seekTo(percent: Int) {
+    val target = scrollTargetOf(percent)
+    if (paged) scrollTo(target, 0) else scrollTo(0, target)
+}
 
 /** Scroll position as a percent, guarding the division for content shorter than the viewport. */
 internal fun percentOf(scrollY: Int, range: Int, viewportHeight: Int): Int {
@@ -253,7 +322,7 @@ internal fun percentOf(scrollY: Int, range: Int, viewportHeight: Int): Int {
 private suspend fun NovelWebView.awaitStableMaxScroll(): Int {
     var previous = -1
     repeat(MAX_HEIGHT_POLLS) {
-        val range = verticalScrollRange
+        val range = scrollRange
         if (range > 0 && range == previous) return maxScroll
         previous = range
         delay(HEIGHT_POLL_INTERVAL_MS)
@@ -291,6 +360,11 @@ private fun NovelWebView.attachTapDetector(
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
     ignoreEdgeTaps: () -> Boolean,
+    blockVerticalScroll: () -> Boolean,
+    flingTurnsPage: () -> Boolean,
+    turnPage: (pages: Int) -> Unit,
+    tapImageEnabled: () -> Boolean,
+    onImageTap: (String) -> Unit,
     pinchEnabled: () -> Boolean,
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
@@ -314,6 +388,18 @@ private fun NovelWebView.attachTapDetector(
             }
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                // The hit test reports whatever the last touch landed on, so an illustration can
+                // claim its own tap before the grid underneath is ever consulted.
+                if (tapImageEnabled()) {
+                    val hit = hitTestResult
+                    val onImage = hit.type == WebView.HitTestResult.IMAGE_TYPE ||
+                        hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
+                    if (onImage) {
+                        hit.extra?.let(onImageTap)
+                        return false
+                    }
+                }
+
                 // An edge tap on a gesture-navigation phone is as likely to have been a missed
                 // swipe, so a reader who asks for them to be ignored gets them ignored.
                 if (ignoreEdgeTaps() && NovelTapGrid.isNearEdge(e.x, e.y, width, height, edgeMarginPx)) {
@@ -350,6 +436,17 @@ private fun NovelWebView.attachTapDetector(
                 if (e1 == null || isSelecting) return false
                 val swipe = NovelReaderSwipe.of(e2.x - e1.x, e2.y - e1.y, minSwipeDistancePx)
                     ?: return false
+
+                // A fling asked to turn the page claims the gesture outright. Running the swipe
+                // binding as well would make one gesture do two things, and the reader has said
+                // which of the two they meant.
+                if (flingTurnsPage()) {
+                    when (swipe) {
+                        NovelReaderSwipe.RIGHT_TO_LEFT -> return true.also { turnPage(1) }
+                        NovelReaderSwipe.LEFT_TO_RIGHT -> return true.also { turnPage(-1) }
+                        else -> Unit
+                    }
+                }
                 return onSwipe(swipe)
             }
         },
@@ -383,9 +480,14 @@ private fun NovelWebView.attachTapDetector(
     setOnTouchListener { _, event ->
         scaleDetector.onTouchEvent(event)
         val handled = detector.onTouchEvent(event)
+        // A reader who has turned dragging off still has to be able to drag a selection handle, so
+        // only the plain page drag is swallowed.
+        val dragBlocked = blockVerticalScroll() &&
+            !isSelecting &&
+            event.actionMasked == MotionEvent.ACTION_MOVE
         // A pinch in progress must not also scroll the page. Everything else reports false and
         // leaves the WebView scrolling exactly as it did before.
-        scaleDetector.isInProgress || handled
+        scaleDetector.isInProgress || handled || dragBlocked
     }
     // Consuming the long click is what suppresses the WebView's own text selection, so a binding
     // that means "leave selection alone" reports false and lets the default behaviour run.

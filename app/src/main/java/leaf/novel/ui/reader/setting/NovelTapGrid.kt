@@ -21,6 +21,9 @@ object NovelTapGrid {
     /** Bound to day/night mode by default, per the imported configuration. */
     const val BOTTOM_LEFT = 6
 
+    /** Bound to speech by default, per the imported configuration. */
+    const val TOP_LEFT = 0
+
     /** How close to an edge counts as an edge tap, when the reader asks those to be ignored. */
     const val EDGE_MARGIN_DP = 24f
 

@@ -20,6 +20,7 @@ package leaf.novel.ui.reader.setting
  */
 data class NovelReaderStyle(
     val fontSizePx: Int,
+    val font: NovelReaderFont,
     val bold: Boolean,
     val italic: Boolean,
     val underline: Boolean,
@@ -39,4 +40,16 @@ data class NovelReaderStyle(
     val highlightInitialChars: Boolean,
     val indentFirstLine: Boolean,
     val trimBlankLines: Boolean,
+    val linkColor: NovelLinkColor,
+    val noteColor: NovelLinkColor,
+    val disableBookCss: Boolean,
+    val useBookFonts: Boolean,
+    val inlineFootnotes: Boolean,
+    val printPageNumbers: Boolean,
+    val imageSize: NovelImageSize,
+    val centerImages: Boolean,
+    val paged: Boolean,
+    val dualPageLayout: Boolean,
+    val trimTopBlankLines: Boolean,
+    val textReplacements: String,
 )
