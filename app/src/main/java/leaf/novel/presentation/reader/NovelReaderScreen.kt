@@ -979,10 +979,10 @@ private const val AUTO_SCROLL_TICK_MS = 16L
 /** Six pixels a second per speed step, so the default of 5 is roughly a line a second. */
 private const val AUTO_SCROLL_PX_PER_STEP = 6
 
-/** Moon+'s deck occupies a little over a quarter of a portrait screen. */
-private const val SPEECH_PANEL_HEIGHT_FRACTION = 0.28f
-private val MIN_SPEECH_PANEL_HEIGHT = 216.dp
-private val MAX_SPEECH_PANEL_HEIGHT = 300.dp
+/** The supplied Moon+ panel occupies just under a quarter of its portrait screen. */
+private const val SPEECH_PANEL_HEIGHT_FRACTION = 0.225f
+private val MIN_SPEECH_PANEL_HEIGHT = 176.dp
+private val MAX_SPEECH_PANEL_HEIGHT = 240.dp
 
 /** Tall enough to sit under a line of text at any size the reader offers. */
 private val READING_RULER_HEIGHT = 28.dp
