@@ -42,11 +42,11 @@ import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Close
 import mihon.icons.materialsymbols.rounded.KeyboardArrowLeft
 import mihon.icons.materialsymbols.rounded.KeyboardArrowRight
-import mihon.icons.materialsymbols.rounded.Pause
-import mihon.icons.materialsymbols.rounded.PlayArrow
 import mihon.icons.materialsymbols.rounded.Settings
 import mihon.icons.materialsymbols.rounded.SkipNext
 import mihon.icons.materialsymbols.rounded.SkipPrevious
+import mihon.icons.materialsymbols.roundedfilled.Pause
+import mihon.icons.materialsymbols.roundedfilled.PlayArrow
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.CheckboxItem
@@ -148,9 +148,9 @@ fun NovelSpeechPanel(
                 IconButton(onClick = onPlayPause, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
                     Icon(
                         imageVector = if (speaking && !paused) {
-                            MaterialSymbols.Rounded.Pause
+                            MaterialSymbols.RoundedFilled.Pause
                         } else {
-                            MaterialSymbols.Rounded.PlayArrow
+                            MaterialSymbols.RoundedFilled.PlayArrow
                         },
                         contentDescription = stringResource(
                             when {
