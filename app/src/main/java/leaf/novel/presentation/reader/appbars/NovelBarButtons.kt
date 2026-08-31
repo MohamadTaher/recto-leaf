@@ -7,11 +7,11 @@ import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.FormatListNumbered
 import mihon.icons.materialsymbols.rounded.Info
 import mihon.icons.materialsymbols.rounded.Palette
-import mihon.icons.materialsymbols.rounded.PlayArrow
 import mihon.icons.materialsymbols.rounded.ScreenRotation
 import mihon.icons.materialsymbols.rounded.Search
 import mihon.icons.materialsymbols.rounded.Settings
 import mihon.icons.materialsymbols.rounded.ViewModule
+import mihon.icons.materialsymbols.roundedfilled.PlayArrow
 
 /**
  * Which of the reader's actions can go on the bottom bar, and what each looks like there.
@@ -76,7 +76,7 @@ object NovelBarButtons {
         NovelReaderAction.ADDITIONAL_OPTIONS -> MaterialSymbols.AutoMirroredRounded.Sort
         NovelReaderAction.SHOW_CHAPTERS -> MaterialSymbols.Rounded.FormatListNumbered
         NovelReaderAction.SEARCH -> MaterialSymbols.Rounded.Search
-        NovelReaderAction.AUTO_SCROLL -> MaterialSymbols.Rounded.PlayArrow
+        NovelReaderAction.AUTO_SCROLL -> MaterialSymbols.RoundedFilled.PlayArrow
         NovelReaderAction.BOOK_INFORMATION -> MaterialSymbols.Rounded.Info
         else -> null
     }
