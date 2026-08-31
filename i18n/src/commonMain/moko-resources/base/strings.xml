@@ -1150,6 +1150,8 @@
     <string name="leaf_novel_reader_speech_filters_note">Text replacement rules also apply to read-aloud text.</string>
     <string name="leaf_novel_reader_speech_previous">Previous section</string>
     <string name="leaf_novel_reader_speech_next">Next section</string>
+    <string name="leaf_novel_reader_speech_previous_page">Previous page</string>
+    <string name="leaf_novel_reader_speech_next_page">Next page</string>
     <string name="leaf_novel_reader_speech_off">Off</string>
     <string name="leaf_novel_reader_speech_minutes">%1$d min</string>
     <string name="leaf_novel_reader_speech_confirm_message">Start reading this chapter aloud?</string>

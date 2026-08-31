@@ -121,7 +121,8 @@ object NovelReaderCss {
               text-indent: 0;
             }
             .${NovelEpubMarkup.PAGE_CLASS} { color: $muted !important; font-size: 0.7em; vertical-align: super; }
-            ::selection { background: $muted; }
+            ::selection { background: $SPEECH_HIGHLIGHT; }
+            ::search-text { background: $SPEECH_HIGHLIGHT; }
             </style>
             </head>
             <body>
@@ -294,6 +295,7 @@ object NovelReaderCss {
     private const val PER_MILLE = 1000
 
     private const val ACCENT_ALPHA = 168
+    private const val SPEECH_HIGHLIGHT = "#5ac8f5"
     private const val DARK_LUMINANCE_THRESHOLD = 128
 
     @ColorInt

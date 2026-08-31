@@ -461,8 +461,7 @@ class NovelReaderCssTest {
 
     /**
      * The default link colour is the muted foreground the reader used before it was a setting, and
-     * it has to keep following the theme. The hr rule and the selection highlight take the same
-     * colour, so they are the check that a chosen colour has not leaked past the links.
+     * it has to keep following the theme.
      */
     @Test
     fun `leaves links to the theme by default`() {
@@ -483,10 +482,11 @@ class NovelReaderCssTest {
     }
 
     @Test
-    fun `leaves the page furniture on the theme colour when links are not`() {
+    fun `keeps page furniture themed and highlights selections in blue`() {
         val document = NovelReaderCss.document(content, style(linkColor = NovelLinkColor.RED), colors = colors(WHITE))
 
         document.contains("border-top: 1px solid rgba(26, 26, 26, ") shouldBe true
-        document.contains("::selection { background: rgba(26, 26, 26, ") shouldBe true
+        document.contains("::selection { background: #5ac8f5; }") shouldBe true
+        document.contains("::search-text { background: #5ac8f5; }") shouldBe true
     }
 }

@@ -184,6 +184,11 @@ fun NovelReaderScreen(
         }
     }
 
+    fun turnSpeechPage(forward: Boolean) {
+        if (forward) webViewController.pageDown() else webViewController.pageUp()
+        if (state.speaking) viewModel.restartSpeaking(livePercent, state.speechPaused)
+    }
+
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
         when (action) {
@@ -571,6 +576,8 @@ fun NovelReaderScreen(
                 paused = state.speechPaused,
                 index = state.speechIndex,
                 count = state.speechCount,
+                previousPageEnabled = webViewController.screens.current > 1,
+                nextPageEnabled = webViewController.screens.current < webViewController.screens.total,
                 preferences = viewModel.novelReaderPreferences,
                 onPlayPause = {
                     if (state.speaking) {
@@ -581,6 +588,8 @@ fun NovelReaderScreen(
                 },
                 onPrevious = { viewModel.seekSpeech(-1) },
                 onNext = { viewModel.seekSpeech(1) },
+                onPreviousPage = { turnSpeechPage(forward = false) },
+                onNextPage = { turnSpeechPage(forward = true) },
                 onStop = ::closeSpeechControls,
                 onSettings = { showSpeechOptions = true },
                 onSettingsChanged = viewModel::applySpeechSettings,
