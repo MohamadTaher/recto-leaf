@@ -1,6 +1,7 @@
 package leaf.novel.ui.reader
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -14,12 +15,15 @@ import dev.zacsweers.metro.AssistedInject
 import dev.zacsweers.metro.ContributesIntoMap
 import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactory
 import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactoryKey
+import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.source.interactor.GetIncognitoState
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -31,8 +35,14 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.api.NovelSource
+import leaf.novel.data.backup.NovelSettingsTransfer
 import leaf.novel.data.epub.NovelEpubException
 import leaf.novel.data.epub.novelEpubReader
 import leaf.novel.source.local.LocalNovelSource
@@ -43,7 +53,9 @@ import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.SourceContentProvider
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
+import leaf.novel.ui.reader.setting.NovelReaderTheme
 import logcat.LogPriority
+import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withIOContext
@@ -57,10 +69,12 @@ import tachiyomi.domain.history.interactor.UpsertHistory
 import tachiyomi.domain.history.model.HistoryUpdate
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.source.service.SourceManager
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 
 /** Why the reader could not show something. The first four are fatal; the last is per-chapter. */
 enum class NovelReaderError {
@@ -89,6 +103,7 @@ class NovelReaderViewModel(
     @Assisted private val savedState: SavedStateHandle,
     private val context: Context,
     private val getManga: GetManga,
+    private val updateManga: UpdateManga,
     private val getChaptersByMangaId: GetChaptersByMangaId,
     private val updateChapter: UpdateChapter,
     private val upsertHistory: UpsertHistory,
@@ -98,6 +113,7 @@ class NovelReaderViewModel(
     private val fileSystem: NovelFileSystem,
     private val downloadProvider: DownloadProvider,
     private val sourceManager: SourceManager,
+    private val preferenceStore: PreferenceStore,
     val readerPreferences: ReaderPreferences,
     val novelReaderPreferences: NovelReaderPreferences,
 ) : ViewModel() {
@@ -161,6 +177,7 @@ class NovelReaderViewModel(
     }
 
     override fun onCleared() {
+        speaker?.shutdown()
         runCatching { provider?.close() }
         provider = null
     }
@@ -240,8 +257,10 @@ class NovelReaderViewModel(
             .onFailure { logcat(LogPriority.WARN, it) { "Could not load chapter ${chapter.url}" } }
 
         // Counted once per chapter for the remaining-time estimate, and off the main thread: a
-        // long chapter is a lot of markup to walk.
+        // long chapter is a lot of markup to walk. The markup itself is kept so speech can be cut
+        // from it without fetching the chapter a second time.
         result.getOrNull()?.let { content ->
+            currentHtml = content.html
             val words = withIOContext { NovelReadingTime.wordsIn(content.html) }
             mutableState.update { it.copy(chapterWords = words) }
         }
@@ -249,6 +268,20 @@ class NovelReaderViewModel(
     }
 
     fun assetServer(): NovelEpubAssetServer? = provider?.let(::NovelEpubAssetServer)
+
+    /**
+     * The bytes behind an image in the open chapter, for the full-screen view.
+     *
+     * Only images the reader itself is serving: anything outside the virtual origin is either a
+     * remote URL the WebView already refused to load or a data URI the page has inline, and neither
+     * has bytes to fetch from here.
+     */
+    suspend fun imageBytes(url: String): ByteArray? = withIOContext {
+        val path = NovelEpubAssetServer.pathFor(url) ?: return@withIOContext null
+        runCatching { provider?.resourceStream(path)?.use { it.readBytes() } }
+            .onFailure { logcat(LogPriority.WARN, it) { "Could not read image $path" } }
+            .getOrNull()
+    }
 
     fun setCurrentChapter(index: Int) {
         val chapter = state.value.chapters.getOrNull(index) ?: return
@@ -259,6 +292,8 @@ class NovelReaderViewModel(
         restartReadTimer()
         // Auto scroll does not carry across a chapter boundary.
         // Neither auto scroll nor a search carries across a chapter boundary.
+        stopSpeaking()
+        stopSpeedReading()
         mutableState.update { it.copy(currentIndex = index, autoScrolling = false, searchQuery = null) }
     }
 
@@ -285,7 +320,264 @@ class NovelReaderViewModel(
     /** Forces the chrome up, for an action that needs something anchored to it. */
     fun showMenu() = mutableState.update { it.copy(menuVisible = true, autoScrolling = false) }
 
-    fun setAutoScrolling(enabled: Boolean) = mutableState.update { it.copy(autoScrolling = enabled) }
+    /** Auto scroll and speech both move the page; starting either has to stop the other. */
+    fun setAutoScrolling(enabled: Boolean) {
+        if (enabled) stopSpeaking()
+        mutableState.update { it.copy(autoScrolling = enabled, speedReading = it.speedReading && !enabled) }
+    }
+
+    // region Speech
+
+    /**
+     * Built on first use, not with the reader.
+     *
+     * [NovelSpeaker] binds a system service, and a reader who never asks for speech should not be
+     * holding one open for the whole session — which is also why [onCleared] shuts down only what
+     * was actually created.
+     */
+    private var speaker: NovelSpeaker? = null
+
+    /** The chapter's own markup, kept so speech can be cut from it without re-fetching. */
+    private var currentHtml: String? = null
+
+    /** The pieces currently queued, for exposing the active text and its repeated occurrence. */
+    private var speechUtterances: List<String> = emptyList()
+
+    private var speechStopJob: Job? = null
+
+    /**
+     * Starts reading the open chapter aloud at [percentRead].
+     *
+     * The utterances are cut afresh each time, so changing how the chapter is divided takes effect
+     * on the next start rather than needing the chapter reopened.
+     */
+    fun startSpeaking(percentRead: Int) {
+        if (state.value.speaking) return
+        queueSpeech(percentRead)
+    }
+
+    /** Rebuilds the queue when its division changes while the control sheet is open. */
+    fun restartSpeaking(percentRead: Int, paused: Boolean) {
+        queueSpeech(percentRead)
+        if (paused) speaker?.pause()
+    }
+
+    private fun queueSpeech(percentRead: Int) {
+        val html = currentHtml ?: return
+        // The replacement rules are also the TTS character filters: visible and spoken prose use
+        // the same existing mechanism rather than maintaining two almost-identical rule lists.
+        val spokenHtml = NovelTextReplacements.apply(
+            html,
+            NovelTextReplacements.combine(
+                novelReaderPreferences.textReplacements.get(),
+                novelTextReplacements(),
+            ),
+        )
+        val utterances = NovelSpeech.utterances(spokenHtml, novelReaderPreferences.speechDivision.get())
+        if (utterances.isEmpty()) return
+
+        stopSpeedReading()
+        val engine = speaker ?: NovelSpeaker(context).also { created ->
+            speaker = created
+            // Mirrored into the reader's own state so the screen has one thing to collect, and so
+            // speech sits beside auto scroll rather than in a stream of its own.
+            var wasSpeaking = false
+            created.speech
+                .onEach { speech ->
+                    if (!wasSpeaking && speech.speaking) scheduleSpeechStop()
+                    if (wasSpeaking && !speech.speaking) cancelSpeechStop()
+                    wasSpeaking = speech.speaking
+                    mutableState.update {
+                        it.copy(
+                            speaking = speech.speaking,
+                            speechPaused = speech.paused,
+                            speechIndex = speech.index,
+                            speechCount = speechUtterances.size,
+                            speechText = speechUtterances.getOrNull(speech.index),
+                            speechOccurrence = NovelSpeech.occurrenceAt(speech.index, speechUtterances),
+                            speechUnavailable = speech.initialised && !speech.available,
+                        )
+                    }
+                }
+                .launchIn(viewModelScope)
+        }
+
+        speechUtterances = utterances
+        mutableState.update { it.copy(autoScrolling = false, searchQuery = null) }
+        engine.start(
+            text = utterances,
+            fromIndex = NovelSpeech.indexAt(percentRead / 100f, utterances),
+            rate = novelReaderPreferences.speechRate.get(),
+            pitch = novelReaderPreferences.speechPitch.get(),
+            intervalMs = novelReaderPreferences.speechIntervalMs.get(),
+            mixAudio = novelReaderPreferences.speechMixAudio.get(),
+        )
+    }
+
+    fun toggleSpeechPlayback(percentRead: Int) {
+        when {
+            !state.value.speaking -> startSpeaking(percentRead)
+            state.value.speechPaused -> speaker?.resume()
+            else -> speaker?.pause()
+        }
+    }
+
+    fun seekSpeech(units: Int) {
+        speaker?.seekBy(units)
+    }
+
+    /** Applies changed controls without rebuilding or re-fetching the chapter. */
+    fun applySpeechSettings() {
+        speaker?.update(
+            rate = novelReaderPreferences.speechRate.get(),
+            pitch = novelReaderPreferences.speechPitch.get(),
+            intervalMs = novelReaderPreferences.speechIntervalMs.get(),
+            mixAudio = novelReaderPreferences.speechMixAudio.get(),
+        )
+    }
+
+    fun stopSpeaking() {
+        cancelSpeechStop()
+        speaker?.stop()
+    }
+
+    fun applySpeechTimer() {
+        if (state.value.speaking) scheduleSpeechStop()
+    }
+
+    private fun scheduleSpeechStop() {
+        speechStopJob?.cancel()
+        speechStopJob = null
+        val after = novelReaderPreferences.speechStopAfterMinutes.get()
+        if (after <= 0) return
+        speechStopJob = viewModelScope.launch {
+            delay(after.minutes)
+            stopSpeaking()
+        }
+    }
+
+    private fun cancelSpeechStop() {
+        speechStopJob?.cancel()
+        speechStopJob = null
+    }
+
+    // endregion
+
+    // region Speed reading
+
+    private var speedReadPhrases: List<String> = emptyList()
+
+    /**
+     * Starts or stops showing the chapter a phrase at a time, from where the reader is now.
+     *
+     * The phrases come from the same walk of the markup the remaining-time estimate uses, so
+     * entering the mode costs one parse and no fetch. Auto scroll and speech both stop: three
+     * things moving the page at once is not a mode.
+     */
+    fun toggleSpeedReading(percentRead: Int) {
+        if (state.value.speedReading) {
+            stopSpeedReading()
+            return
+        }
+
+        val html = currentHtml ?: return
+        val chunk = novelReaderPreferences.speedReadChunk.get()
+            .coerceIn(NovelReaderPreferences.SPEED_READ_CHUNK_RANGE)
+        val phrases = NovelReadingTime.words(html)
+            .chunked(chunk) { words -> words.joinToString(" ") }
+        if (phrases.isEmpty()) return
+
+        stopSpeaking()
+        speedReadPhrases = phrases
+        // Picking up where the page is, rather than at the top: the mode is for reading on, not
+        // for starting the chapter again.
+        val from = (phrases.size * percentRead.coerceIn(0, 100) / 100).coerceIn(0, phrases.lastIndex)
+        mutableState.update {
+            it.copy(autoScrolling = false, speedReading = true, speedReadIndex = from)
+        }
+    }
+
+    /** Steps to the next phrase, stopping at the end of the chapter. */
+    fun advanceSpeedReading() = mutableState.update {
+        val next = it.speedReadIndex + 1
+        if (next >= speedReadPhrases.size) it.copy(speedReading = false) else it.copy(speedReadIndex = next)
+    }
+
+    fun stopSpeedReading() = mutableState.update { it.copy(speedReading = false) }
+
+    /** Saves a rule list with this novel, so it follows the title through Mihon's normal backup. */
+    fun setNovelTextReplacements(rules: String) {
+        val manga = state.value.manga ?: return
+        val memo = if (rules.isBlank() || rules == "[]") {
+            JsonObject(manga.memo - NovelTextReplacements.MANGA_MEMO_KEY)
+        } else {
+            JsonObject(manga.memo + (NovelTextReplacements.MANGA_MEMO_KEY to JsonPrimitive(rules)))
+        }
+        val updated = manga.copy(memo = memo)
+        mutableState.update { it.copy(manga = updated) }
+        viewModelScope.launch {
+            runCatching { updateManga.await(MangaUpdate(id = manga.id, memo = memo)) }
+                .onFailure { logcat(LogPriority.WARN, it) { "Could not save text replacements" } }
+        }
+    }
+
+    fun novelTextReplacements(): String =
+        state.value.manga
+            ?.memo
+            ?.get(NovelTextReplacements.MANGA_MEMO_KEY)
+            ?.jsonPrimitive
+            ?.contentOrNull
+            .orEmpty()
+
+    // endregion
+
+    // region Settings transfer
+
+    /**
+     * Writes every `leaf_novel_` preference to [target].
+     *
+     * Through the document picker's own URI, so the file lands wherever the reader keeps things and
+     * no storage permission is involved.
+     */
+    suspend fun exportSettings(target: Uri): Boolean = withIOContext {
+        runCatching {
+            val backup = NovelSettingsTransfer.capture(preferenceStore.getAll())
+            context.contentResolver.openOutputStream(target, "wt")?.use { out ->
+                out.write(settingsJson.encodeToString(backup).toByteArray())
+            } ?: error("Could not open $target")
+        }
+            .onFailure { logcat(LogPriority.ERROR, it) { "Could not export reader settings" } }
+            .isSuccess
+    }
+
+    /** Reads a settings file back over the current settings. Overwrites; the caller confirms. */
+    suspend fun importSettings(source: Uri): Boolean = withIOContext {
+        runCatching {
+            val text = context.contentResolver.openInputStream(source)?.use { it.readBytes() }
+                ?: error("Could not open $source")
+            NovelSettingsTransfer.apply(settingsJson.decodeFromString(text.decodeToString()), preferenceStore)
+        }
+            .onFailure { logcat(LogPriority.WARN, it) { "Could not import reader settings" } }
+            .isSuccess
+    }
+
+    /** Lenient on read so a file written by a later stage still restores what this one understands. */
+    private val settingsJson = Json {
+        ignoreUnknownKeys = true
+        prettyPrint = true
+    }
+
+    /** What is on the overlay now, or null when the mode is off. */
+    val speedReadPhrase: String?
+        get() = if (state.value.speedReading) speedReadPhrases.getOrNull(state.value.speedReadIndex) else null
+
+    /** How far through the chapter the mode has reached, so the page beneath keeps up. */
+    fun speedReadFraction(): Float {
+        val size = speedReadPhrases.size
+        return if (size <= 0) 0f else (state.value.speedReadIndex.toFloat() / size).coerceIn(0f, 1f)
+    }
+
+    // endregion
 
     /** Steps to the next orientation, wrapping, for whatever is bound to it. */
     fun cycleOrientation() = novelReaderPreferences.orientation.getAndSet {
@@ -318,13 +610,30 @@ class NovelReaderViewModel(
     }
 
     /**
-     * Flips the shared reader theme between its black and white values.
+     * Flips between the reader's chosen day and night themes.
      *
-     * The theme is a ReaderPreferences key both readers share — the novel reader deliberately has
-     * no settings system of its own — so the image reader changes background with it.
+     * While both are still [NovelReaderTheme.FOLLOW_MIHON] there is nothing of the fork's own to
+     * flip, so it falls back to flipping the shared reader theme between its black and white values
+     * — which is all this action ever did, and it keeps the image reader following along. Once a
+     * reader picks a pair, writing the shared key as well would move manga's background for a
+     * setting that no longer decides this one.
      */
-    fun toggleDayNightMode() = readerPreferences.readerTheme.getAndSet {
-        if (it == READER_THEME_WHITE) READER_THEME_BLACK else READER_THEME_WHITE
+    fun toggleDayNightMode() {
+        val day = novelReaderPreferences.dayTheme.get()
+        val night = novelReaderPreferences.nightTheme.get()
+        if (day == NovelReaderTheme.FOLLOW_MIHON && night == NovelReaderTheme.FOLLOW_MIHON) {
+            readerPreferences.readerTheme.getAndSet {
+                if (it == READER_THEME_WHITE) READER_THEME_BLACK else READER_THEME_WHITE
+            }
+            return
+        }
+        novelReaderPreferences.theme.getAndSet { if (it == night) day else night }
+    }
+
+    /** Steps to the next theme, wrapping, for whatever is bound to it. */
+    fun cycleTheme() = novelReaderPreferences.theme.getAndSet {
+        val themes = NovelReaderTheme.entries
+        themes[(themes.indexOf(it) + 1) % themes.size]
     }
 
     fun setBrightnessOverlayValue(value: Int) = mutableState.update { it.copy(brightnessOverlayValue = value) }
@@ -387,8 +696,14 @@ class NovelReaderViewModel(
         chapterReadStartTime = null
     }
 
-    /** Saves progress and history without being cancelled by the activity going away. */
+    /**
+     * Saves progress and history without being cancelled by the activity going away.
+     *
+     * Speech stops here too: a chapter still being read aloud from a backgrounded reader is a
+     * support ticket, and a reader who has left the app has left the book.
+     */
     fun saveOnPause() {
+        stopSpeaking()
         viewModelScope.launchNonCancellable {
             flushProgress()
             updateHistory()
@@ -422,6 +737,16 @@ class NovelReaderViewModel(
         val autoScrolling: Boolean = false,
         val searchQuery: String? = null,
         val chapterWords: Int = 0,
+        val speaking: Boolean = false,
+        val speechPaused: Boolean = false,
+        val speechIndex: Int = 0,
+        val speechCount: Int = 0,
+        val speechText: String? = null,
+        val speechOccurrence: Int = 0,
+        val speedReading: Boolean = false,
+        val speedReadIndex: Int = 0,
+        /** Set once the engine has bound and reported that the phone has no voice at all. */
+        val speechUnavailable: Boolean = false,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }

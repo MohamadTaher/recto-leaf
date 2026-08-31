@@ -39,14 +39,11 @@ import eu.kanade.presentation.reader.appbars.ReaderTopBar
 import eu.kanade.presentation.reader.components.ChapterNavigator
 import eu.kanade.presentation.reader.components.ChapterNavigatorType
 import leaf.novel.presentation.reader.components.FindMatches
-import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
+import leaf.novel.ui.reader.setting.NovelReaderAction
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.ExpandLess
 import mihon.icons.materialsymbols.rounded.ExpandMore
-import mihon.icons.materialsymbols.rounded.Palette
-import mihon.icons.materialsymbols.rounded.ScreenRotation
-import mihon.icons.materialsymbols.rounded.Settings
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -84,7 +81,8 @@ fun NovelReaderAppBars(
     percentRead: Int,
     onPercentChange: (Int) -> Unit,
 
-    onClickSettings: (NovelReaderSettingsTab) -> Unit,
+    barButtons: List<NovelReaderAction>,
+    onAction: (NovelReaderAction) -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
     additionalOptions: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
@@ -149,7 +147,8 @@ fun NovelReaderAppBars(
                         .background(backgroundColor)
                         .padding(horizontal = MaterialTheme.padding.small)
                         .windowInsetsPadding(WindowInsets.navigationBars),
-                    onClickSettings = onClickSettings,
+                    buttons = barButtons,
+                    onAction = onAction,
                     additionalOptionsExpanded = additionalOptionsExpanded,
                     onAdditionalOptionsExpandedChange = onAdditionalOptionsExpandedChange,
                     additionalOptions = additionalOptions,
@@ -160,15 +159,15 @@ fun NovelReaderAppBars(
 }
 
 /**
- * A button per group of settings, and a fourth for the things you can start.
+ * Whichever buttons the reader has chosen, in the order they chose them.
  *
- * The icons are the closest the generated Material Symbols set carries. It has no touch or tune
- * glyph, so the controls group takes the screen-rotation icon — orientation is one of the settings
- * it holds — and the menu takes the three-line sort one.
+ * Every one is an action the dispatcher already performs and a glyph the generated Material Symbols
+ * set already carries; see [NovelBarButtons] for why that list is what it is.
  */
 @Composable
 private fun NovelReaderBottomBar(
-    onClickSettings: (NovelReaderSettingsTab) -> Unit,
+    buttons: List<NovelReaderAction>,
+    onAction: (NovelReaderAction) -> Unit,
     additionalOptionsExpanded: Boolean,
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
     additionalOptions: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
@@ -180,32 +179,36 @@ private fun NovelReaderBottomBar(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { onClickSettings(NovelReaderSettingsTab.VISUAL) }) {
-            Icon(
-                imageVector = MaterialSymbols.Rounded.Palette,
-                contentDescription = stringResource(MR.strings.leaf_novel_reader_tab_visual),
-            )
+        buttons.forEach { action ->
+            val icon = NovelBarButtons.iconFor(action) ?: return@forEach
+
+            // The menu has to hang off wherever its own button ended up, so it is rendered in
+            // place rather than always last.
+            if (action == NovelReaderAction.ADDITIONAL_OPTIONS) {
+                AdditionalOptionsMenu(
+                    expanded = additionalOptionsExpanded,
+                    onExpandedChange = onAdditionalOptionsExpandedChange,
+                    showButton = true,
+                    content = additionalOptions,
+                )
+            } else {
+                IconButton(onClick = { onAction(action) }) {
+                    Icon(imageVector = icon, contentDescription = stringResource(action.titleRes))
+                }
+            }
         }
 
-        IconButton(onClick = { onClickSettings(NovelReaderSettingsTab.CONTROL) }) {
-            Icon(
-                imageVector = MaterialSymbols.Rounded.ScreenRotation,
-                contentDescription = stringResource(MR.strings.leaf_novel_reader_tab_control),
+        // The menu is still reachable from a tap zone, a key or a gesture when its button is not on
+        // the bar, and it is the only route to speech, speed reading and the settings backup — so it
+        // keeps an anchor here either way. Without one the binding opened nothing at all.
+        if (NovelReaderAction.ADDITIONAL_OPTIONS !in buttons) {
+            AdditionalOptionsMenu(
+                expanded = additionalOptionsExpanded,
+                onExpandedChange = onAdditionalOptionsExpandedChange,
+                showButton = false,
+                content = additionalOptions,
             )
         }
-
-        IconButton(onClick = { onClickSettings(NovelReaderSettingsTab.MISCELLANEOUS) }) {
-            Icon(
-                imageVector = MaterialSymbols.Rounded.Settings,
-                contentDescription = stringResource(MR.strings.leaf_novel_reader_tab_misc),
-            )
-        }
-
-        AdditionalOptionsMenu(
-            expanded = additionalOptionsExpanded,
-            onExpandedChange = onAdditionalOptionsExpandedChange,
-            content = additionalOptions,
-        )
     }
 }
 
@@ -222,14 +225,17 @@ private fun NovelReaderBottomBar(
 private fun AdditionalOptionsMenu(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
+    showButton: Boolean,
     content: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
 ) {
     Box {
-        IconButton(onClick = { onExpandedChange(true) }) {
-            Icon(
-                imageVector = MaterialSymbols.AutoMirroredRounded.Sort,
-                contentDescription = stringResource(MR.strings.leaf_novel_reader_additional_options),
-            )
+        if (showButton) {
+            IconButton(onClick = { onExpandedChange(true) }) {
+                Icon(
+                    imageVector = MaterialSymbols.AutoMirroredRounded.Sort,
+                    contentDescription = stringResource(MR.strings.leaf_novel_reader_additional_options),
+                )
+            }
         }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
