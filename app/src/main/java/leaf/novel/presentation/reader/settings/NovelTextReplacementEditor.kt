@@ -2,16 +2,21 @@ package leaf.novel.presentation.reader.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -21,9 +26,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.unit.dp
 import leaf.novel.ui.reader.NovelTextReplacements
 import leaf.novel.ui.reader.setting.NovelTextReplacement
+import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.Add
+import mihon.icons.materialsymbols.rounded.Delete
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.HeadingItem
@@ -33,30 +42,21 @@ import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 import tachiyomi.presentation.core.util.secondaryItemAlpha
 
-/**
- * The list of find-and-replace rules, and the dialog that edits one.
- *
- * Rules apply in the order they were added, so the list is not reorderable — moving one is
- * deleting it and adding it again, and nobody has asked for better yet.
- *
- * The whole list round-trips through JSON on every edit. It is a handful of small objects written
- * when a person taps Save, so the cost is nothing and it keeps the stored form and the edited form
- * from being two things that have to agree.
- */
+private enum class ReplacementScope {
+    NOVEL,
+    APP_WIDE,
+}
+
 @Composable
-fun ColumnScope.TextReplacements(preference: Preference<String>) {
-    val rulesJson by preference.collectAsState()
-    val rules = remember(rulesJson) { NovelTextReplacements.parse(rulesJson) }
-
-    // The rule being edited, and where it goes back. A null index is one being added.
-    var editing by remember { mutableStateOf<Pair<Int?, NovelTextReplacement>?>(null) }
-
-    fun write(updated: List<NovelTextReplacement>) {
-        preference.set(NovelTextReplacements.encode(updated))
-    }
+fun ColumnScope.TextReplacements(
+    appWidePreference: Preference<String>,
+    novelRules: String,
+    onNovelRulesChange: (String) -> Unit,
+) {
+    val appWideRules by appWidePreference.collectAsState()
+    var showEditor by remember { mutableStateOf(false) }
 
     HeadingItem(MR.strings.leaf_novel_reader_heading_replacements)
-
     Text(
         text = stringResource(MR.strings.leaf_novel_reader_replacements_subtitle),
         style = MaterialTheme.typography.bodySmall,
@@ -64,21 +64,12 @@ fun ColumnScope.TextReplacements(preference: Preference<String>) {
             .padding(horizontal = SettingsItemsPaddings.Horizontal)
             .secondaryItemAlpha(),
     )
-
-    rules.forEachIndexed { index, rule ->
-        RuleRow(
-            rule = rule,
-            onToggle = { write(rules.replacing(index, rule.copy(enabled = it))) },
-            onClick = { editing = index to rule },
-        )
-    }
-
     Text(
-        text = stringResource(MR.strings.leaf_novel_reader_add_replacement),
+        text = stringResource(MR.strings.leaf_novel_reader_edit_replacements),
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
-            .clickable { editing = null to NovelTextReplacement() }
+            .clickable { showEditor = true }
             .fillMaxWidth()
             .padding(
                 horizontal = SettingsItemsPaddings.Horizontal,
@@ -86,161 +77,178 @@ fun ColumnScope.TextReplacements(preference: Preference<String>) {
             ),
     )
 
-    editing?.let { (index, rule) ->
-        RuleDialog(
-            rule = rule,
-            onDismissRequest = { editing = null },
-            onDelete = index?.let {
-                {
-                    write(rules.removing(it))
-                    editing = null
-                }
-            },
-            onSave = { saved ->
-                write(if (index == null) rules + saved else rules.replacing(index, saved))
-                editing = null
-            },
+    if (showEditor) {
+        TextReplacementDialog(
+            appWideRules = appWideRules,
+            novelRules = novelRules,
+            onDismissRequest = { showEditor = false },
+            onSaveAppWide = appWidePreference::set,
+            onSaveNovel = onNovelRulesChange,
         )
     }
 }
 
-/** One rule: what it is called, what it matches, and whether it is on. */
 @Composable
-private fun RuleRow(rule: NovelTextReplacement, onToggle: (Boolean) -> Unit, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .fillMaxWidth()
-            .padding(
-                horizontal = SettingsItemsPaddings.Horizontal,
-                vertical = SettingsItemsPaddings.Vertical,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                // An unnamed rule is identified by what it looks for, which is the next best thing.
-                text = rule.title.ifBlank { rule.pattern },
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = stringResource(
-                    MR.strings.leaf_novel_reader_replacement_summary,
-                    rule.pattern,
-                    rule.replacement,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.secondaryItemAlpha(),
-            )
-        }
-
-        Switch(checked = rule.enabled, onCheckedChange = onToggle)
-    }
-}
-
-/**
- * Editing one rule.
- *
- * A dialog over the settings dialog, which is the shape the reader already uses for the things that
- * need more than a row — and the only one that gives a text field room to be typed into.
- */
-@Composable
-private fun RuleDialog(
-    rule: NovelTextReplacement,
+private fun TextReplacementDialog(
+    appWideRules: String,
+    novelRules: String,
     onDismissRequest: () -> Unit,
-    onDelete: (() -> Unit)?,
-    onSave: (NovelTextReplacement) -> Unit,
+    onSaveAppWide: (String) -> Unit,
+    onSaveNovel: (String) -> Unit,
 ) {
-    var draft by remember { mutableStateOf(rule) }
+    var scope by remember { mutableStateOf(ReplacementScope.NOVEL) }
+    var appWideDraft by remember(appWideRules) { mutableStateOf(rulesDraft(appWideRules)) }
+    var novelDraft by remember(novelRules) { mutableStateOf(rulesDraft(novelRules)) }
+    val rules = if (scope == ReplacementScope.NOVEL) novelDraft else appWideDraft
+
+    fun updateRules(updated: List<NovelTextReplacement>) {
+        if (scope == ReplacementScope.NOVEL) novelDraft = updated else appWideDraft = updated
+    }
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
         title = { Text(stringResource(MR.strings.leaf_novel_reader_heading_replacements)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small)) {
-                OutlinedTextField(
-                    value = draft.title,
-                    onValueChange = { draft = draft.copy(title = it) },
-                    label = { Text(stringResource(MR.strings.leaf_novel_reader_replacement_title)) },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = draft.pattern,
-                    onValueChange = { draft = draft.copy(pattern = it) },
-                    label = { Text(stringResource(MR.strings.leaf_novel_reader_replacement_find)) },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = draft.replacement,
-                    onValueChange = { draft = draft.copy(replacement = it) },
-                    label = { Text(stringResource(MR.strings.leaf_novel_reader_replacement_replace)) },
-                    singleLine = true,
-                )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small)) {
+                    FilterChip(
+                        selected = scope == ReplacementScope.NOVEL,
+                        onClick = { scope = ReplacementScope.NOVEL },
+                        label = { Text(stringResource(MR.strings.leaf_novel_reader_replacements_this_novel)) },
+                    )
+                    FilterChip(
+                        selected = scope == ReplacementScope.APP_WIDE,
+                        onClick = { scope = ReplacementScope.APP_WIDE },
+                        label = { Text(stringResource(MR.strings.leaf_novel_reader_replacements_app_wide)) },
+                    )
+                }
 
-                RuleSwitch(
-                    labelRes = MR.strings.leaf_novel_reader_replacement_regex,
-                    checked = draft.isRegex,
-                ) { draft = draft.copy(isRegex = it) }
+                rules.forEachIndexed { index, rule ->
+                    ReplacementRow(
+                        rule = rule,
+                        onChange = { updateRules(rules.replacing(index, it)) },
+                        onDelete = {
+                            updateRules(rules.removing(index).takeIf { it.isNotEmpty() } ?: emptyRule())
+                        },
+                    )
+                }
 
-                RuleSwitch(
-                    labelRes = MR.strings.leaf_novel_reader_replacement_case,
-                    checked = draft.caseSensitive,
-                ) { draft = draft.copy(caseSensitive = it) }
-
-                // Meaningless once the pattern is a regular expression, which can say so itself.
-                if (!draft.isRegex) {
-                    RuleSwitch(
-                        labelRes = MR.strings.leaf_novel_reader_replacement_whole_word,
-                        checked = draft.matchWholeWord,
-                    ) { draft = draft.copy(matchWholeWord = it) }
+                TextButton(onClick = { updateRules(rules + NovelTextReplacement()) }) {
+                    Icon(
+                        imageVector = MaterialSymbols.Rounded.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(stringResource(MR.strings.leaf_novel_reader_add_replacement))
                 }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(draft) },
-                enabled = draft.pattern.isNotBlank(),
+                onClick = {
+                    val encoded = NovelTextReplacements.encode(rules.simplePairs())
+                    if (scope == ReplacementScope.NOVEL) onSaveNovel(encoded) else onSaveAppWide(encoded)
+                    onDismissRequest()
+                },
             ) {
                 Text(stringResource(MR.strings.action_save))
             }
         },
         dismissButton = {
-            Row {
-                if (onDelete != null) {
-                    TextButton(onClick = onDelete) {
-                        Text(stringResource(MR.strings.action_delete))
-                    }
-                }
-                TextButton(onClick = onDismissRequest) {
-                    Text(stringResource(MR.strings.action_cancel))
-                }
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(MR.strings.action_cancel))
             }
         },
     )
 }
 
 @Composable
-private fun RuleSwitch(
-    labelRes: dev.icerock.moko.resources.StringResource,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+private fun ReplacementRow(
+    rule: NovelTextReplacement,
+    onChange: (NovelTextReplacement) -> Unit,
+    onDelete: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .clickable { onCheckedChange(!checked) }
-            .fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
     ) {
-        Text(text = stringResource(labelRes), style = MaterialTheme.typography.bodyMedium)
-        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+        ReplacementField(
+            value = rule.pattern,
+            onValueChange = { onChange(rule.copy(pattern = it)) },
+            placeholder = stringResource(MR.strings.leaf_novel_reader_replacement_find),
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "→",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.secondaryItemAlpha(),
+        )
+        ReplacementField(
+            value = rule.replacement,
+            onValueChange = { onChange(rule.copy(replacement = it)) },
+            placeholder = stringResource(MR.strings.leaf_novel_reader_replacement_replace),
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = MaterialSymbols.Rounded.Delete,
+            contentDescription = stringResource(MR.strings.action_delete),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(32.dp)
+                .clickable(onClick = onDelete)
+                .padding(7.dp),
+        )
     }
 }
+
+@Composable
+private fun ReplacementField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    innerTextField()
+                }
+            },
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+private fun rulesDraft(rules: String): List<NovelTextReplacement> =
+    NovelTextReplacements.parse(rules).ifEmpty(::emptyRule)
+
+private fun emptyRule() = listOf(NovelTextReplacement())
+
+private fun List<NovelTextReplacement>.simplePairs(): List<NovelTextReplacement> =
+    filter { it.pattern.isNotBlank() }
+        .map { NovelTextReplacement(pattern = it.pattern, replacement = it.replacement) }
 
 private fun List<NovelTextReplacement>.replacing(index: Int, rule: NovelTextReplacement) =
     toMutableList().also { it[index] = rule }

@@ -15,6 +15,7 @@ import dev.zacsweers.metro.AssistedInject
 import dev.zacsweers.metro.ContributesIntoMap
 import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactory
 import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactoryKey
+import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.source.interactor.GetIncognitoState
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
@@ -35,6 +36,10 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.api.NovelSource
 import leaf.novel.data.backup.NovelSettingsTransfer
@@ -64,6 +69,7 @@ import tachiyomi.domain.history.interactor.UpsertHistory
 import tachiyomi.domain.history.model.HistoryUpdate
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.source.service.SourceManager
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
@@ -97,6 +103,7 @@ class NovelReaderViewModel(
     @Assisted private val savedState: SavedStateHandle,
     private val context: Context,
     private val getManga: GetManga,
+    private val updateManga: UpdateManga,
     private val getChaptersByMangaId: GetChaptersByMangaId,
     private val updateChapter: UpdateChapter,
     private val upsertHistory: UpsertHistory,
@@ -359,7 +366,13 @@ class NovelReaderViewModel(
         val html = currentHtml ?: return
         // The replacement rules are also the TTS character filters: visible and spoken prose use
         // the same existing mechanism rather than maintaining two almost-identical rule lists.
-        val spokenHtml = NovelTextReplacements.apply(html, novelReaderPreferences.textReplacements.get())
+        val spokenHtml = NovelTextReplacements.apply(
+            html,
+            NovelTextReplacements.combine(
+                novelReaderPreferences.textReplacements.get(),
+                novelTextReplacements(),
+            ),
+        )
         val utterances = NovelSpeech.utterances(spokenHtml, novelReaderPreferences.speechDivision.get())
         if (utterances.isEmpty()) return
 
@@ -491,6 +504,30 @@ class NovelReaderViewModel(
     }
 
     fun stopSpeedReading() = mutableState.update { it.copy(speedReading = false) }
+
+    /** Saves a rule list with this novel, so it follows the title through Mihon's normal backup. */
+    fun setNovelTextReplacements(rules: String) {
+        val manga = state.value.manga ?: return
+        val memo = if (rules.isBlank() || rules == "[]") {
+            JsonObject(manga.memo - NovelTextReplacements.MANGA_MEMO_KEY)
+        } else {
+            JsonObject(manga.memo + (NovelTextReplacements.MANGA_MEMO_KEY to JsonPrimitive(rules)))
+        }
+        val updated = manga.copy(memo = memo)
+        mutableState.update { it.copy(manga = updated) }
+        viewModelScope.launch {
+            runCatching { updateManga.await(MangaUpdate(id = manga.id, memo = memo)) }
+                .onFailure { logcat(LogPriority.WARN, it) { "Could not save text replacements" } }
+        }
+    }
+
+    fun novelTextReplacements(): String =
+        state.value.manga
+            ?.memo
+            ?.get(NovelTextReplacements.MANGA_MEMO_KEY)
+            ?.jsonPrimitive
+            ?.contentOrNull
+            .orEmpty()
 
     // endregion
 

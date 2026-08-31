@@ -19,7 +19,7 @@ class NovelSettingsTransferTest {
         val all = mapOf(
             "leaf_novel_font_size" to 22,
             "leaf_novel_bold" to true,
-            "leaf_novel_reminder_at" to "07:30",
+            "leaf_novel_text_replacements" to "[]",
             "pref_reader_theme" to 1,
             "custom_brightness" to true,
             "some_other_app_key" to "x",
@@ -29,7 +29,7 @@ class NovelSettingsTransferTest {
 
         backup.ints shouldBe mapOf("leaf_novel_font_size" to 22)
         backup.booleans shouldBe mapOf("leaf_novel_bold" to true)
-        backup.strings shouldBe mapOf("leaf_novel_reminder_at" to "07:30")
+        backup.strings shouldBe mapOf("leaf_novel_text_replacements" to "[]")
     }
 
     /**

@@ -19,6 +19,9 @@ import tachiyomi.core.common.util.system.logcat
  */
 object NovelTextReplacements {
 
+    /** The per-novel list lives in Mihon's existing per-title JSON column. */
+    const val MANGA_MEMO_KEY = "leaf_novel_text_replacements"
+
     /**
      * Every enabled rule applied in order, or [html] untouched when there are none.
      *
@@ -49,6 +52,13 @@ object NovelTextReplacements {
     }
 
     fun encode(rules: List<NovelTextReplacement>): String = json.encodeToString(rules)
+
+    /** App-wide rules run first, followed by rules for the open novel. */
+    fun combine(appWideRules: String, novelRules: String): String {
+        if (appWideRules.isBlank()) return novelRules
+        if (novelRules.isBlank()) return appWideRules
+        return encode(parse(appWideRules) + parse(novelRules))
+    }
 
     /**
      * The rules as compiled patterns, remembered against the text they came from.
