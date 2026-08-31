@@ -11,6 +11,7 @@ import mihon.icons.materialsymbols.rounded.PlayArrow
 import mihon.icons.materialsymbols.rounded.ScreenRotation
 import mihon.icons.materialsymbols.rounded.Search
 import mihon.icons.materialsymbols.rounded.Settings
+import mihon.icons.materialsymbols.rounded.ViewModule
 
 /**
  * Which of the reader's actions can go on the bottom bar, and what each looks like there.
@@ -31,6 +32,7 @@ object NovelBarButtons {
         NovelReaderAction.VISUAL_OPTIONS,
         NovelReaderAction.CONTROL_OPTIONS,
         NovelReaderAction.MISCELLANEOUS,
+        NovelReaderAction.ADVANCED_OPTIONS,
         NovelReaderAction.ADDITIONAL_OPTIONS,
         NovelReaderAction.SHOW_CHAPTERS,
         NovelReaderAction.SEARCH,
@@ -43,6 +45,7 @@ object NovelBarButtons {
         NovelReaderAction.VISUAL_OPTIONS,
         NovelReaderAction.CONTROL_OPTIONS,
         NovelReaderAction.MISCELLANEOUS,
+        NovelReaderAction.ADVANCED_OPTIONS,
         NovelReaderAction.ADDITIONAL_OPTIONS,
     )
 
@@ -68,7 +71,8 @@ object NovelBarButtons {
         NovelReaderAction.VISUAL_OPTIONS -> MaterialSymbols.Rounded.Palette
         // The controls group takes the rotation glyph because orientation is one of its settings.
         NovelReaderAction.CONTROL_OPTIONS -> MaterialSymbols.Rounded.ScreenRotation
-        NovelReaderAction.MISCELLANEOUS -> MaterialSymbols.Rounded.Settings
+        NovelReaderAction.MISCELLANEOUS -> MaterialSymbols.Rounded.ViewModule
+        NovelReaderAction.ADVANCED_OPTIONS -> MaterialSymbols.Rounded.Settings
         NovelReaderAction.ADDITIONAL_OPTIONS -> MaterialSymbols.AutoMirroredRounded.Sort
         NovelReaderAction.SHOW_CHAPTERS -> MaterialSymbols.Rounded.FormatListNumbered
         NovelReaderAction.SEARCH -> MaterialSymbols.Rounded.Search
