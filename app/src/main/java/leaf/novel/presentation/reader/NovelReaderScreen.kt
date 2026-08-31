@@ -128,6 +128,7 @@ fun NovelReaderScreen(
     var openImage by remember { mutableStateOf<String?>(null) }
     var confirmRestore by remember { mutableStateOf<Uri?>(null) }
     var showSpeechControls by remember { mutableStateOf(false) }
+    var showSpeechOptions by remember { mutableStateOf(false) }
     var confirmSpeech by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -160,6 +161,12 @@ fun NovelReaderScreen(
 
     val chapter = state.currentChapter
 
+    fun closeSpeechControls() {
+        viewModel.stopSpeaking()
+        showSpeechControls = false
+        showSpeechOptions = false
+    }
+
     // Where the reader currently is, seeded from the stored position and updated as it scrolls.
     // Changing font size or theme rebuilds the document, and the reload restores from *this* rather
     // than from the database, so adjusting type size does not throw the reader back to where it was
@@ -184,12 +191,16 @@ fun NovelReaderScreen(
             NovelReaderAction.OPTIONS_MENU -> viewModel.toggleMenu()
             NovelReaderAction.PAGE_UP -> webViewController.pageUp()
             NovelReaderAction.PAGE_DOWN -> webViewController.pageDown()
-            NovelReaderAction.AUTO_SCROLL -> viewModel.setAutoScrolling(!state.autoScrolling)
+            NovelReaderAction.AUTO_SCROLL -> {
+                val enabled = !state.autoScrolling
+                if (enabled) closeSpeechControls()
+                viewModel.setAutoScrolling(enabled)
+            }
             NovelReaderAction.READING_RULER -> viewModel.novelReaderPreferences.readingRuler.toggle()
             NovelReaderAction.SHOW_CHAPTERS -> showChapters = true
             NovelReaderAction.BOOK_INFORMATION -> onOpenEntry()
             NovelReaderAction.SEARCH -> {
-                viewModel.stopSpeaking()
+                closeSpeechControls()
                 viewModel.showMenu()
                 viewModel.setSearchQuery("")
             }
@@ -199,9 +210,13 @@ fun NovelReaderScreen(
             NovelReaderAction.PUBLISHER_FORMATTING -> publisherFormatting = !publisherFormatting
             NovelReaderAction.SPEAK -> {
                 showSpeechControls = true
+                if (state.menuVisible) viewModel.toggleMenu()
                 if (!state.speaking) requestSpeechStart()
             }
-            NovelReaderAction.SPEED_READ -> viewModel.toggleSpeedReading(livePercent)
+            NovelReaderAction.SPEED_READ -> {
+                if (!state.speedReading) closeSpeechControls()
+                viewModel.toggleSpeedReading(livePercent)
+            }
             // The WebView starts selection on long press itself, so choosing it here means
             // leaving that gesture alone rather than doing something of our own with it.
             NovelReaderAction.TEXT_SELECTION -> Unit
@@ -308,6 +323,7 @@ fun NovelReaderScreen(
     LaunchedEffect(state.speechUnavailable) {
         if (state.speechUnavailable) {
             showSpeechControls = false
+            showSpeechOptions = false
             snackbarHostState.showSnackbar(speechUnavailable)
         }
     }
@@ -315,6 +331,10 @@ fun NovelReaderScreen(
     // Back closes the search rather than the book, which is what the gesture means everywhere else.
     BackHandler(enabled = state.searchQuery != null) {
         viewModel.setSearchQuery(null)
+    }
+
+    BackHandler(enabled = showSpeechControls && state.searchQuery == null) {
+        closeSpeechControls()
     }
 
     // Live find-in-page: every keystroke re-searches, and closing the bar drops the highlighting.
@@ -328,6 +348,10 @@ fun NovelReaderScreen(
     val readingRuler by viewModel.novelReaderPreferences.readingRuler.collectAsState()
     val publisherPreview by viewModel.novelReaderPreferences.publisherPreview.collectAsState()
     val showStatusBar by viewModel.novelReaderPreferences.showStatusBar.collectAsState()
+    val speechPanelHeight = (
+        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
+            SPEECH_PANEL_HEIGHT_FRACTION
+        ).dp.coerceIn(MIN_SPEECH_PANEL_HEIGHT, MAX_SPEECH_PANEL_HEIGHT)
     val statusPlacements = viewModel.novelReaderPreferences.statusSlots
         .mapValues { (_, preference) -> preference.collectAsState().value }
     val disableTouchEdge by viewModel.novelReaderPreferences.disableTouchEdge.collectAsState()
@@ -442,7 +466,11 @@ fun NovelReaderScreen(
                         chapter = chapter,
                         // The bar is permanent where the indicators it replaced were a floating
                         // label, so the page gives up the space rather than running underneath it.
-                        bottomInset = if (showStatusBar) NovelStatusBarHeight else 0.dp,
+                        bottomInset = when {
+                            showSpeechControls -> speechPanelHeight
+                            showStatusBar -> NovelStatusBarHeight
+                            else -> 0.dp
+                        },
                         publisherFormatting = publisherFormatting,
                         style = style,
                         colors = colors,
@@ -482,7 +510,7 @@ fun NovelReaderScreen(
         // indicators it replaced did and stays out of the way of the bottom bar. There has to be a
         // chapter as well: every item but the clock and the battery would read as zero without one,
         // under a spinner or an error message.
-        if (showStatusBar && !state.menuVisible && chapter != null) {
+        if (showStatusBar && !state.menuVisible && !showSpeechControls && chapter != null) {
             NovelStatusBar(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 placements = statusPlacements,
@@ -537,8 +565,34 @@ fun NovelReaderScreen(
             )
         }
 
+        if (showSpeechControls) {
+            NovelSpeechPanel(
+                speaking = state.speaking,
+                paused = state.speechPaused,
+                index = state.speechIndex,
+                count = state.speechCount,
+                preferences = viewModel.novelReaderPreferences,
+                onPlayPause = {
+                    if (state.speaking) {
+                        viewModel.toggleSpeechPlayback(livePercent)
+                    } else {
+                        requestSpeechStart()
+                    }
+                },
+                onPrevious = { viewModel.seekSpeech(-1) },
+                onNext = { viewModel.seekSpeech(1) },
+                onStop = ::closeSpeechControls,
+                onSettings = { showSpeechOptions = true },
+                onSettingsChanged = viewModel::applySpeechSettings,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(speechPanelHeight),
+            )
+        }
+
         NovelReaderAppBars(
-            visible = state.menuVisible,
+            visible = state.menuVisible && !showSpeechControls,
             novelTitle = state.manga?.title,
             chapterTitle = chapter?.name,
             navigateUp = onBack,
@@ -587,6 +641,7 @@ fun NovelReaderScreen(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .padding(bottom = if (showSpeechControls) speechPanelHeight else 0.dp)
                 .navigationBarsPadding(),
         )
     }
@@ -601,30 +656,15 @@ fun NovelReaderScreen(
         )
     }
 
-    if (showSpeechControls) {
-        NovelSpeechSheet(
-            speaking = state.speaking,
-            paused = state.speechPaused,
-            index = state.speechIndex,
-            count = state.speechCount,
-            currentText = state.speechText,
+    if (showSpeechOptions) {
+        NovelSpeechOptionsDialog(
             preferences = viewModel.novelReaderPreferences,
-            onPlayPause = {
-                if (state.speaking) {
-                    viewModel.toggleSpeechPlayback(livePercent)
-                } else {
-                    requestSpeechStart()
-                }
-            },
-            onPrevious = { viewModel.seekSpeech(-1) },
-            onNext = { viewModel.seekSpeech(1) },
-            onStop = viewModel::stopSpeaking,
             onSettingsChanged = viewModel::applySpeechSettings,
             onTimerChanged = viewModel::applySpeechTimer,
             onDivisionChanged = {
                 if (state.speaking) viewModel.restartSpeaking(livePercent, state.speechPaused)
             },
-            onDismissRequest = { showSpeechControls = false },
+            onDismissRequest = { showSpeechOptions = false },
         )
     }
 
@@ -938,6 +978,11 @@ private const val AUTO_SCROLL_TICK_MS = 16L
 
 /** Six pixels a second per speed step, so the default of 5 is roughly a line a second. */
 private const val AUTO_SCROLL_PX_PER_STEP = 6
+
+/** Moon+'s deck occupies a little over a quarter of a portrait screen. */
+private const val SPEECH_PANEL_HEIGHT_FRACTION = 0.28f
+private val MIN_SPEECH_PANEL_HEIGHT = 216.dp
+private val MAX_SPEECH_PANEL_HEIGHT = 300.dp
 
 /** Tall enough to sit under a line of text at any size the reader offers. */
 private val READING_RULER_HEIGHT = 28.dp
