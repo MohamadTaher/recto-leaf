@@ -199,7 +199,10 @@ fun NovelReaderScreen(
             NovelReaderAction.PAGE_DOWN -> webViewController.pageDown()
             NovelReaderAction.AUTO_SCROLL -> {
                 val enabled = !state.autoScrolling
-                if (enabled) closeSpeechControls()
+                if (enabled) {
+                    closeSpeechControls()
+                    if (state.menuVisible) viewModel.toggleMenu()
+                }
                 viewModel.setAutoScrolling(enabled)
             }
             NovelReaderAction.READING_RULER -> viewModel.novelReaderPreferences.readingRuler.toggle()
@@ -220,7 +223,10 @@ fun NovelReaderScreen(
                 if (!state.speaking) requestSpeechStart()
             }
             NovelReaderAction.SPEED_READ -> {
-                if (!state.speedReading) closeSpeechControls()
+                if (!state.speedReading) {
+                    closeSpeechControls()
+                    if (state.menuVisible) viewModel.toggleMenu()
+                }
                 viewModel.toggleSpeedReading(livePercent)
             }
             // The WebView starts selection on long press itself, so choosing it here means
@@ -231,6 +237,7 @@ fun NovelReaderScreen(
                 settingsTab = NovelReaderSettingsTab.VISUAL
             NovelReaderAction.CONTROL_OPTIONS -> settingsTab = NovelReaderSettingsTab.CONTROL
             NovelReaderAction.MISCELLANEOUS -> settingsTab = NovelReaderSettingsTab.MISCELLANEOUS
+            NovelReaderAction.ADVANCED_OPTIONS -> settingsTab = NovelReaderSettingsTab.ADVANCED
             NovelReaderAction.ADDITIONAL_OPTIONS -> {
                 // The menu hangs off the bottom bar, so the bar has to be up for it to anchor to.
                 viewModel.showMenu()
@@ -335,6 +342,12 @@ fun NovelReaderScreen(
         androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
             SPEECH_PANEL_HEIGHT_FRACTION
         ).dp.coerceIn(MIN_SPEECH_PANEL_HEIGHT, MAX_SPEECH_PANEL_HEIGHT)
+    val bottomPanelHeight = when {
+        showSpeechControls -> speechPanelHeight
+        state.speedReading -> SPEED_READ_PANEL_HEIGHT
+        state.autoScrolling -> AUTO_SCROLL_PANEL_HEIGHT
+        else -> 0.dp
+    }
     val statusPlacements = viewModel.novelReaderPreferences.statusSlots
         .mapValues { (_, preference) -> preference.collectAsState().value }
     val disableTouchEdge by viewModel.novelReaderPreferences.disableTouchEdge.collectAsState()
@@ -449,11 +462,9 @@ fun NovelReaderScreen(
                         chapter = chapter,
                         // The bar is permanent where the indicators it replaced were a floating
                         // label, so the page gives up the space rather than running underneath it.
-                        bottomInset = when {
-                            showSpeechControls -> speechPanelHeight
-                            showStatusBar -> NovelStatusBarHeight
-                            else -> 0.dp
-                        },
+                        bottomInset = bottomPanelHeight.takeIf { it > 0.dp }
+                            ?: NovelStatusBarHeight.takeIf { showStatusBar }
+                            ?: 0.dp,
                         publisherFormatting = publisherFormatting,
                         style = style,
                         colors = colors,
@@ -493,7 +504,12 @@ fun NovelReaderScreen(
         // indicators it replaced did and stays out of the way of the bottom bar. There has to be a
         // chapter as well: every item but the clock and the battery would read as zero without one,
         // under a spinner or an error message.
-        if (showStatusBar && !state.menuVisible && !showSpeechControls && chapter != null) {
+        if (
+            showStatusBar &&
+            !state.menuVisible &&
+            bottomPanelHeight == 0.dp &&
+            chapter != null
+        ) {
             NovelStatusBar(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 placements = statusPlacements,
@@ -578,6 +594,28 @@ fun NovelReaderScreen(
             )
         }
 
+        if (state.autoScrolling) {
+            NovelAutoScrollPanel(
+                preferences = viewModel.novelReaderPreferences,
+                onStop = { viewModel.setAutoScrolling(false) },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(AUTO_SCROLL_PANEL_HEIGHT),
+            )
+        }
+
+        if (state.speedReading) {
+            NovelSpeedReadPanel(
+                preferences = viewModel.novelReaderPreferences,
+                onStop = viewModel::stopSpeedReading,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(SPEED_READ_PANEL_HEIGHT),
+            )
+        }
+
         NovelReaderAppBars(
             visible = state.menuVisible && !showSpeechControls,
             novelTitle = state.manga?.title,
@@ -608,14 +646,6 @@ fun NovelReaderScreen(
                     speaking = state.speaking,
                     speechUnavailable = state.speechUnavailable,
                     speedReading = state.speedReading,
-                    onExportSettings = {
-                        dismiss()
-                        exportSettings.launch(SETTINGS_FILE_NAME)
-                    },
-                    onImportSettings = {
-                        dismiss()
-                        pickSettings.launch(arrayOf(SETTINGS_MIME_TYPE))
-                    },
                     onSelect = { action ->
                         dismiss()
                         performAction(action)
@@ -628,7 +658,7 @@ fun NovelReaderScreen(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = if (showSpeechControls) speechPanelHeight else 0.dp)
+                .padding(bottom = bottomPanelHeight)
                 .navigationBarsPadding(),
         )
     }
@@ -637,10 +667,16 @@ fun NovelReaderScreen(
         NovelReaderSettingsDialog(
             initialTab = tab,
             novelReaderPreferences = viewModel.novelReaderPreferences,
-            novelTextReplacements = viewModel.novelTextReplacements(),
-            onNovelTextReplacementsChange = viewModel::setNovelTextReplacements,
             readerPreferences = viewModel.readerPreferences,
             resolvedColors = colors,
+            onExportSettings = {
+                settingsTab = null
+                exportSettings.launch(SETTINGS_FILE_NAME)
+            },
+            onImportSettings = {
+                settingsTab = null
+                pickSettings.launch(arrayOf(SETTINGS_MIME_TYPE))
+            },
             onDismissRequest = { settingsTab = null },
         )
     }
@@ -906,7 +942,7 @@ private fun novelReaderStyle(
     val marginBottom by preferences.marginBottom.collectAsState()
     val highlightFirstWord by preferences.highlightFirstWord.collectAsState()
     val highlightInitialChars by preferences.highlightInitialChars.collectAsState()
-    val indentFirstLine by preferences.indentFirstLine.collectAsState()
+    val paragraphIndent by preferences.paragraphIndent.collectAsState()
     val trimBlankLines by preferences.trimBlankLines.collectAsState()
     val trimTopBlankLines by preferences.trimTopBlankLines.collectAsState()
     val textReplacements by preferences.textReplacements.collectAsState()
@@ -941,7 +977,7 @@ private fun novelReaderStyle(
         marginBottom = marginBottom,
         highlightFirstWord = highlightFirstWord,
         highlightInitialChars = highlightInitialChars,
-        indentFirstLine = indentFirstLine,
+        paragraphIndent = paragraphIndent,
         trimBlankLines = trimBlankLines,
         trimTopBlankLines = trimTopBlankLines,
         textReplacements = NovelTextReplacements.combine(textReplacements, novelTextReplacements),
@@ -975,6 +1011,8 @@ private const val AUTO_SCROLL_PX_PER_STEP = 6
 private const val SPEECH_PANEL_HEIGHT_FRACTION = 0.225f
 private val MIN_SPEECH_PANEL_HEIGHT = 176.dp
 private val MAX_SPEECH_PANEL_HEIGHT = 240.dp
+private val AUTO_SCROLL_PANEL_HEIGHT = 112.dp
+private val SPEED_READ_PANEL_HEIGHT = 176.dp
 
 /** Tall enough to sit under a line of text at any size the reader offers. */
 private val READING_RULER_HEIGHT = 28.dp
@@ -1023,8 +1061,6 @@ private fun ColumnScope.AdditionalOptions(
     speaking: Boolean,
     speechUnavailable: Boolean,
     speedReading: Boolean,
-    onExportSettings: () -> Unit,
-    onImportSettings: () -> Unit,
     onSelect: (NovelReaderAction) -> Unit,
 ) {
     DropdownMenuItem(
@@ -1101,18 +1137,6 @@ private fun ColumnScope.AdditionalOptions(
     DropdownMenuItem(
         text = { Text(stringResource(MR.strings.leaf_novel_reader_day_night_mode)) },
         onClick = { onSelect(NovelReaderAction.DAY_NIGHT_MODE) },
-    )
-
-    // Not actions, deliberately. Everything else in this menu is something a tap or a key could
-    // equally be bound to; a binding that silently overwrites every setting is not.
-    DropdownMenuItem(
-        text = { Text(stringResource(MR.strings.leaf_novel_action_export_settings)) },
-        onClick = onExportSettings,
-    )
-
-    DropdownMenuItem(
-        text = { Text(stringResource(MR.strings.leaf_novel_action_import_settings)) },
-        onClick = onImportSettings,
     )
 
     // Off by default, per the imported configuration, so it is not clutter for anyone who has not

@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.components.AdaptiveSheet
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelSpeechDivision
@@ -202,6 +203,99 @@ fun NovelSpeechPanel(
     }
 }
 
+/** The one setting auto scroll needs, shown only while the page is moving. */
+@Composable
+fun NovelAutoScrollPanel(
+    preferences: NovelReaderPreferences,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 3.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+                .padding(horizontal = MaterialTheme.padding.medium),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(MR.strings.leaf_novel_action_auto_scroll),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                PreferenceSlider(
+                    label = stringResource(MR.strings.leaf_novel_reader_autoscroll_speed),
+                    preference = preferences.autoScrollSpeed,
+                    range = NovelReaderPreferences.AUTO_SCROLL_SPEED_RANGE,
+                    valueText = { it.toString() },
+                    onCommit = {},
+                )
+            }
+            StopModeButton(MR.strings.leaf_novel_action_stop_auto_scroll, onStop)
+        }
+    }
+}
+
+/** Speed-reading values stay with the mode instead of taking permanent space in Control. */
+@Composable
+fun NovelSpeedReadPanel(
+    preferences: NovelReaderPreferences,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 3.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+                .padding(horizontal = MaterialTheme.padding.medium),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(MR.strings.leaf_novel_action_speed_read),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                PreferenceSlider(
+                    label = stringResource(MR.strings.leaf_novel_reader_speed_read_wpm),
+                    preference = preferences.speedReadWpm,
+                    range = NovelReaderPreferences.SPEED_READ_WPM_RANGE,
+                    step = SPEED_READ_WPM_STEP,
+                    valueText = { it.toString() },
+                    onCommit = {},
+                )
+                PreferenceSlider(
+                    label = stringResource(MR.strings.leaf_novel_reader_speed_read_chunk),
+                    preference = preferences.speedReadChunk,
+                    range = NovelReaderPreferences.SPEED_READ_CHUNK_RANGE,
+                    valueText = { it.toString() },
+                    onCommit = {},
+                )
+            }
+            StopModeButton(MR.strings.leaf_novel_action_stop_speed_read, onStop)
+        }
+    }
+}
+
+@Composable
+private fun StopModeButton(description: StringResource, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
+        Icon(
+            imageVector = MaterialSymbols.Rounded.Close,
+            contentDescription = stringResource(description),
+            modifier = Modifier.size(SPEECH_ICON_SIZE),
+        )
+    }
+}
+
 /** Mihon's adaptive settings surface, opened without unmounting the playback panel behind it. */
 @Composable
 fun NovelSpeechOptionsDialog(
@@ -347,6 +441,7 @@ private fun PreferenceSlider(
     label: String,
     preference: Preference<Int>,
     range: IntRange,
+    step: Int = 1,
     valueText: @Composable (Int) -> String,
     onCommit: () -> Unit,
 ) {
@@ -355,7 +450,8 @@ private fun PreferenceSlider(
     val rounded = value.roundToInt()
 
     fun commit(newValue: Float) {
-        value = newValue.coerceIn(range.first.toFloat(), range.last.toFloat())
+        val bounded = newValue.coerceIn(range.first.toFloat(), range.last.toFloat())
+        value = range.first + ((bounded - range.first) / step).roundToInt() * step.toFloat()
         preference.set(value.roundToInt())
         onCommit()
     }
@@ -364,14 +460,15 @@ private fun PreferenceSlider(
         label = label,
         value = value,
         valueRange = range.first.toFloat()..range.last.toFloat(),
+        steps = ((range.last - range.first) / step - 1).coerceAtLeast(0),
         valueText = valueText(rounded),
         onValueChange = { value = it },
         onValueChangeFinished = {
             preference.set(rounded)
             onCommit()
         },
-        onDecrease = { commit(value - 1f) },
-        onIncrease = { commit(value + 1f) },
+        onDecrease = { commit(value - step) },
+        onIncrease = { commit(value + step) },
     )
 }
 
@@ -380,6 +477,7 @@ private fun LabeledSlider(
     label: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int = 0,
     valueText: String,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: (() -> Unit)? = null,
@@ -408,6 +506,7 @@ private fun LabeledSlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
+            steps = steps,
             onValueChangeFinished = onValueChangeFinished,
             colors = colors,
             interactionSource = interactionSource,
@@ -458,3 +557,4 @@ private val SPEECH_STEP_BUTTON_SIZE = 32.dp
 private val SPEECH_BUTTON_SIZE = 32.dp
 private val SPEECH_ICON_SIZE = 20.dp
 private val SPEECH_PAGE_ICON_SIZE = 14.dp
+private const val SPEED_READ_WPM_STEP = 50

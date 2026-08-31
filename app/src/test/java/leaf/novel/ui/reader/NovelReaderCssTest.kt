@@ -26,7 +26,7 @@ private fun style(
     antialias: Boolean = true,
     justified: Boolean = false,
     hyphenation: Boolean = false,
-    paragraphSpacing: Int = 60,
+    paragraphSpacing: Int = 100,
     lineSpacing: Int = 4,
     fontSpacing: Int = 0,
     fontScale: Int = 0,
@@ -36,7 +36,7 @@ private fun style(
     marginBottom: Int = 3,
     highlightFirstWord: Boolean = false,
     highlightInitialChars: Boolean = false,
-    indentFirstLine: Boolean = true,
+    paragraphIndent: Int = 100,
     trimBlankLines: Boolean = false,
     linkColor: NovelLinkColor = NovelLinkColor.DEFAULT,
     noteColor: NovelLinkColor = NovelLinkColor.DEFAULT,
@@ -70,7 +70,7 @@ private fun style(
     marginBottom = marginBottom,
     highlightFirstWord = highlightFirstWord,
     highlightInitialChars = highlightInitialChars,
-    indentFirstLine = indentFirstLine,
+    paragraphIndent = paragraphIndent,
     trimBlankLines = trimBlankLines,
     linkColor = linkColor,
     noteColor = noteColor,
@@ -292,7 +292,7 @@ class NovelReaderCssTest {
             colors = colors(WHITE),
         )
 
-        document.contains("column-gap: 30px") shouldBe true
+        document.contains("column-gap: 15.0px") shouldBe true
     }
 
     @Test
@@ -390,8 +390,8 @@ class NovelReaderCssTest {
         fun doc(v: Int) = NovelReaderCss.document(content, style(paragraphSpacing = v), colors = colors(WHITE))
 
         doc(0).contains("margin: 0 0 0.00em") shouldBe true
-        doc(60).contains("margin: 0 0 0.60em") shouldBe true
-        doc(200).contains("margin: 0 0 2.00em") shouldBe true
+        doc(60).contains("margin: 0 0 0.90em") shouldBe true
+        doc(200).contains("margin: 0 0 3.00em") shouldBe true
     }
 
     /** Font spacing goes below zero to tighten, so the sign has to survive the formatting. */
@@ -426,14 +426,14 @@ class NovelReaderCssTest {
             colors = colors(WHITE),
         )
 
-        document.contains("padding: 3px 2px 4px 1px") shouldBe true
+        document.contains("padding: 1.5px 1.0px 2.0px 0.5px !important") shouldBe true
     }
 
     @Test
     fun `defaults to the imported asymmetric margins`() {
         val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
 
-        document.contains("padding: 3px 10px 3px 14px") shouldBe true
+        document.contains("padding: 1.5px 5.0px 1.5px 7.0px !important") shouldBe true
     }
 
     @Test
@@ -444,7 +444,7 @@ class NovelReaderCssTest {
             colors = colors(WHITE),
         )
 
-        document.contains("padding: 0px 0px 0px 0px") shouldBe true
+        document.contains("padding: 0.0px 0.0px 0.0px 0.0px !important") shouldBe true
     }
 
     /**
