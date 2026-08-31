@@ -381,7 +381,6 @@ private fun ColumnScope.VisualPage(
             )
         }
     }
-
 }
 
 @Composable

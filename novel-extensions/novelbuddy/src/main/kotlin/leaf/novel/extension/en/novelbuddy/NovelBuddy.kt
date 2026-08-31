@@ -3,6 +3,7 @@ package leaf.novel.extension.en.novelbuddy
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
+import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SChapter
@@ -19,7 +20,7 @@ import leaf.novel.api.NovelHttpSource
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.jsoup.Jsoup
-import java.net.URLEncoder
+import java.time.Instant
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -65,16 +66,76 @@ class NovelBuddy : NovelHttpSource() {
         pageProps("$baseUrl/latest?page=$page").toMangasPage("items", "pagination")
 
     override suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage {
-        if (query.isBlank()) return getPopularManga(page)
+        if (query.isBlank() && filters.none { it.isActive() }) return getPopularManga(page)
 
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        return pageProps("$baseUrl/search?q=$encoded&page=$page")
-            .toMangasPage("ssrItems", "ssrPagination")
+        val mtlMode = filters.filterIsInstance<MtlFilter>().firstOrNull()?.selectedValue().orEmpty()
+        val url = "$baseUrl/search".toHttpUrl().newBuilder().apply {
+            query.trim().takeIf { it.isNotEmpty() }?.let { addQueryParameter("q", it) }
+
+            filters.forEach { filter ->
+                when (filter) {
+                    is GenreFilter -> {
+                        filter.state.filter(Genre::isIncluded)
+                            .takeIf { it.isNotEmpty() }
+                            ?.let { addQueryParameter("genres", it.joinToString(",", transform = Genre::value)) }
+                        filter.state.filter(Genre::isExcluded)
+                            .takeIf { it.isNotEmpty() }
+                            ?.let { addQueryParameter("exclude", it.joinToString(",", transform = Genre::value)) }
+                    }
+                    is StatusFilter -> filter.selectedValue()
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { addQueryParameter("status", it) }
+                    is MtlFilter -> if (filter.selectedValue() == "include") {
+                        addQueryParameter("mtl", "true")
+                    }
+                    is SortFilter -> filter.selectedValue()
+                        .takeUnless { it == "best_match" }
+                        ?.let { addQueryParameter("sort", it) }
+                    is AuthorFilter -> filter.state.trim()
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { addQueryParameter("author", it) }
+                    is MinChaptersFilter -> filter.state.toIntOrNull()
+                        ?.takeIf { it > 0 }
+                        ?.let { addQueryParameter("min_ch", it.toString()) }
+                    else -> Unit
+                }
+            }
+
+            if (page > 1) addQueryParameter("page", page.toString())
+        }.build()
+
+        return pageProps(url.toString())
+            .toMangasPage("ssrItems", "ssrPagination", excludeMtl = mtlMode == "exclude")
     }
 
-    private fun JsonObject.toMangasPage(itemsKey: String, paginationKey: String): MangasPage {
+    private fun Filter<*>.isActive(): Boolean = when (this) {
+        is GenreFilter -> state.any { it.state != Filter.TriState.STATE_IGNORE }
+        is StatusFilter -> selectedValue().isNotEmpty()
+        is MtlFilter -> selectedValue().isNotEmpty()
+        is SortFilter -> selectedValue() != "best_match"
+        is AuthorFilter -> state.isNotBlank()
+        is MinChaptersFilter -> state.toIntOrNull()?.let { it > 0 } == true
+        else -> false
+    }
+
+    override fun getFilterList() = FilterList(
+        MtlFilter(),
+        GenreFilter(),
+        StatusFilter(),
+        SortFilter(),
+        AuthorFilter(),
+        MinChaptersFilter(),
+    )
+
+    private fun JsonObject.toMangasPage(
+        itemsKey: String,
+        paginationKey: String,
+        excludeMtl: Boolean = false,
+    ): MangasPage {
         val novels = array(itemsKey).orEmpty()
-            .mapNotNull { (it as? JsonObject)?.toSManga() }
+            .mapNotNull { it as? JsonObject }
+            .filterNot { excludeMtl && it.boolean("isMtl") == true }
+            .map { it.toSManga() }
         val hasNext = (obj(paginationKey)?.get("has_next") as? JsonPrimitive)?.booleanOrNull ?: false
         return MangasPage(novels, hasNext)
     }
@@ -145,6 +206,9 @@ class NovelBuddy : NovelHttpSource() {
                     url = chapter.string("url").orEmpty()
                     name = chapter.string("name").orEmpty()
                     chapter_number = chapter.string("number")?.toFloatOrNull() ?: -1f
+                    date_upload = (chapter.string("updated_at") ?: chapter.string("updatedAt"))
+                        ?.toEpochMillis()
+                        ?: 0L
                 }
             }
     }
@@ -201,6 +265,9 @@ class NovelBuddy : NovelHttpSource() {
 
     private fun JsonObject.array(key: String): JsonArray? = this[key] as? JsonArray
 
+    private fun JsonObject.boolean(key: String): Boolean? =
+        (this[key] as? JsonPrimitive)?.booleanOrNull
+
     /** Joins the `name` of each entry in a `[{name, …}]` array, as used for authors and genres. */
     private fun JsonObject.names(key: String): String? =
         array(key)
@@ -208,8 +275,113 @@ class NovelBuddy : NovelHttpSource() {
             ?.takeIf { it.isNotEmpty() }
             ?.joinToString()
 
+    private fun String.toEpochMillis(): Long = runCatching { Instant.parse(this).toEpochMilli() }
+        .getOrDefault(0L)
+
+    private data class Option(val label: String, val value: String) {
+        override fun toString() = label
+    }
+
+    private class Genre(name: String, val value: String) : Filter.TriState(name)
+
+    private class GenreFilter : Filter.Group<Genre>(
+        "Genres",
+        GENRES.map { Genre(it.label, it.value) },
+    )
+
+    private class StatusFilter : Filter.Select<Option>("Status", STATUS) {
+        fun selectedValue() = values[state].value
+    }
+
+    private class MtlFilter : Filter.Select<Option>("MTL", MTL) {
+        fun selectedValue() = values[state].value
+    }
+
+    private class SortFilter : Filter.Select<Option>("Sort", SORT) {
+        fun selectedValue() = values[state].value
+    }
+
+    private class AuthorFilter : Filter.Text("Author")
+
+    private class MinChaptersFilter : Filter.Text("Minimum chapters")
+
     private companion object {
         /** Ad slots and spacing wrappers the site injects into the chapter fragment. */
         const val JUNK = "script, ins, iframe, noscript, .ads-banner, .my-4"
+
+        val STATUS = arrayOf(
+            Option("Any", ""),
+            Option("Ongoing", "ongoing"),
+            Option("Completed", "completed"),
+            Option("Hiatus", "hiatus"),
+            Option("Cancelled", "cancelled"),
+        )
+
+        val MTL = arrayOf(
+            Option("Any", ""),
+            Option("MTL only", "include"),
+            Option("Exclude MTL", "exclude"),
+        )
+
+        val SORT = arrayOf(
+            Option("Best match", "best_match"),
+            Option("Latest updated", "latest"),
+            Option("Recently added", "newest"),
+            Option("Most followed", "popular"),
+            Option("Highest rating", "rating"),
+            Option("Most viewed: today", "views_today"),
+            Option("Most viewed: 7 days", "views_7days"),
+            Option("Most viewed: 30 days", "views_30days"),
+            Option("Most viewed: all time", "views"),
+            Option("Most chapters", "chapters"),
+            Option("A-Z", "alphabetical"),
+        )
+
+        val GENRES = listOf(
+            Option("Action", "action"),
+            Option("Adult", "adult"),
+            Option("Adventure", "adventure"),
+            Option("Comedy", "comedy"),
+            Option("Drama", "drama"),
+            Option("Eastern", "eastern"),
+            Option("Ecchi", "ecchi"),
+            Option("Fan-Fiction", "fan-fiction"),
+            Option("Fantasy", "fantasy"),
+            Option("Game", "game"),
+            Option("Gender Bender", "gender-bender"),
+            Option("Harem", "harem"),
+            Option("Historical", "historical"),
+            Option("Horror", "horror"),
+            Option("Josei", "josei"),
+            Option("Martial Arts", "martial-arts"),
+            Option("Mature", "mature"),
+            Option("Mecha", "mecha"),
+            Option("Military", "military"),
+            Option("Modern Life", "modern-life"),
+            Option("Mystery", "mystery"),
+            Option("Psychological", "psychological"),
+            Option("Reincarnation", "reincarnation"),
+            Option("Romance", "romance"),
+            Option("School Life", "school-life"),
+            Option("Sci-fi", "sci-fi"),
+            Option("Seinen", "seinen"),
+            Option("Shoujo", "shoujo"),
+            Option("Shoujo Ai", "shoujo-ai"),
+            Option("Shounen", "shounen"),
+            Option("Shounen Ai", "shounen-ai"),
+            Option("Slice of Life", "slice-of-life"),
+            Option("Smut", "smut"),
+            Option("Sports", "sports"),
+            Option("Supernatural", "supernatural"),
+            Option("System", "system"),
+            Option("Tragedy", "tragedy"),
+            Option("Urban", "urban"),
+            Option("Urban Life", "urban-life"),
+            Option("Wuxia", "wuxia"),
+            Option("Xianxia", "xianxia"),
+            Option("Xuanhuan", "xuanhuan"),
+            Option("Yaoi", "yaoi"),
+            Option("Yuri", "yuri"),
+        )
     }
 }
