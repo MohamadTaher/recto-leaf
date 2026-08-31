@@ -1138,10 +1138,10 @@
     <string name="leaf_novel_speech_paragraph">Paragraph</string>
     <string name="leaf_novel_speech_sentence">Sentence</string>
     <string name="leaf_novel_reader_speech_divide_by">Divide content by</string>
-    <string name="leaf_novel_reader_speech_rate">Speaking pace</string>
+    <string name="leaf_novel_reader_speech_rate">Speed</string>
     <string name="leaf_novel_reader_speech_controls">Read-aloud controls</string>
     <string name="leaf_novel_reader_speech_options">Read-aloud options</string>
-    <string name="leaf_novel_reader_speech_volume">Media volume</string>
+    <string name="leaf_novel_reader_speech_volume">Volume</string>
     <string name="leaf_novel_reader_speech_pitch">Pitch</string>
     <string name="leaf_novel_reader_speech_interval">Pause between sections</string>
     <string name="leaf_novel_reader_speech_stop_after">Stop after</string>

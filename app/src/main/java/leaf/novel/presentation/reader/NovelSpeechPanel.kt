@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -78,17 +80,17 @@ fun NovelSpeechPanel(
         ) {
             VolumeSlider()
             PreferenceSlider(
-                label = stringResource(MR.strings.leaf_novel_reader_speech_rate),
-                preference = preferences.speechRate,
-                range = NovelReaderPreferences.SPEECH_RATE_RANGE,
-                valueText = { "${it / 10f}×" },
-                onCommit = onSettingsChanged,
-            )
-            PreferenceSlider(
                 label = stringResource(MR.strings.leaf_novel_reader_speech_pitch),
                 preference = preferences.speechPitch,
                 range = NovelReaderPreferences.SPEECH_PITCH_RANGE,
-                valueText = { "${it / 10f}×" },
+                valueText = { it.toString() },
+                onCommit = onSettingsChanged,
+            )
+            PreferenceSlider(
+                label = stringResource(MR.strings.leaf_novel_reader_speech_rate),
+                preference = preferences.speechRate,
+                range = NovelReaderPreferences.SPEECH_RATE_RANGE,
+                valueText = { it.toString() },
                 onCommit = onSettingsChanged,
             )
 
@@ -97,19 +99,25 @@ fun NovelSpeechPanel(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onStop) {
+                IconButton(onClick = onStop, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
                     Icon(
                         imageVector = MaterialSymbols.Rounded.Close,
                         contentDescription = stringResource(MR.strings.leaf_novel_action_stop_speaking),
+                        modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
                 }
-                IconButton(onClick = onPrevious, enabled = speaking && index > 0) {
+                IconButton(
+                    onClick = onPrevious,
+                    enabled = speaking && index > 0,
+                    modifier = Modifier.size(SPEECH_BUTTON_SIZE),
+                ) {
                     Icon(
                         imageVector = MaterialSymbols.Rounded.SkipPrevious,
                         contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_previous),
+                        modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
                 }
-                IconButton(onClick = onPlayPause) {
+                IconButton(onClick = onPlayPause, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
                     Icon(
                         imageVector = if (speaking && !paused) {
                             MaterialSymbols.Rounded.Pause
@@ -123,18 +131,25 @@ fun NovelSpeechPanel(
                                 else -> MR.strings.leaf_novel_action_speak
                             },
                         ),
+                        modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
                 }
-                IconButton(onClick = onNext, enabled = speaking && index < count - 1) {
+                IconButton(
+                    onClick = onNext,
+                    enabled = speaking && index < count - 1,
+                    modifier = Modifier.size(SPEECH_BUTTON_SIZE),
+                ) {
                     Icon(
                         imageVector = MaterialSymbols.Rounded.SkipNext,
                         contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_next),
+                        modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
                 }
-                IconButton(onClick = onSettings) {
+                IconButton(onClick = onSettings, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
                     Icon(
                         imageVector = MaterialSymbols.Rounded.Settings,
                         contentDescription = stringResource(MR.strings.action_settings),
+                        modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
                 }
             }
@@ -173,12 +188,14 @@ private fun SpeechOptions(
     Column(
         modifier = Modifier
             .verticalScroll(rememberScrollState())
-            .padding(vertical = MaterialTheme.padding.small),
+            .padding(
+                horizontal = MaterialTheme.padding.medium,
+                vertical = MaterialTheme.padding.small,
+            ),
     ) {
         Text(
             text = stringResource(MR.strings.leaf_novel_reader_speech_options),
             style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(horizontal = MaterialTheme.padding.medium),
         )
 
         val division by preferences.speechDivision.collectAsState()
@@ -186,10 +203,7 @@ private fun SpeechOptions(
             text = stringResource(MR.strings.leaf_novel_reader_speech_divide_by),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(
-                horizontal = MaterialTheme.padding.medium,
-                vertical = MaterialTheme.padding.small,
-            ),
+            modifier = Modifier.padding(vertical = MaterialTheme.padding.small),
         )
         NovelSpeechDivision.entries.forEach { option ->
             RadioItem(
@@ -244,7 +258,7 @@ private fun SpeechOptions(
             text = stringResource(MR.strings.leaf_novel_reader_speech_filters_note),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(MaterialTheme.padding.medium),
+            modifier = Modifier.padding(vertical = MaterialTheme.padding.medium),
         )
 
         TextButton(
@@ -267,15 +281,19 @@ private fun VolumeSlider() {
         mutableFloatStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat())
     }
 
+    fun setVolume(value: Float) {
+        volume = value.coerceIn(0f, maximum.toFloat())
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volume.roundToInt(), 0)
+    }
+
     LabeledSlider(
         label = stringResource(MR.strings.leaf_novel_reader_speech_volume),
         value = volume,
         valueRange = 0f..maximum.toFloat(),
         valueText = volume.roundToInt().toString(),
-        onValueChange = { value ->
-            volume = value
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, value.roundToInt(), 0)
-        },
+        onValueChange = ::setVolume,
+        onDecrease = { setVolume(volume - 1f) },
+        onIncrease = { setVolume(volume + 1f) },
     )
 }
 
@@ -291,6 +309,12 @@ private fun PreferenceSlider(
     var value by remember(stored) { mutableFloatStateOf(stored.toFloat()) }
     val rounded = value.roundToInt()
 
+    fun commit(newValue: Float) {
+        value = newValue.coerceIn(range.first.toFloat(), range.last.toFloat())
+        preference.set(value.roundToInt())
+        onCommit()
+    }
+
     LabeledSlider(
         label = label,
         value = value,
@@ -301,6 +325,8 @@ private fun PreferenceSlider(
             preference.set(rounded)
             onCommit()
         },
+        onDecrease = { commit(value - 1f) },
+        onIncrease = { commit(value + 1f) },
     )
 }
 
@@ -312,6 +338,8 @@ private fun LabeledSlider(
     valueText: String,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: (() -> Unit)? = null,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -322,21 +350,41 @@ private fun LabeledSlider(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.width(SPEECH_SLIDER_LABEL_WIDTH),
         )
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            onValueChangeFinished = onValueChangeFinished,
-            modifier = Modifier.weight(1f),
-        )
         Text(
             text = valueText,
             style = MaterialTheme.typography.labelLarge,
             textAlign = TextAlign.End,
             modifier = Modifier.width(SPEECH_SLIDER_VALUE_WIDTH),
         )
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            onValueChangeFinished = onValueChangeFinished,
+            modifier = Modifier
+                .weight(1f)
+                .height(SPEECH_SLIDER_HEIGHT),
+        )
+        IconButton(
+            onClick = onDecrease,
+            enabled = value > valueRange.start,
+            modifier = Modifier.size(SPEECH_STEP_BUTTON_SIZE),
+        ) {
+            Text(text = "−", style = MaterialTheme.typography.titleMedium)
+        }
+        IconButton(
+            onClick = onIncrease,
+            enabled = value < valueRange.endInclusive,
+            modifier = Modifier.size(SPEECH_STEP_BUTTON_SIZE),
+        ) {
+            Text(text = "+", style = MaterialTheme.typography.titleMedium)
+        }
     }
 }
 
-private val SPEECH_SLIDER_LABEL_WIDTH = 72.dp
-private val SPEECH_SLIDER_VALUE_WIDTH = 52.dp
+private val SPEECH_SLIDER_LABEL_WIDTH = 64.dp
+private val SPEECH_SLIDER_VALUE_WIDTH = 32.dp
+private val SPEECH_SLIDER_HEIGHT = 32.dp
+private val SPEECH_STEP_BUTTON_SIZE = 32.dp
+private val SPEECH_BUTTON_SIZE = 36.dp
+private val SPEECH_ICON_SIZE = 22.dp
