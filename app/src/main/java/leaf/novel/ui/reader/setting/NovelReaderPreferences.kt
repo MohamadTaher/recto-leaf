@@ -49,8 +49,8 @@ class NovelReaderPreferences(
 
     // region Spacing and scale
 
-    /** Space below each paragraph, in hundredths of an em. */
-    val paragraphSpacing: Preference<Int> = preferenceStore.getInt("leaf_novel_paragraph_spacing", 60)
+    /** Space below each paragraph before the reader's 1.5 rendering scale is applied. */
+    val paragraphSpacing: Preference<Int> = preferenceStore.getInt("leaf_novel_paragraph_spacing", 100)
 
     /** Steps of a tenth added to a single-spaced line. The default lands on the familiar 1.6. */
     val lineSpacing: Preference<Int> = preferenceStore.getInt("leaf_novel_line_spacing", 4)
@@ -155,8 +155,14 @@ class NovelReaderPreferences(
 
     // region Typesetting
 
-    val indentFirstLine: Preference<Boolean> =
+    private val legacyIndentFirstLine =
         preferenceStore.getBoolean("leaf_novel_indent_first_line", true)
+
+    /** First-line indent before the reader's 1.5 rendering scale is applied. */
+    val paragraphIndent: Preference<Int> = preferenceStore.getInt(
+        "leaf_novel_paragraph_indent",
+        if (legacyIndentFirstLine.get()) 100 else 0,
+    )
 
     val trimBlankLines: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_trim_blank_lines", false)
@@ -378,6 +384,7 @@ class NovelReaderPreferences(
         const val MAX_FONT_SIZE = 32
 
         val PARAGRAPH_SPACING_RANGE = 0..200
+        val PARAGRAPH_INDENT_RANGE = 0..200
         val LINE_SPACING_RANGE = -5..20
         val FONT_SPACING_RANGE = -4..20
         val FONT_SCALE_RANGE = -4..20
@@ -402,12 +409,13 @@ class NovelReaderPreferences(
     }
 }
 
-/** Today's bar: the three settings tabs and the additional options menu, in that order. */
+/** Today's bar: the four settings tabs and the additional options menu, in that order. */
 private fun defaultBarButton(slot: Int): NovelReaderAction = when (slot) {
     0 -> NovelReaderAction.VISUAL_OPTIONS
     1 -> NovelReaderAction.CONTROL_OPTIONS
     2 -> NovelReaderAction.MISCELLANEOUS
-    3 -> NovelReaderAction.ADDITIONAL_OPTIONS
+    3 -> NovelReaderAction.ADVANCED_OPTIONS
+    4 -> NovelReaderAction.ADDITIONAL_OPTIONS
     else -> NovelReaderAction.NONE
 }
 
