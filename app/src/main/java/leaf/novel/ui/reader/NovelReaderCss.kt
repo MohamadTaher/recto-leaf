@@ -29,6 +29,7 @@ object NovelReaderCss {
         style: NovelReaderStyle,
         colors: NovelReaderColors,
         publisherFormatting: Boolean = false,
+        chapterTitle: String? = null,
     ): String {
         if (publisherFormatting) return publisherDocument(content, colors)
 
@@ -125,16 +126,47 @@ object NovelReaderCss {
               text-indent: 0;
             }
             .${NovelEpubMarkup.PAGE_CLASS} { color: $muted !important; font-size: 0.7em; vertical-align: super; }
+            .$CHAPTER_TITLE_CLASS {
+              color: $muted !important;
+              font-size: 0.8em;
+              font-weight: normal;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+              text-indent: 0;
+              margin: 1.4em 0 1.8em;
+              padding-bottom: 0.6em;
+              border-bottom: 1px solid $muted;
+            }
             ::selection { background: $SPEECH_HIGHLIGHT; }
             ::search-text { background: $SPEECH_HIGHLIGHT; }
             </style>
             </head>
             <body>
+            ${chapterHeading(chapterTitle ?: content.title)}
             $chapterHtml
             </body>
             </html>
         """.trimIndent()
     }
+
+    /**
+     * A line naming the chapter, above its text.
+     *
+     * Chapters now run into one another when read or scrolled through, so this is what says which
+     * one you are in. A `div` rather than a heading: speech and the chapter's own outline are cut
+     * from the book's markup, and a heading here would put a title into both that the book never
+     * wrote.
+     */
+    private fun chapterHeading(title: String?): String {
+        val text = title?.trim().orEmpty()
+        if (text.isEmpty()) return ""
+        return """<div class="$CHAPTER_TITLE_CLASS">${escapeHtml(text)}</div>"""
+    }
+
+    private fun escapeHtml(text: String): String = text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
 
     /**
      * The rules that turn one long scroll into a row of pages.
@@ -304,6 +336,10 @@ object NovelReaderCss {
     private const val PER_MILLE = 1000
 
     private const val ACCENT_ALPHA = 168
+
+    /** Marks the line naming the chapter, so the stylesheet can find it. */
+    private const val CHAPTER_TITLE_CLASS = "leaf-chapter-title"
+
     private const val SPEECH_HIGHLIGHT = "#5ac8f5"
     private const val DARK_LUMINANCE_THRESHOLD = 128
 
