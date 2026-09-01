@@ -111,6 +111,37 @@ class NovelSpeaker(context: Context) {
         queueFrom(fromIndex)
     }
 
+    /**
+     * Adds more to say behind what is already queued, without interrupting it.
+     *
+     * This is how speech carries over the end of a chapter: the queue grows rather than being
+     * replaced, so the unit being spoken is never cut off and the numbering stays continuous.
+     * Appending also moves the last unit, which is what stops the run ending at the old one.
+     *
+     * A paused queue has been flushed, so the new units are only recorded; [resume] queues them
+     * along with the rest from wherever it left off.
+     */
+    fun extend(more: List<String>) {
+        if (more.isEmpty()) return
+        val fromIndex = utterances.size
+        utterances = utterances + more
+        if (!state.value.speaking || state.value.paused) return
+        val tts = engine.takeIf { state.value.available } ?: return
+
+        val current = run.get()
+        more.forEachIndexed { offset, utterance ->
+            val index = fromIndex + offset
+            if (configuration.intervalMs > 0) {
+                tts.playSilentUtterance(
+                    configuration.intervalMs.toLong(),
+                    TextToSpeech.QUEUE_ADD,
+                    "$current$ID_SEPARATOR$SILENCE$index",
+                )
+            }
+            tts.speak(utterance, TextToSpeech.QUEUE_ADD, null, "$current$ID_SEPARATOR$index")
+        }
+    }
+
     /** Pauses at unit granularity; resume repeats the interrupted unit. */
     fun pause() {
         if (!state.value.speaking || state.value.paused) return

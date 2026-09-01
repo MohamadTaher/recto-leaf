@@ -487,6 +487,9 @@ fun NovelReaderScreen(
                         pinchEnabled = pinchFontSize,
                         onPinch = ::performPinch,
                         onEdgeDrag = ::performEdgeDrag,
+                        onPullPastEdge = { forward ->
+                            viewModel.setCurrentChapter(state.currentIndex + if (forward) 1 else -1)
+                        },
                         onTapCell = { cell ->
                             performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
                         },
@@ -784,6 +787,7 @@ private fun ChapterContent(
     pinchEnabled: Boolean,
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
+    onPullPastEdge: (forward: Boolean) -> Unit,
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
@@ -840,6 +844,7 @@ private fun ChapterContent(
                 pinchEnabled = pinchEnabled,
                 onPinch = onPinch,
                 onEdgeDrag = onEdgeDrag,
+                onPullPastEdge = onPullPastEdge,
                 onTapCell = onTapCell,
                 onLongPress = onLongPress,
                 onSwipe = onSwipe,
