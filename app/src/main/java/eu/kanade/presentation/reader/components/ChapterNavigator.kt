@@ -69,6 +69,8 @@ fun ChapterNavigator(
     enabledPrevious: Boolean,
     currentPage: Int,
     totalPages: Int,
+    // [recto-leaf] The novel slider labels its zero-based value as a percentage.
+    pageLabel: (Int) -> String = Int::toString,
     onPageIndexChange: (Int) -> Unit,
     onPageIndexChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
@@ -116,6 +118,7 @@ fun ChapterNavigator(
             enabledPrevious = enabledPrevious,
             currentPage = currentPage,
             totalPages = totalPages,
+            pageLabel = pageLabel,
             interactionSource = interactionSource,
             mainAxisPadding = mainAxisPadding,
             backgroundColor = backgroundColor,
@@ -131,6 +134,7 @@ fun ChapterNavigator(
             enabledPrevious = enabledPrevious,
             currentPage = currentPage,
             totalPages = totalPages,
+            pageLabel = pageLabel,
             interactionSource = interactionSource,
             mainAxisPadding = mainAxisPadding,
             backgroundColor = backgroundColor,
@@ -150,6 +154,7 @@ fun HorizontalChapterNavigator(
     enabledPrevious: Boolean,
     currentPage: Int,
     totalPages: Int,
+    pageLabel: (Int) -> String,
     interactionSource: MutableInteractionSource,
     mainAxisPadding: Dp,
     backgroundColor: Color,
@@ -190,9 +195,9 @@ fun HorizontalChapterNavigator(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(contentAlignment = Alignment.CenterEnd) {
-                            Text(text = currentPage.toString())
+                            Text(text = pageLabel(currentPage))
                             // Taking up full length so the slider doesn't shift when 'currentPage' length changes
-                            Text(text = totalPages.toString(), color = Color.Transparent)
+                            Text(text = pageLabel(totalPages), color = Color.Transparent)
                         }
 
                         Slider(
@@ -203,7 +208,7 @@ fun HorizontalChapterNavigator(
                             interactionSource = interactionSource,
                         )
 
-                        Text(text = totalPages.toString())
+                        Text(text = pageLabel(totalPages))
                     }
                 }
             } else {
@@ -235,6 +240,7 @@ fun VerticalChapterNavigator(
     enabledPrevious: Boolean,
     currentPage: Int,
     totalPages: Int,
+    pageLabel: (Int) -> String,
     interactionSource: MutableInteractionSource,
     mainAxisPadding: Dp,
     backgroundColor: Color,
@@ -268,7 +274,7 @@ fun VerticalChapterNavigator(
                     .padding(vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(text = currentPage.toString())
+                Text(text = pageLabel(currentPage))
 
                 VerticalSlider(
                     state = state,
@@ -278,7 +284,7 @@ fun VerticalChapterNavigator(
                     interactionSource = interactionSource,
                 )
 
-                Text(text = totalPages.toString())
+                Text(text = pageLabel(totalPages))
             }
         } else {
             Spacer(Modifier.weight(1f))
