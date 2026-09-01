@@ -24,6 +24,9 @@ class NovelWebViewController {
     private var activeQuery: String? = null
     private var speechHighlight: SpeechHighlight? = null
     private var speechMatchesToAdvance = 0
+    private var chapterAppender: ((String) -> Unit)? = null
+    private var chapterScroller: ((Long, Int) -> Unit)? = null
+    private var chapterPruner: ((Long) -> Unit)? = null
 
     /**
      * Moving by whole screenfuls, which the view supplies because only it knows which axis the
@@ -31,14 +34,26 @@ class NovelWebViewController {
      */
     private var turner: ((pages: Int) -> Unit)? = null
 
-    internal fun attach(view: WebView, turnPages: (pages: Int) -> Unit) {
+    internal fun attach(
+        view: WebView,
+        turnPages: (pages: Int) -> Unit,
+        appendChapter: (String) -> Unit,
+        scrollToChapter: (Long, Int) -> Unit,
+        pruneBeforeChapter: (Long) -> Unit,
+    ) {
         webView = view
         turner = turnPages
+        chapterAppender = appendChapter
+        chapterScroller = scrollToChapter
+        chapterPruner = pruneBeforeChapter
     }
 
     internal fun detach() {
         webView = null
         turner = null
+        chapterAppender = null
+        chapterScroller = null
+        chapterPruner = null
     }
 
     /** Back one page, which in a paged chapter is one column and otherwise one viewport. */
@@ -59,6 +74,21 @@ class NovelWebViewController {
      */
     fun scrollBy(dy: Int) {
         webView?.scrollBy(0, dy)
+    }
+
+    /** Adds one already fetched chapter beneath the rolling document. */
+    fun appendChapter(section: String) {
+        chapterAppender?.invoke(section)
+    }
+
+    /** Moves to a chapter section already present in the rolling document. */
+    fun scrollToChapter(chapterId: Long, percent: Int = 0) {
+        chapterScroller?.invoke(chapterId, percent)
+    }
+
+    /** Drops sections older than the one chapter kept behind the reader. */
+    fun pruneBeforeChapter(chapterId: Long) {
+        chapterPruner?.invoke(chapterId)
     }
 
     /** Whether there is any page left below, so auto scroll can stop at the end of a chapter. */

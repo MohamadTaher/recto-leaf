@@ -4,6 +4,14 @@ import androidx.annotation.ColorInt
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderStyle
+import org.jsoup.Jsoup
+
+/** One titled section in the rolling WebView document. */
+data class NovelDocumentChapter(
+    val id: Long,
+    val title: String,
+    val content: NovelChapterContent,
+)
 
 /**
  * The reader's injected stylesheet.
@@ -16,6 +24,42 @@ import leaf.novel.ui.reader.setting.NovelReaderStyle
  * `1.6000000000000001` in the stylesheet for no gain.
  */
 object NovelReaderCss {
+
+    /** Builds the initial current-plus-three document used by continuous scrolling. */
+    fun continuousDocument(
+        chapters: List<NovelDocumentChapter>,
+        style: NovelReaderStyle,
+        colors: NovelReaderColors,
+        publisherFormatting: Boolean = false,
+    ): String {
+        val first = chapters.firstOrNull() ?: return ""
+        val shell = document(first.content, style, colors, publisherFormatting, chapterTitle = null)
+        val bodyStart = shell.indexOf(BODY_OPEN).takeIf { it >= 0 } ?: return shell
+        val bodyEnd = shell.lastIndexOf(BODY_CLOSE).takeIf { it > bodyStart } ?: return shell
+        val sections = chapters.joinToString("\n") {
+            chapterSection(it, style, colors, publisherFormatting)
+        }
+        return shell.replaceRange(bodyStart + BODY_OPEN.length, bodyEnd, "\n$sections\n")
+    }
+
+    /** A prepared chapter that can be appended without rebuilding or moving the open document. */
+    fun chapterSection(
+        chapter: NovelDocumentChapter,
+        style: NovelReaderStyle,
+        colors: NovelReaderColors,
+        publisherFormatting: Boolean = false,
+    ): String {
+        val rendered = document(
+            chapter.content,
+            style,
+            colors,
+            publisherFormatting,
+            chapter.title,
+        )
+        val body = rendered.substringAfter(BODY_OPEN).substringBeforeLast(BODY_CLOSE)
+        val resolved = resolveChapterReferences(body, chapter.content.baseUrl, chapter.id)
+        return """<section class="$CHAPTER_SECTION_CLASS" data-leaf-chapter="${chapter.id}">$resolved</section>"""
+    }
 
     /**
      * Builds the document the WebView actually loads.
@@ -137,6 +181,7 @@ object NovelReaderCss {
               padding-bottom: 0.6em;
               border-bottom: 1px solid $muted;
             }
+            .$CHAPTER_SECTION_CLASS { min-height: 100vh; }
             ::selection { background: $SPEECH_HIGHLIGHT; }
             ::search-text { background: $SPEECH_HIGHLIGHT; }
             </style>
@@ -167,6 +212,32 @@ object NovelReaderCss {
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
+
+    /**
+     * Makes relative EPUB resources survive after several spine documents share one base URL.
+     * Fragment ids are namespaced as well, so two chapters can both contain a note named `fn1`.
+     */
+    private fun resolveChapterReferences(html: String, baseUrl: String?, chapterId: Long): String {
+        val document = Jsoup.parseBodyFragment(html, baseUrl.orEmpty())
+        document.outputSettings().prettyPrint(false)
+        val body = document.body()
+        val prefix = "leaf-$chapterId-"
+
+        body.select("[id]").forEach { it.attr("id", prefix + it.id()) }
+        body.select("[name]").forEach { it.attr("name", prefix + it.attr("name")) }
+        body.select("[href]").forEach { element ->
+            val href = element.attr("href")
+            if (href.startsWith('#')) {
+                element.attr("href", "#$prefix${href.drop(1)}")
+            } else {
+                element.absUrl("href").takeIf { it.isNotEmpty() }?.let { element.attr("href", it) }
+            }
+        }
+        body.select("[src]").forEach { element ->
+            element.absUrl("src").takeIf { it.isNotEmpty() }?.let { element.attr("src", it) }
+        }
+        return body.html()
+    }
 
     /**
      * The rules that turn one long scroll into a row of pages.
@@ -336,6 +407,10 @@ object NovelReaderCss {
     private const val PER_MILLE = 1000
 
     private const val ACCENT_ALPHA = 168
+
+    private const val BODY_OPEN = "<body>"
+    private const val BODY_CLOSE = "</body>"
+    private const val CHAPTER_SECTION_CLASS = "leaf-novel-chapter"
 
     /** Marks the line naming the chapter, so the stylesheet can find it. */
     private const val CHAPTER_TITLE_CLASS = "leaf-chapter-title"
