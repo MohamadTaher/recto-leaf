@@ -488,4 +488,39 @@ class NovelReaderCssTest {
         document.contains("::selection { background: #5ac8f5; }") shouldBe true
         document.contains("::search-text { background: #5ac8f5; }") shouldBe true
     }
+
+    @Test
+    fun `continuous document keeps each chapter as an ordered titled section`() {
+        val chapters = listOf(
+            NovelDocumentChapter(10, "Chapter ten", NovelChapterContent(html = "<p>ten</p>")),
+            NovelDocumentChapter(11, "Chapter eleven", NovelChapterContent(html = "<p>eleven</p>")),
+        )
+
+        val document = NovelReaderCss.continuousDocument(chapters, style(), colors(WHITE))
+
+        Regex("data-leaf-chapter=").findAll(document).count() shouldBe 2
+        document.contains("data-leaf-chapter=\"10\"") shouldBe true
+        document.contains("data-leaf-chapter=\"11\"") shouldBe true
+        (document.indexOf("Chapter ten") < document.indexOf("Chapter eleven")) shouldBe true
+        (document.indexOf("<p>ten</p>") < document.indexOf("<p>eleven</p>")) shouldBe true
+    }
+
+    @Test
+    fun `continuous section resolves resources and namespaces fragment links`() {
+        val chapter = NovelDocumentChapter(
+            id = 42,
+            title = "Chapter",
+            content = NovelChapterContent(
+                html = "<p id='note'><a href='#note'>note</a><img src='../images/a.jpg'></p>",
+                head = "",
+                baseUrl = "https://novel.rectoleaf.invalid/text/chapter.xhtml",
+            ),
+        )
+
+        val section = NovelReaderCss.chapterSection(chapter, style(), colors(WHITE))
+
+        section.contains("id=\"leaf-42-note\"") shouldBe true
+        section.contains("href=\"#leaf-42-note\"") shouldBe true
+        section.contains("src=\"https://novel.rectoleaf.invalid/images/a.jpg\"") shouldBe true
+    }
 }
