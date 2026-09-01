@@ -26,6 +26,7 @@ SEAMS="
 domain/src/main/java/tachiyomi/domain/storage/service/StorageManager.kt
 app/src/main/java/eu/kanade/tachiyomi/source/AndroidSourceManager.kt
 app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt
 app/src/main/java/eu/kanade/tachiyomi/ui/library/LibraryViewModel.kt
 app/src/main/java/eu/kanade/tachiyomi/ui/library/LibraryTab.kt
 app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaViewModel.kt

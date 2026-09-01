@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -50,7 +51,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
-import leaf.novel.api.NovelChapterContent
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.components.NovelChapterWebView
@@ -59,8 +59,11 @@ import leaf.novel.presentation.reader.components.NovelStatusBar
 import leaf.novel.presentation.reader.components.NovelStatusBarHeight
 import leaf.novel.presentation.reader.components.NovelTiltPageTurns
 import leaf.novel.presentation.reader.components.NovelWebViewController
+import leaf.novel.presentation.reader.components.supportsContinuousChapters
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsDialog
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
+import leaf.novel.presentation.reader.settings.NovelTextReplacementDialog
+import leaf.novel.ui.reader.NovelDocumentChapter
 import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
@@ -86,10 +89,10 @@ import tachiyomi.presentation.core.util.collectAsState
 import kotlin.math.roundToInt
 
 /**
- * The reader screen: one chapter at a time in a WebView, with menu-on-tap chrome over it.
+ * The reader screen: a rolling chapter document in one WebView, with menu-on-tap chrome over it.
  *
- * A single WebView rather than a pager over all chapters. It bounds memory absolutely and keeps
- * the WebView's vertical scrolling from fighting a horizontal pager for the same drag.
+ * Scrolling keeps one chapter behind and three ready ahead. Paged mode remains one chapter at a
+ * time, because CSS columns and a vertically continuous document are mutually exclusive layouts.
  */
 @Composable
 fun NovelReaderScreen(
@@ -131,6 +134,7 @@ fun NovelReaderScreen(
     var showSpeechControls by remember { mutableStateOf(false) }
     var showSpeechOptions by remember { mutableStateOf(false) }
     var confirmSpeech by remember { mutableStateOf(false) }
+    var showTextReplacements by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -161,6 +165,19 @@ fun NovelReaderScreen(
     val webViewController = remember { NovelWebViewController() }
 
     val chapter = state.currentChapter
+    var documentStartChapterId by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading && documentStartChapterId == null) {
+            documentStartChapterId = state.currentChapter?.id
+        }
+    }
+
+    fun openChapter(index: Int) {
+        val target = state.chapters.getOrNull(index) ?: return
+        documentStartChapterId = target.id
+        viewModel.setCurrentChapter(index)
+    }
 
     fun closeSpeechControls() {
         viewModel.stopSpeaking()
@@ -363,6 +380,14 @@ fun NovelReaderScreen(
     // paged layout are gated on it below; keeping a line and the page-turn sound apply to page up
     // and page down in either mode, and are offered in either mode to match.
     val paged by viewModel.novelReaderPreferences.paged.collectAsState()
+    val continuousChapters = remember(paged) { !paged && supportsContinuousChapters() }
+    var documentPaged by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(paged) {
+        if (documentPaged != null && documentPaged != paged) {
+            documentStartChapterId = state.currentChapter?.id
+        }
+        documentPaged = paged
+    }
     val keepOneLine by viewModel.novelReaderPreferences.keepOneLineWhenPaging.collectAsState()
     val pageTurnSound by viewModel.novelReaderPreferences.pageTurnSound.collectAsState()
     val disableVerticalScroll by viewModel.novelReaderPreferences.disableVerticalScroll.collectAsState()
@@ -434,7 +459,12 @@ fun NovelReaderScreen(
         while (true) {
             delay(perPhrase.toLong())
             viewModel.advanceSpeedReading()
-            seekRequests.tryEmit((viewModel.speedReadFraction() * 100).roundToInt())
+            val percent = (viewModel.speedReadFraction() * 100).roundToInt()
+            if (continuousChapters) {
+                state.currentChapter?.id?.let { webViewController.scrollToChapter(it, percent) }
+            } else {
+                seekRequests.tryEmit(percent)
+            }
         }
     }
 
@@ -456,49 +486,61 @@ fun NovelReaderScreen(
                 )
             }
             else -> {
-                if (chapter != null) {
-                    ChapterContent(
-                        viewModel = viewModel,
-                        chapter = chapter,
-                        // The bar is permanent where the indicators it replaced were a floating
-                        // label, so the page gives up the space rather than running underneath it.
-                        bottomInset = bottomPanelHeight.takeIf { it > 0.dp }
-                            ?: NovelStatusBarHeight.takeIf { showStatusBar }
-                            ?: 0.dp,
-                        publisherFormatting = publisherFormatting,
-                        style = style,
-                        colors = colors,
-                        percentRead = livePercent,
-                        onPercentChange = { livePercent = it },
-                        seekRequests = seekRequests,
-                        controller = webViewController,
-                        ignoreEdgeTaps = disableTouchEdge,
-                        paged = paged,
-                        pageOverlapPx = pageOverlapPx,
-                        pageTurnSound = pageTurnSound,
-                        // Paged-only, and gated here as well as hidden in the settings: a reader
-                        // who turned dragging off while paged and then left paged mode would
-                        // otherwise be stuck on a page they cannot scroll, with the checkbox that
-                        // would undo it no longer on screen.
-                        blockVerticalScroll = paged && disableVerticalScroll,
-                        flingTurnsPage = paged && flingToTurnPage,
-                        tapImageEnabled = tapImageToOpen,
-                        onImageTap = { openImage = it },
-                        pinchEnabled = pinchFontSize,
-                        onPinch = ::performPinch,
-                        onEdgeDrag = ::performEdgeDrag,
-                        onPastEdge = { forward ->
-                            viewModel.setCurrentChapter(state.currentIndex + if (forward) 1 else -1)
-                        },
-                        onTapCell = { cell ->
-                            performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
-                        },
-                        onSwipe = { swipe ->
-                            performBinding(viewModel.novelReaderPreferences.swipes.getValue(swipe).get())
-                        },
-                        onLongPress = ::performLongPress,
-                        onExternalLink = { uriHandler.openUri(it) },
-                    )
+                val startIndex = state.chapters.indexOfFirst { it.id == documentStartChapterId }
+                if (chapter != null && startIndex >= 0) {
+                    key(documentStartChapterId) {
+                        ChapterContent(
+                            viewModel = viewModel,
+                            startIndex = startIndex,
+                            // The bar is permanent where the indicators it replaced were a floating
+                            // label, so the page gives up the space rather than running underneath it.
+                            bottomInset = bottomPanelHeight.takeIf { it > 0.dp }
+                                ?: NovelStatusBarHeight.takeIf { showStatusBar }
+                                ?: 0.dp,
+                            publisherFormatting = publisherFormatting,
+                            style = style,
+                            colors = colors,
+                            percentRead = livePercent,
+                            onPercentChange = { livePercent = it },
+                            seekRequests = seekRequests,
+                            controller = webViewController,
+                            ignoreEdgeTaps = disableTouchEdge,
+                            paged = paged,
+                            pageOverlapPx = pageOverlapPx,
+                            pageTurnSound = pageTurnSound,
+                            // Paged-only, and gated here as well as hidden in the settings: a reader
+                            // who turned dragging off while paged and then left paged mode would
+                            // otherwise be stuck on a page they cannot scroll, with the checkbox that
+                            // would undo it no longer on screen.
+                            blockVerticalScroll = paged && disableVerticalScroll,
+                            flingTurnsPage = paged && flingToTurnPage,
+                            tapImageEnabled = tapImageToOpen,
+                            onImageTap = { openImage = it },
+                            pinchEnabled = pinchFontSize,
+                            onPinch = ::performPinch,
+                            onEdgeDrag = ::performEdgeDrag,
+                            onPastEdge = { forward ->
+                                openChapter(state.currentIndex + if (forward) 1 else -1)
+                            },
+                            onChapterChange = { index, percent ->
+                                if (state.currentIndex != index) {
+                                    viewModel.setCurrentChapter(index, continuous = true)
+                                }
+                                livePercent = percent
+                            },
+                            onTapCell = { cell ->
+                                performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
+                            },
+                            onSwipe = { swipe ->
+                                performBinding(viewModel.novelReaderPreferences.swipes.getValue(swipe).get())
+                            },
+                            onLongPress = ::performLongPress,
+                            onInternalLink = { entry ->
+                                viewModel.chapterIndexByEntry(entry)?.let(::openChapter)
+                            },
+                            onExternalLink = { uriHandler.openUri(it) },
+                        )
+                    }
                 }
             }
         }
@@ -630,12 +672,18 @@ fun NovelReaderScreen(
             onChangeSearchQuery = viewModel::setSearchQuery,
             findMatches = webViewController.findMatches,
             onFindNext = { webViewController.findNext(it) },
-            onPreviousChapter = { viewModel.setCurrentChapter(state.currentIndex - 1) },
+            onPreviousChapter = { openChapter(state.currentIndex - 1) },
             enabledPrevious = state.currentIndex > 0,
-            onNextChapter = { viewModel.setCurrentChapter(state.currentIndex + 1) },
+            onNextChapter = { openChapter(state.currentIndex + 1) },
             enabledNext = state.currentIndex < state.chapters.lastIndex,
             percentRead = livePercent,
-            onPercentChange = { seekRequests.tryEmit(it) },
+            onPercentChange = { percent ->
+                if (continuousChapters) {
+                    chapter?.id?.let { webViewController.scrollToChapter(it, percent) }
+                } else {
+                    seekRequests.tryEmit(percent)
+                }
+            },
             barButtons = barButtons,
             onAction = ::performAction,
             additionalOptionsExpanded = additionalOptionsExpanded,
@@ -649,6 +697,10 @@ fun NovelReaderScreen(
                     speaking = state.speaking,
                     speechUnavailable = state.speechUnavailable,
                     speedReading = state.speedReading,
+                    onEditTextReplacements = {
+                        dismiss()
+                        showTextReplacements = true
+                    },
                     onSelect = { action ->
                         dismiss()
                         performAction(action)
@@ -693,6 +745,16 @@ fun NovelReaderScreen(
                 if (state.speaking) viewModel.restartSpeaking(livePercent, state.speechPaused)
             },
             onDismissRequest = { showSpeechOptions = false },
+        )
+    }
+
+    if (showTextReplacements) {
+        NovelTextReplacementDialog(
+            appWideRules = viewModel.novelReaderPreferences.textReplacements.get(),
+            novelRules = viewModel.novelTextReplacements(),
+            onDismissRequest = { showTextReplacements = false },
+            onSaveAppWide = viewModel.novelReaderPreferences.textReplacements::set,
+            onSaveNovel = viewModel::setNovelTextReplacements,
         )
     }
 
@@ -758,7 +820,7 @@ fun NovelReaderScreen(
         NovelChapterSheet(
             chapters = state.chapters,
             currentIndex = state.currentIndex,
-            onSelectChapter = viewModel::setCurrentChapter,
+            onSelectChapter = ::openChapter,
             onDismissRequest = { showChapters = false },
         )
     }
@@ -767,7 +829,7 @@ fun NovelReaderScreen(
 @Composable
 private fun ChapterContent(
     viewModel: NovelReaderViewModel,
-    chapter: Chapter,
+    startIndex: Int,
     bottomInset: Dp,
     publisherFormatting: Boolean,
     style: NovelReaderStyle,
@@ -788,21 +850,24 @@ private fun ChapterContent(
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
     onPastEdge: (forward: Boolean) -> Unit,
+    onChapterChange: (index: Int, percent: Int) -> Unit,
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
+    onInternalLink: (String) -> Unit,
     onExternalLink: (String) -> Unit,
 ) {
     val assetServer = remember(viewModel) { viewModel.assetServer() }
+    val continuous = remember(paged) { !paged && supportsContinuousChapters() }
 
-    val content by produceState<Result<NovelChapterContent>?>(initialValue = null, chapter.id) {
-        value = viewModel.chapterContent(chapter)
+    val loaded by produceState<NovelReaderViewModel.LoadedChapter?>(initialValue = null, startIndex) {
+        value = viewModel.loadedChapter(startIndex)
     }
 
-    val result = content
+    val result = loaded?.content
     val chapterContent = result?.getOrNull()
     when {
-        result == null -> {
+        loaded == null -> {
             Box(modifier = Modifier.fillMaxSize()) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
@@ -818,19 +883,81 @@ private fun ChapterContent(
             }
         }
         else -> {
-            val document = remember(chapterContent, style, colors, publisherFormatting, chapter.name) {
-                NovelReaderCss.document(chapterContent, style, colors, publisherFormatting, chapter.name)
+            val first = loaded!!
+            val firstPage = remember(first.chapter.id, chapterContent) {
+                NovelDocumentChapter(first.chapter.id, first.chapter.name, chapterContent)
             }
+            val loadedPages = remember(startIndex) { mutableListOf(firstPage) }
+            var activeIndex by remember(startIndex) { mutableIntStateOf(startIndex) }
+            val document = remember(firstPage, style, colors, publisherFormatting, continuous) {
+                if (continuous) {
+                    NovelReaderCss.continuousDocument(
+                        loadedPages.toList(),
+                        style,
+                        colors,
+                        publisherFormatting,
+                    )
+                } else {
+                    NovelReaderCss.document(
+                        chapterContent,
+                        style,
+                        colors,
+                        publisherFormatting,
+                        first.chapter.name,
+                    )
+                }
+            }
+
+            // As soon as the active section changes, move the same three-chapter preload window
+            // forward. Appending changes the DOM in place, so the scroll offset never resets.
+            LaunchedEffect(activeIndex, continuous, style, colors, publisherFormatting) {
+                if (!continuous) return@LaunchedEffect
+                val chapters = viewModel.state.value.chapters
+                val lastLoaded = chapters.indexOfFirst { it.id == loadedPages.last().id }
+                val target = (activeIndex + NovelReaderViewModel.PRELOAD_CHAPTER_COUNT)
+                    .coerceAtMost(chapters.lastIndex)
+                for (index in (lastLoaded + 1)..target) {
+                    val next = viewModel.loadedChapter(index) ?: break
+                    val content = next.content.getOrNull() ?: break
+                    if (loadedPages.any { it.id == next.chapter.id }) continue
+                    val page = NovelDocumentChapter(next.chapter.id, next.chapter.name, content)
+                    loadedPages += page
+                    controller.appendChapter(
+                        NovelReaderCss.chapterSection(page, style, colors, publisherFormatting),
+                    )
+                }
+
+                val keepFrom = maxOf(startIndex, activeIndex - 1)
+                val keepId = chapters[keepFrom].id
+                if (loadedPages.first().id != keepId) {
+                    controller.pruneBeforeChapter(keepId)
+                    loadedPages.removeAll { page ->
+                        chapters.indexOfFirst { it.id == page.id } < keepFrom
+                    }
+                    viewModel.trimChapterCache(activeIndex)
+                }
+            }
+
             NovelChapterWebView(
                 document = document,
                 baseUrl = chapterContent.baseUrl.orEmpty(),
                 initialPercent = percentRead,
+                continuous = continuous,
+                initialChapterId = viewModel.state.value.chapters.getOrNull(activeIndex)?.id
+                    ?: first.chapter.id,
+                onChapterProgress = { chapterId, percent ->
+                    val index = viewModel.state.value.chapters.indexOfFirst { it.id == chapterId }
+                    if (index < 0) return@NovelChapterWebView
+                    activeIndex = index
+                    onChapterChange(index, percent)
+                    viewModel.reportProgress(chapterId, percent)
+                },
                 seekRequests = seekRequests,
                 assetServer = assetServer,
                 backgroundColor = colors.background,
                 onProgress = {
                     onPercentChange(it)
-                    viewModel.reportProgress(chapter.id, it)
+                    viewModel.reportProgress(first.chapter.id, it)
                 },
                 controller = controller,
                 ignoreEdgeTaps = ignoreEdgeTaps,
@@ -848,7 +975,7 @@ private fun ChapterContent(
                 onTapCell = onTapCell,
                 onLongPress = onLongPress,
                 onSwipe = onSwipe,
-                onInternalLink = viewModel::openChapterByEntry,
+                onInternalLink = onInternalLink,
                 onExternalLink = onExternalLink,
                 // System insets keep the chapter out of the device bars. Vertical reader margins
                 // live here instead of on the HTML body so they remain visible throughout a
@@ -1070,6 +1197,7 @@ private fun ColumnScope.AdditionalOptions(
     speaking: Boolean,
     speechUnavailable: Boolean,
     speedReading: Boolean,
+    onEditTextReplacements: () -> Unit,
     onSelect: (NovelReaderAction) -> Unit,
 ) {
     DropdownMenuItem(
@@ -1085,6 +1213,11 @@ private fun ColumnScope.AdditionalOptions(
     DropdownMenuItem(
         text = { Text(stringResource(MR.strings.action_search)) },
         onClick = { onSelect(NovelReaderAction.SEARCH) },
+    )
+
+    DropdownMenuItem(
+        text = { Text(stringResource(MR.strings.leaf_novel_reader_heading_replacements)) },
+        onClick = onEditTextReplacements,
     )
 
     RadioMenuItem(

@@ -136,9 +136,10 @@ fun NovelReaderAppBars(
                     enabledNext = enabledNext,
                     onPreviousChapter = onPreviousChapter,
                     enabledPrevious = enabledPrevious,
-                    currentPage = percentRead.coerceIn(MIN_PERCENT, MAX_PERCENT),
-                    totalPages = MAX_PERCENT,
-                    onPageIndexChange = { onPercentChange(it + 1) },
+                    currentPage = percentRead.coerceIn(MIN_PERCENT, MAX_PERCENT) + PAGE_INDEX_OFFSET,
+                    totalPages = MAX_PERCENT + PAGE_INDEX_OFFSET,
+                    pageLabel = { "${it - PAGE_INDEX_OFFSET}%" },
+                    onPageIndexChange = onPercentChange,
                     onPageIndexChangeFinished = {},
                 )
                 NovelReaderBottomBar(
@@ -246,11 +247,11 @@ private fun AdditionalOptionsMenu(
 
 /**
  * The slider spans the chapter, not the book: where the image reader feeds [ChapterNavigator] a page
- * number, this feeds it a scroll percent. It is 1-based like a page count, so the top of a chapter
- * reads as 1 rather than 0 — a difference of less than one line of text.
+ * number, this feeds it a scroll percent. Unlike a page count, a percentage starts at zero.
  */
-private const val MIN_PERCENT = 1
+private const val MIN_PERCENT = 0
 private const val MAX_PERCENT = 100
+private const val PAGE_INDEX_OFFSET = 1
 
 /**
  * The top bar while a search is running, on Mihon's own search toolbar so the field, the close

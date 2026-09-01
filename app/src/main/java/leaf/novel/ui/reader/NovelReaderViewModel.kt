@@ -21,7 +21,9 @@ import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -146,6 +148,9 @@ class NovelReaderViewModel(
 
     private var provider: NovelContentProvider? = null
 
+    /** Chapter bodies already fetched for the open chapter and its three-chapter lookahead. */
+    private val chapterLoads = ConcurrentHashMap<Long, Deferred<Result<NovelChapterContent>>>()
+
     // Resolved in load(): the incognito check is suspend, so it cannot be a lazy property.
     private var incognitoMode: Boolean = false
 
@@ -251,6 +256,7 @@ class NovelReaderViewModel(
         mutableState.update {
             it.copy(manga = manga, chapters = chapters, currentIndex = startIndex, isLoading = false)
         }
+        preloadChapters(startIndex)
     }
 
     /**
@@ -265,19 +271,57 @@ class NovelReaderViewModel(
             .onFailure { logcat(LogPriority.WARN, it) { "Could not load chapter ${chapter.url}" } }
     }
 
-    /** Loads one chapter's body. The reader never touches [leaf.novel.data.epub.NovelEpubReader] itself. */
-    suspend fun chapterContent(chapter: Chapter): Result<NovelChapterContent> {
-        val result = loadChapter(chapter)
-
-        // Counted once per chapter for the remaining-time estimate, and off the main thread: a
-        // long chapter is a lot of markup to walk. The markup itself is kept so speech can be cut
-        // from it without fetching the chapter a second time.
-        result.getOrNull()?.let { content ->
-            currentHtml = content.html
-            val words = withIOContext { NovelReadingTime.wordsIn(content.html) }
-            mutableState.update { it.copy(chapterWords = words) }
+    /** One cached fetch, shared by the visible document, chapter skips and speech read-ahead. */
+    private fun chapterLoad(chapter: Chapter): Deferred<Result<NovelChapterContent>> =
+        chapterLoads.computeIfAbsent(chapter.id) {
+            viewModelScope.async { loadChapter(chapter) }
         }
-        return result
+
+    /** Failed speculative fetches are not cached; opening the chapter gets a real retry. */
+    private suspend fun awaitChapter(chapter: Chapter): Result<NovelChapterContent> {
+        val load = chapterLoad(chapter)
+        return load.await().also { result ->
+            if (result.isFailure) chapterLoads.remove(chapter.id, load)
+        }
+    }
+
+    /** Starts the current chapter and the next three without waiting for the reader to reach them. */
+    private fun preloadChapters(index: Int) {
+        state.value.chapters
+            .drop(index.coerceAtLeast(0))
+            .take(PRELOAD_CHAPTER_COUNT + 1)
+            .forEach(::chapterLoad)
+    }
+
+    /** Keeps one chapter behind and the same three-chapter lookahead in the in-memory cache. */
+    fun trimChapterCache(index: Int) {
+        val keep = state.value.chapters
+            .drop((index - 1).coerceAtLeast(0))
+            .take(PRELOAD_CHAPTER_COUNT + 2)
+            .mapTo(mutableSetOf()) { it.id }
+        chapterLoads.keys.filterNot(keep::contains).forEach(chapterLoads::remove)
+    }
+
+    /** A fetched chapter paired back to the row whose title and progress identify it. */
+    data class LoadedChapter(
+        val chapter: Chapter,
+        val content: Result<NovelChapterContent>,
+    )
+
+    /** Fetches one more chapter as a continuous document rolls its preload window forward. */
+    suspend fun loadedChapter(index: Int): LoadedChapter? {
+        val chapter = state.value.chapters.getOrNull(index) ?: return null
+        val content = awaitChapter(chapter)
+        if (state.value.currentIndex == index) {
+            content.getOrNull()?.let {
+                currentHtml = it.html
+                val words = withIOContext { NovelReadingTime.wordsIn(it.html) }
+                if (state.value.currentIndex == index) {
+                    mutableState.update { state -> state.copy(chapterWords = words) }
+                }
+            }
+        }
+        return LoadedChapter(chapter, content)
     }
 
     fun assetServer(): NovelEpubAssetServer? = provider?.let(::NovelEpubAssetServer)
@@ -303,7 +347,11 @@ class NovelReaderViewModel(
      * opened — there the reader is catching up with the voice, so stopping it would cut off the
      * sentence that caused the move.
      */
-    fun setCurrentChapter(index: Int, keepSpeaking: Boolean = false) {
+    fun setCurrentChapter(
+        index: Int,
+        keepSpeaking: Boolean = false,
+        continuous: Boolean = false,
+    ) {
         val chapter = state.value.chapters.getOrNull(index) ?: return
         if (state.value.currentIndex == index) return
 
@@ -314,18 +362,34 @@ class NovelReaderViewModel(
         // Neither auto scroll nor a search carries across a chapter boundary.
         if (!keepSpeaking) stopSpeaking()
         stopSpeedReading()
-        mutableState.update { it.copy(currentIndex = index, autoScrolling = false, searchQuery = null) }
+        mutableState.update {
+            it.copy(
+                currentIndex = index,
+                autoScrolling = it.autoScrolling && continuous,
+                searchQuery = it.searchQuery.takeIf { continuous },
+            )
+        }
+        preloadChapters(index)
+
+        viewModelScope.launch {
+            awaitChapter(chapter).getOrNull()?.let { content ->
+                currentHtml = content.html
+                val words = withIOContext { NovelReadingTime.wordsIn(content.html) }
+                if (state.value.currentIndex == index) {
+                    mutableState.update { it.copy(chapterWords = words) }
+                }
+            }
+        }
     }
 
     /**
-     * Follows a link to another document in the same book, which is how an EPUB's own footnote and
-     * "next chapter" links are written. Silently ignored when it does not name a chapter we have.
+     * Finds the chapter named by an EPUB's own footnote or "next chapter" link.
      */
-    fun openChapterByEntry(entry: String) {
-        val novelUrl = state.value.manga?.url ?: return
+    fun chapterIndexByEntry(entry: String): Int? {
+        val novelUrl = state.value.manga?.url ?: return null
         val target = "$novelUrl/${entry.substringBefore('#')}"
         val index = state.value.chapters.indexOfFirst { it.url == target }
-        if (index >= 0) setCurrentChapter(index)
+        return index.takeIf { it >= 0 }
     }
 
     /**
@@ -542,7 +606,7 @@ class NovelReaderViewModel(
         val startsAt = speechChapterStart + speechUtterances.size
 
         speechStageJob = viewModelScope.launch {
-            val content = loadChapter(chapter).getOrNull() ?: return@launch
+            val content = awaitChapter(chapter).getOrNull() ?: return@launch
             val utterances = utterancesOf(content.html)
             // Checked again on the way out: the fetch is slow enough for speech to have been
             // stopped, restarted or seeked somewhere else entirely while it ran.
@@ -913,6 +977,9 @@ class NovelReaderViewModel(
          * more to say after it has already decided it reached the last piece.
          */
         private const val SPEECH_STAGE_LOOKAHEAD = 3
+
+        /** The visible chapter plus this many successors are kept ready. */
+        const val PRELOAD_CHAPTER_COUNT = 3
 
         /** How long the reader must sit still before its position is written. */
         private const val PROGRESS_DEBOUNCE_MS = 400L
