@@ -23,9 +23,9 @@ import org.jsoup.safety.Safelist
  *
  * Kept free of Android types so it can be tested on the JVM.
  *
- * Note what this is *not* relied upon for. `NovelChapterWebView` already disables JavaScript, file
- * and content access, and sets `blockNetworkLoads`. Sanitising as well means a bug in any one of
- * those settings is not on its own enough to matter.
+ * Note what this is *not* relied upon for. `NovelChapterWebView` disables book scripts with its
+ * document policy, disables file and content access, and sets `blockNetworkLoads`. Sanitising as
+ * well means a bug in any one of those settings is not on its own enough to matter.
  */
 object NovelHtmlSanitizer {
 
