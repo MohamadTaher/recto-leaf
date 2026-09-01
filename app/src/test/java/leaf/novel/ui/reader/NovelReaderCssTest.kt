@@ -506,6 +506,32 @@ class NovelReaderCssTest {
     }
 
     @Test
+    fun `continuous chapters meet without a viewport-sized spacer`() {
+        val chapters = listOf(
+            NovelDocumentChapter(10, "Chapter ten", NovelChapterContent(html = "<p>ten</p>")),
+            NovelDocumentChapter(11, "Chapter eleven", NovelChapterContent(html = "<p>eleven</p>")),
+        )
+
+        val document = NovelReaderCss.continuousDocument(chapters, style(), colors(WHITE))
+
+        document.contains(".leaf-novel-chapter { min-height") shouldBe false
+        document.contains("</section>\n<section") shouldBe true
+    }
+
+    @Test
+    fun `continuous chapters keep title markers with publisher formatting`() {
+        val document = NovelReaderCss.continuousDocument(
+            listOf(NovelDocumentChapter(10, "Chapter ten", content)),
+            style(),
+            colors(WHITE),
+            publisherFormatting = true,
+        )
+
+        document.contains("leaf-chapter-title") shouldBe true
+        document.contains("Chapter ten") shouldBe true
+    }
+
+    @Test
     fun `continuous section resolves resources and namespaces fragment links`() {
         val chapter = NovelDocumentChapter(
             id = 42,

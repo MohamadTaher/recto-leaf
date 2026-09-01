@@ -59,7 +59,6 @@ import leaf.novel.presentation.reader.components.NovelStatusBar
 import leaf.novel.presentation.reader.components.NovelStatusBarHeight
 import leaf.novel.presentation.reader.components.NovelTiltPageTurns
 import leaf.novel.presentation.reader.components.NovelWebViewController
-import leaf.novel.presentation.reader.components.supportsContinuousChapters
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsDialog
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import leaf.novel.presentation.reader.settings.NovelTextReplacementDialog
@@ -380,7 +379,7 @@ fun NovelReaderScreen(
     // paged layout are gated on it below; keeping a line and the page-turn sound apply to page up
     // and page down in either mode, and are offered in either mode to match.
     val paged by viewModel.novelReaderPreferences.paged.collectAsState()
-    val continuousChapters = remember(paged) { !paged && supportsContinuousChapters() }
+    val continuousChapters = !paged
     var documentPaged by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(paged) {
         if (documentPaged != null && documentPaged != paged) {
@@ -488,7 +487,7 @@ fun NovelReaderScreen(
             else -> {
                 val startIndex = state.chapters.indexOfFirst { it.id == documentStartChapterId }
                 if (chapter != null && startIndex >= 0) {
-                    key(documentStartChapterId) {
+                    key(documentStartChapterId, paged) {
                         ChapterContent(
                             viewModel = viewModel,
                             startIndex = startIndex,
@@ -858,7 +857,7 @@ private fun ChapterContent(
     onExternalLink: (String) -> Unit,
 ) {
     val assetServer = remember(viewModel) { viewModel.assetServer() }
-    val continuous = remember(paged) { !paged && supportsContinuousChapters() }
+    val continuous = !paged
 
     val loaded by produceState<NovelReaderViewModel.LoadedChapter?>(initialValue = null, startIndex) {
         value = viewModel.loadedChapter(startIndex)
