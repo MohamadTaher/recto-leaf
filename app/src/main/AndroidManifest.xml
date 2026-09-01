@@ -33,6 +33,9 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- [recto-leaf] Read-aloud keeps speaking with the reader off screen. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <application
         android:name=".App"
         android:allowBackup="false"
@@ -209,6 +212,12 @@
         <receiver
             android:name=".data.notification.NotificationReceiver"
             android:exported="false" />
+
+        <!-- [recto-leaf] Holds the process open while read-aloud runs off screen. -->
+        <service
+            android:name="leaf.novel.ui.reader.NovelSpeechService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <service
             android:name=".extension.util.ExtensionInstallService"
