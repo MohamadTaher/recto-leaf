@@ -78,7 +78,7 @@ fun ColumnScope.TextReplacements(
     )
 
     if (showEditor) {
-        TextReplacementDialog(
+        NovelTextReplacementDialog(
             appWideRules = appWideRules,
             novelRules = novelRules,
             onDismissRequest = { showEditor = false },
@@ -89,7 +89,7 @@ fun ColumnScope.TextReplacements(
 }
 
 @Composable
-private fun TextReplacementDialog(
+fun NovelTextReplacementDialog(
     appWideRules: String,
     novelRules: String,
     onDismissRequest: () -> Unit,
