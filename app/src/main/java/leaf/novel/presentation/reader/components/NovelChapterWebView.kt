@@ -52,23 +52,6 @@ private class NovelWebView(context: Context) : WebView(context) {
     var onScroll: ((offset: Int, range: Int) -> Unit)? = null
 
     /**
-     * Asked for the chapter after this one, or the one before it, when the reader has dragged far
-     * enough past the end of the text and let go.
-     */
-    var onPullPastEdge: ((forward: Boolean) -> Unit)? = null
-
-    /** Where along the reading axis the last touch was, for measuring the drag ourselves. */
-    private var lastTouch = 0f
-
-    /** How far past the end the current drag has travelled. Zero whenever there is no pull. */
-    private var pullTravel = 0f
-
-    /** Once a pull starts it owns the gesture, so the page cannot jump when the finger comes back. */
-    private var pulling = false
-
-    private val density = resources.displayMetrics.density
-
-    /**
      * Whether the chapter is laid out as a row of pages rather than one long column.
      *
      * Every measurement below then reads the horizontal axis instead of the vertical one. The
@@ -98,82 +81,6 @@ private class NovelWebView(context: Context) : WebView(context) {
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
         onScroll?.invoke(scrollOffset, scrollRange)
-    }
-
-    /**
-     * Lets the chapter be dragged past its own end, and hands over to the next one when it is
-     * dragged far enough.
-     *
-     * The page moves with the finger but always less than it, and less and less the further it
-     * goes, so the end of a chapter is something you feel before you reach it rather than a wall
-     * the scroll stops against. Letting go short of the threshold puts it back.
-     *
-     * The drag is measured here rather than taken from the scroll position, because at the end of
-     * the text there is no scrolling left to read.
-     */
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        val position = if (paged) event.x else event.y
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                lastTouch = position
-                pulling = false
-                pullTravel = 0f
-                // A new touch during the spring back takes the page where it is, not where it was
-                // heading, so the animation is stopped rather than left to finish underneath.
-                animate().cancel()
-                translationX = 0f
-                translationY = 0f
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (isSelecting) return super.onTouchEvent(event)
-                val travel = lastTouch - position
-                lastTouch = position
-                if (!pulling) {
-                    val beyondEnd = travel > 0 && scrollOffset >= maxScroll
-                    val beyondStart = travel < 0 && scrollOffset <= 0
-                    if (!beyondEnd && !beyondStart) return super.onTouchEvent(event)
-                    pulling = true
-                }
-                pullTravel += travel
-                // Dragged all the way back to where the pull began: the page is home, so end it
-                // here rather than leaving the gesture owned for the rest of the drag.
-                if (pullTravel == 0f) {
-                    pulling = false
-                    return super.onTouchEvent(event)
-                }
-                offsetForPull()
-                return true
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (pulling) {
-                    releasePull(commit = abs(pullTravel) >= PULL_COMMIT_DP * density)
-                    return true
-                }
-            }
-        }
-        return super.onTouchEvent(event)
-    }
-
-    /** A rubber band: the further it is pulled the less it gives, and it never leaves the screen. */
-    private fun offsetForPull() {
-        val limit = viewportExtent * PULL_LIMIT_FRACTION
-        val eased = limit * (1f - limit / (abs(pullTravel) + limit))
-        val shift = if (pullTravel > 0) -eased else eased
-        if (paged) translationX = shift else translationY = shift
-    }
-
-    private fun releasePull(commit: Boolean) {
-        val forward = pullTravel > 0
-        pulling = false
-        pullTravel = 0f
-        animate().cancel()
-        if (paged) {
-            if (translationX != 0f) animate().translationX(0f).setDuration(PULL_RETURN_MS).start()
-        } else {
-            if (translationY != 0f) animate().translationY(0f).setDuration(PULL_RETURN_MS).start()
-        }
-        if (commit) onPullPastEdge?.invoke(forward)
     }
 
     /**
@@ -271,7 +178,7 @@ fun NovelChapterWebView(
     onImageTap: (String) -> Unit,
     pinchEnabled: Boolean,
     onPinch: (Float) -> Unit,
-    onPullPastEdge: (forward: Boolean) -> Unit,
+    onPastEdge: (forward: Boolean) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
     onInternalLink: (String) -> Unit,
     onExternalLink: (String) -> Unit,
@@ -298,7 +205,7 @@ fun NovelChapterWebView(
     val currentPinchEnabled by rememberUpdatedState(pinchEnabled)
     val currentOnPinch by rememberUpdatedState(onPinch)
     val currentOnEdgeDrag by rememberUpdatedState(onEdgeDrag)
-    val currentOnPullPastEdge by rememberUpdatedState(onPullPastEdge)
+    val currentOnPastEdge by rememberUpdatedState(onPastEdge)
     val currentOnInternalLink by rememberUpdatedState(onInternalLink)
     val currentOnExternalLink by rememberUpdatedState(onExternalLink)
 
@@ -326,6 +233,7 @@ fun NovelChapterWebView(
                     pinchEnabled = { currentPinchEnabled },
                     onPinch = { currentOnPinch(it) },
                     onEdgeDrag = { edge, steps -> currentOnEdgeDrag(edge, steps) },
+                    onPastEdge = { forward -> currentOnPastEdge(forward) },
                 )
                 controller.attach(this) { pages ->
                     turnPage(pages, currentPageOverlapPx, currentPageTurnSound)
@@ -333,7 +241,6 @@ fun NovelChapterWebView(
                 setFindListener { activeMatchOrdinal, numberOfMatches, doneCounting ->
                     controller.onFindResult(activeMatchOrdinal, numberOfMatches, doneCounting)
                 }
-                this.onPullPastEdge = { forward -> currentOnPullPastEdge(forward) }
                 onScroll = { offset, range ->
                     controller.screens = NovelStatusLine.screens(offset, range, viewportExtent)
                     if (restored.value) currentOnProgress(percentOf(offset, range, viewportExtent))
@@ -464,12 +371,14 @@ private fun NovelWebView.attachTapDetector(
     pinchEnabled: () -> Boolean,
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
+    onPastEdge: (forward: Boolean) -> Unit,
 ) {
     val density = resources.displayMetrics.density
     val minSwipeDistancePx = NovelReaderSwipe.MIN_DISTANCE_DP * density
     val edgeMarginPx = NovelTapGrid.EDGE_MARGIN_DP * density
     val edgeSwipeMarginPx = NovelTapGrid.EDGE_SWIPE_MARGIN_DP * density
     val edgeStepPx = NovelTapGrid.EDGE_SWIPE_STEP_DP * density
+    val pastEdgePx = PAST_EDGE_DP * density
 
     val detector = GestureDetector(
         context,
@@ -478,8 +387,16 @@ private fun NovelWebView.attachTapDetector(
             /** Travel not yet worth a whole step, carried on so a slow drag still moves evenly. */
             private var edgeCarry = 0f
 
+            /** Travel spent scrolling once there is no page left to scroll. */
+            private var pastEdgeCarry = 0f
+
+            /** One chapter per gesture: the drag continues over the document that replaces this one. */
+            private var pastEdgeSpent = false
+
             override fun onDown(e: MotionEvent): Boolean {
                 edgeCarry = 0f
+                pastEdgeCarry = 0f
+                pastEdgeSpent = false
                 return false
             }
 
@@ -511,9 +428,27 @@ private fun NovelWebView.attachTapDetector(
                 distanceX: Float,
                 distanceY: Float,
             ): Boolean {
+                if (e1 == null || isSelecting) return false
+
+                // Scrolling on when the page has run out carries on into the next chapter. Nothing
+                // is consumed and nothing resists: it is an ordinary scroll that reached the end,
+                // and the small carry is only there so resting against the end does not count.
+                if (!pastEdgeSpent && abs(distanceY) > abs(distanceX)) {
+                    val forward = distanceY > 0
+                    val atEdge = if (forward) scrollOffset >= maxScroll else scrollOffset <= 0
+                    if (!atEdge) {
+                        pastEdgeCarry = 0f
+                    } else {
+                        pastEdgeCarry += distanceY
+                        if (abs(pastEdgeCarry) >= pastEdgePx) {
+                            pastEdgeSpent = true
+                            onPastEdge(forward)
+                        }
+                    }
+                }
+
                 // Only a drag that began at an edge and is travelling mostly up or down. Anything
                 // else is an ordinary scroll and is left entirely to the page.
-                if (e1 == null || isSelecting) return false
                 val edge = NovelTapGrid.edgeOf(e1.x, width, edgeSwipeMarginPx) ?: return false
                 if (abs(distanceY) <= abs(distanceX)) return false
 
@@ -621,10 +556,10 @@ private fun novelWebViewClient(
 private const val MAX_HEIGHT_POLLS = 40
 private const val HEIGHT_POLL_INTERVAL_MS = 50L
 
-/** Finger travel past the end that hands over to the next chapter. */
-private const val PULL_COMMIT_DP = 88f
-
-/** The furthest the page itself will ever move, as a share of the screen. */
-private const val PULL_LIMIT_FRACTION = 0.22f
-
-private const val PULL_RETURN_MS = 220L
+/**
+ * Scrolling past the end of the text that carries on into the next chapter.
+ *
+ * Small on purpose: it is there so that resting against the end of a chapter is not mistaken for
+ * asking for the next one, not to make the reader work for the page turn.
+ */
+private const val PAST_EDGE_DP = 24f
