@@ -487,7 +487,7 @@ fun NovelReaderScreen(
                         pinchEnabled = pinchFontSize,
                         onPinch = ::performPinch,
                         onEdgeDrag = ::performEdgeDrag,
-                        onPullPastEdge = { forward ->
+                        onPastEdge = { forward ->
                             viewModel.setCurrentChapter(state.currentIndex + if (forward) 1 else -1)
                         },
                         onTapCell = { cell ->
@@ -787,7 +787,7 @@ private fun ChapterContent(
     pinchEnabled: Boolean,
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
-    onPullPastEdge: (forward: Boolean) -> Unit,
+    onPastEdge: (forward: Boolean) -> Unit,
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
@@ -818,8 +818,8 @@ private fun ChapterContent(
             }
         }
         else -> {
-            val document = remember(chapterContent, style, colors, publisherFormatting) {
-                NovelReaderCss.document(chapterContent, style, colors, publisherFormatting)
+            val document = remember(chapterContent, style, colors, publisherFormatting, chapter.name) {
+                NovelReaderCss.document(chapterContent, style, colors, publisherFormatting, chapter.name)
             }
             NovelChapterWebView(
                 document = document,
@@ -844,7 +844,7 @@ private fun ChapterContent(
                 pinchEnabled = pinchEnabled,
                 onPinch = onPinch,
                 onEdgeDrag = onEdgeDrag,
-                onPullPastEdge = onPullPastEdge,
+                onPastEdge = onPastEdge,
                 onTapCell = onTapCell,
                 onLongPress = onLongPress,
                 onSwipe = onSwipe,

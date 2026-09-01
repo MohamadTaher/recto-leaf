@@ -178,6 +178,9 @@ class NovelReaderViewModel(
 
     override fun onCleared() {
         speaker?.shutdown()
+        // The reading session is over, so the notification offering to control it has to go with
+        // it — leaving it up would leave buttons wired to a speaker that no longer exists.
+        NovelSpeechService.hide(context)
         runCatching { provider?.close() }
         provider = null
     }
@@ -431,6 +434,7 @@ class NovelReaderViewModel(
                     wasSpeaking = speech.speaking
                     // Before the index is read: crossing a chapter moves where the count starts.
                     followSpeechAcrossChapters(speech.index, speech.speaking)
+                    holdProcessOpen(speech.speaking, speech.paused)
                     val index = speech.index - speechChapterStart
                     mutableState.update {
                         it.copy(
@@ -457,6 +461,51 @@ class NovelReaderViewModel(
             intervalMs = novelReaderPreferences.speechIntervalMs.get(),
             mixAudio = novelReaderPreferences.speechMixAudio.get(),
         )
+    }
+
+    /**
+     * Keeps the process alive, and the controls reachable, while speech runs off screen.
+     *
+     * Backgrounding the reader would otherwise take the speech with it: Android gives a process
+     * with nothing on screen and nothing declared no reason to keep running.
+     */
+    private fun holdProcessOpen(speaking: Boolean, paused: Boolean) {
+        val chapter = state.value.currentChapter?.name.orEmpty()
+        // Speech reports itself on every unit; the notification only says three things, so it is
+        // only touched when one of them has actually changed.
+        val shown = if (speaking) "$paused/$chapter" else null
+        if (shown == speechNotification) return
+        speechNotification = shown
+
+        if (shown == null) {
+            NovelSpeechService.hide(context)
+            return
+        }
+        NovelSpeechService.controls = speechControls
+        NovelSpeechService.show(
+            context = context,
+            title = state.value.manga?.title.orEmpty(),
+            chapter = chapter,
+            paused = paused,
+        )
+    }
+
+    /** What the notification currently says, or null while there is none. */
+    private var speechNotification: String? = null
+
+    /**
+     * The notification's buttons.
+     *
+     * Play/pause goes through the speaker rather than [toggleSpeechPlayback], which needs a scroll
+     * position the reader is in no position to report while it is off screen.
+     */
+    private val speechControls = object : NovelSpeechService.Controls {
+        override fun togglePlayback() {
+            val engine = speaker ?: return
+            if (state.value.speechPaused) engine.resume() else engine.pause()
+        }
+
+        override fun stop() = stopSpeaking()
     }
 
     /**
