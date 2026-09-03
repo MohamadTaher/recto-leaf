@@ -219,6 +219,25 @@ fun NovelReaderScreen(
         }
     }
 
+    /**
+     * What a tap on the page means while read-aloud is running.
+     *
+     * The deck covers the bottom of the page, so the first tap takes it away and leaves the voice
+     * running over the text it was hiding. The second stops the voice being read over and brings
+     * the deck back, which is where every other control is. Reports whether it took the tap, so
+     * the reader's own tap zones go on working the moment speech is off.
+     */
+    fun performSpeechTap(): Boolean {
+        if (!state.speaking) return false
+        if (showSpeechControls) {
+            showSpeechControls = false
+        } else {
+            if (!state.speechPaused) viewModel.toggleSpeechPlayback(livePercent)
+            showSpeechControls = true
+        }
+        return true
+    }
+
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
         when (action) {
@@ -448,15 +467,14 @@ fun NovelReaderScreen(
         MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     }
 
-    // A continuous document scripts its own mark, because a find counts matches across every
-    // loaded chapter and would send the page to whichever came first. Paged reading has no script,
-    // so it keeps WebView's native find facility, which needs no JavaScript in book content.
-    LaunchedEffect(continuousChapters, state.speaking, state.speechText, state.speechOccurrence) {
-        val text = state.speechText.takeIf { state.speaking }
-        when {
-            continuousChapters -> webViewController.markSpeech(text)
-            text != null -> webViewController.highlightSpeech(text, state.speechOccurrence)
-            else -> webViewController.clearSpeechHighlight()
+    // WebView's native find facility highlights the exact visible text and brings it on screen,
+    // without enabling JavaScript for book content. Repeated sections advance to their occurrence.
+    LaunchedEffect(state.speaking, state.speechText, state.speechOccurrence) {
+        val text = state.speechText
+        if (state.speaking && text != null) {
+            webViewController.highlightSpeech(text, state.speechOccurrence)
+        } else {
+            webViewController.clearSpeechHighlight()
         }
     }
 
@@ -544,10 +562,23 @@ fun NovelReaderScreen(
                                 livePercent = percent
                             },
                             onTapCell = { cell ->
-                                performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
+                                if (!performSpeechTap()) {
+                                    performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
+                                }
                             },
                             onSwipe = { swipe ->
-                                performBinding(viewModel.novelReaderPreferences.swipes.getValue(swipe).get())
+                                val horizontal = swipe == NovelReaderSwipe.LEFT_TO_RIGHT ||
+                                    swipe == NovelReaderSwipe.RIGHT_TO_LEFT
+                                // Read-aloud claims the sideways swipe outright while it is on:
+                                // it is the one gesture that leaves it, from either state.
+                                if (horizontal && (state.speaking || showSpeechControls)) {
+                                    closeSpeechControls()
+                                    true
+                                } else {
+                                    performBinding(
+                                        viewModel.novelReaderPreferences.swipes.getValue(swipe).get(),
+                                    )
+                                }
                             },
                             onLongPress = ::performLongPress,
                             onInternalLink = { entry ->
