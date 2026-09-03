@@ -96,6 +96,6 @@ object NovelSpeech {
         "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc", "e.g", "i.e", "vol",
     )
 
-    /** The blocks a chapter's prose lives in. */
-    private const val BLOCK_SELECTOR = "p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, dt"
+    /** The blocks a chapter's prose lives in. The reader marks the spoken one by the same rule. */
+    internal const val BLOCK_SELECTOR = "p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, dt"
 }
