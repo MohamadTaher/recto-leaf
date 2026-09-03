@@ -27,6 +27,7 @@ class NovelWebViewController {
     private var chapterAppender: ((String) -> Unit)? = null
     private var chapterPrepender: ((String) -> Unit)? = null
     private var chapterScroller: ((Long, Int) -> Unit)? = null
+    private var chapterSpeaker: ((String?) -> Unit)? = null
     private var chapterKeeper: ((List<Long>) -> Unit)? = null
 
     /**
@@ -41,6 +42,7 @@ class NovelWebViewController {
         appendChapter: (String) -> Unit,
         prependChapter: (String) -> Unit,
         scrollToChapter: (Long, Int) -> Unit,
+        markSpeech: (String?) -> Unit,
         keepChapters: (List<Long>) -> Unit,
     ) {
         webView = view
@@ -48,6 +50,7 @@ class NovelWebViewController {
         chapterAppender = appendChapter
         chapterPrepender = prependChapter
         chapterScroller = scrollToChapter
+        chapterSpeaker = markSpeech
         chapterKeeper = keepChapters
     }
 
@@ -57,6 +60,7 @@ class NovelWebViewController {
         chapterAppender = null
         chapterPrepender = null
         chapterScroller = null
+        chapterSpeaker = null
         chapterKeeper = null
     }
 
@@ -93,6 +97,18 @@ class NovelWebViewController {
     /** Moves to a chapter section already present in the rolling document. */
     fun scrollToChapter(chapterId: Long, percent: Int = 0) {
         chapterScroller?.invoke(chapterId, percent)
+    }
+
+    /**
+     * Marks the block being spoken in a continuous document, or clears it when [text] is null.
+     *
+     * The page finds it itself, nearest to where the reader is, rather than through the view.s
+     * find-in-page: a search counts every match in the whole document, so an identical line in a
+     * loaded chapter above would pull the page back to it. Paged reading has no script and keeps
+     * [highlightSpeech].
+     */
+    fun markSpeech(text: String?) {
+        chapterSpeaker?.invoke(text)
     }
 
     /** Drops every section outside the window the reader is in, on either side of it. */
