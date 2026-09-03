@@ -46,10 +46,16 @@ object NovelSpeech {
         return utterances.lastIndex
     }
 
-    /** Which identical visible match [index] names, for WebView's native text highlighting. */
-    fun occurrenceAt(index: Int, utterances: List<String>): Int {
+    /**
+     * Which identical visible match [index] names, for WebView's native text highlighting.
+     *
+     * Counted from [from] rather than from the start, because the queue runs on past the end of a
+     * chapter while the document holds only the chapters around the reader. Counting the whole
+     * queue would name a match that is no longer in the page and send the search wandering.
+     */
+    fun occurrenceAt(index: Int, utterances: List<String>, from: Int = 0): Int {
         val current = utterances.getOrNull(index) ?: return 0
-        return utterances.take(index.coerceAtLeast(0)).count { it == current }
+        return (from.coerceAtLeast(0) until index).count { utterances[it] == current }
     }
 
     /**
@@ -96,6 +102,6 @@ object NovelSpeech {
         "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc", "e.g", "i.e", "vol",
     )
 
-    /** The blocks a chapter's prose lives in. The reader marks the spoken one by the same rule. */
-    internal const val BLOCK_SELECTOR = "p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, dt"
+    /** The blocks a chapter's prose lives in. A longer list is a dictionary, not a splitter. */
+    private const val BLOCK_SELECTOR = "p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, dt"
 }

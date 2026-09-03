@@ -25,9 +25,6 @@ data class NovelDocumentChapter(
  */
 object NovelReaderCss {
 
-    /** The class the reader puts on the block being spoken, and the stylesheet colours. */
-    const val SPEAKING_CLASS = "leaf-speaking"
-
     /** Builds the initial current-plus-three document used by continuous scrolling. */
     fun continuousDocument(
         chapters: List<NovelDocumentChapter>,
@@ -88,7 +85,6 @@ object NovelReaderCss {
         val background = colors.background.toCssColor()
         val foreground = colors.foreground.toCssColor()
         val muted = colors.foreground.withAlpha(ACCENT_ALPHA).toCssColor()
-        val spoken = colors.foreground.withAlpha(SPOKEN_ALPHA).toCssColor()
         // A chosen colour is a fixed one; the default keeps following whatever the theme reads as.
         val link = style.linkColor.argb?.toCssColor() ?: muted
         val note = style.noteColor.argb?.toCssColor() ?: muted
@@ -170,7 +166,6 @@ object NovelReaderCss {
             pre, table { overflow-x: auto; display: block; max-width: 100%; }
             hr { border: none; border-top: 1px solid $muted; }
             a { color: $link !important; }
-            .${SPEAKING_CLASS} { background-color: $spoken !important; border-radius: 0.15em; }
             aside.${NovelEpubMarkup.NOTE_CLASS} {
               color: $note !important;
               font-size: 0.9em;
@@ -306,9 +301,6 @@ object NovelReaderCss {
             html { -webkit-text-size-adjust: 100%; }
             body { background: ${colors.background.toCssColor()} !important; color: ${colors.foreground.toCssColor()}; }
             img, svg, video { max-width: 100%; height: auto; }
-            .${SPEAKING_CLASS} { background-color: ${colors.foreground.withAlpha(
-            SPOKEN_ALPHA,
-        ).toCssColor()} !important; }
             </style>
             </head>
             <body>
@@ -419,9 +411,6 @@ object NovelReaderCss {
     private const val PER_MILLE = 1000
 
     private const val ACCENT_ALPHA = 168
-
-    /** Faint enough to read straight through, strong enough to find at a glance. */
-    private const val SPOKEN_ALPHA = 56
 
     private const val BODY_OPEN = "<body>"
     private const val BODY_CLOSE = "</body>"
