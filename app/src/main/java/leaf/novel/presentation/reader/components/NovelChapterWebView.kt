@@ -35,6 +35,7 @@ import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelTapGrid
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -118,6 +119,10 @@ private class NovelWebView(context: Context) : WebView(context) {
         chapterCommand(JSONObject().put("type", "append").put("html", section).toString())
     }
 
+    fun prependChapter(section: String) {
+        chapterCommand(JSONObject().put("type", "prepend").put("html", section).toString())
+    }
+
     fun scrollToChapter(chapterId: Long, percent: Int) {
         chapterCommand(
             JSONObject()
@@ -128,13 +133,9 @@ private class NovelWebView(context: Context) : WebView(context) {
         )
     }
 
-    fun pruneBeforeChapter(chapterId: Long) {
-        chapterCommand(
-            JSONObject()
-                .put("type", "prune")
-                .put("id", chapterId.toString())
-                .toString(),
-        )
+    fun keepChapters(chapterIds: List<Long>) {
+        val ids = JSONArray().apply { chapterIds.forEach { put(it.toString()) } }
+        chapterCommand(JSONObject().put("type", "keep").put("ids", ids).toString())
     }
 
     fun beginChapterLoad(): Int {
@@ -342,8 +343,9 @@ fun NovelChapterWebView(
                     view = this,
                     turnPages = { pages -> turnPage(pages, currentPageOverlapPx, currentPageTurnSound) },
                     appendChapter = ::appendChapter,
+                    prependChapter = ::prependChapter,
                     scrollToChapter = ::scrollToChapter,
-                    pruneBeforeChapter = ::pruneBeforeChapter,
+                    keepChapters = ::keepChapters,
                 )
                 setFindListener { activeMatchOrdinal, numberOfMatches, doneCounting ->
                     controller.onFindResult(activeMatchOrdinal, numberOfMatches, doneCounting)
@@ -688,7 +690,8 @@ private const val CHAPTER_SECURITY = """
 """
 
 /**
- * Reports the titled section at the top of the viewport and accepts append/seek commands. The
+ * Reports the titled section at the top of the viewport and accepts the commands that move the
+ * window of loaded chapters around it: append, prepend, seek and keep. The
  * generated document's CSP permits this nonce-bearing script and refuses every script from book
  * content, so the bridge stays app-owned without depending on a recent WebView feature.
  */
@@ -697,13 +700,41 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
       const chapters = () => Array.from(document.querySelectorAll('[data-leaf-chapter]'));
       let scheduled = false;
 
+      /** Which section the top of the viewport is in, which every measurement is relative to. */
+      const activeIn = all => {
+        const probe = window.scrollY + 1;
+        let position = 0;
+        for (let i = 1; i < all.length && all[i].offsetTop <= probe; i++) position = i;
+        return position;
+      };
+
+      /**
+       * Changes the document and puts the page back over the same words.
+       *
+       * Adding or dropping a section above the reader moves everything below it by that section's
+       * height, so the scroll offset is corrected by however far the anchor actually travelled.
+       */
+      const keepingPlace = (anchor, change) => {
+        if (!anchor) { change(); return; }
+        const before = anchor.getBoundingClientRect().top;
+        change();
+        window.scrollBy(0, anchor.getBoundingClientRect().top - before);
+      };
+
+      const sectionOf = html => {
+        const template = document.createElement('template');
+        template.innerHTML = html.trim();
+        const section = template.content.firstElementChild;
+        if (!section) return null;
+        const id = section.dataset.leafChapter;
+        return chapters().some(it => it.dataset.leafChapter === id) ? null : section;
+      };
+
       const report = () => {
         scheduled = false;
         const all = chapters();
         if (all.length === 0) return;
-        const probe = window.scrollY + 1;
-        let position = 0;
-        for (let i = 1; i < all.length && all[i].offsetTop <= probe; i++) position = i;
+        const position = activeIn(all);
         const chapter = all[position];
         const end = position + 1 < all.length
           ? all[position + 1].offsetTop
@@ -733,30 +764,35 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         command: value => {
           const command = JSON.parse(value);
           if (command.type === 'append') {
-            const template = document.createElement('template');
-            template.innerHTML = command.html.trim();
-            const section = template.content.firstElementChild;
-            if (section && !chapters().some(it =>
-              it.dataset.leafChapter === section.dataset.leafChapter)) {
-              document.body.appendChild(section);
+            const section = sectionOf(command.html);
+            if (section) document.body.appendChild(section);
+          } else if (command.type === 'prepend') {
+            const section = sectionOf(command.html);
+            const all = chapters();
+            if (section) {
+              keepingPlace(all[activeIn(all)], () => {
+                document.body.insertBefore(section, document.body.firstChild);
+              });
             }
           } else if (command.type === 'scroll') {
-            const chapter = chapters().find(it => it.dataset.leafChapter === command.id);
-            if (chapter) {
-              const all = chapters();
-              const position = all.indexOf(chapter);
+            const all = chapters();
+            const position = all.findIndex(it => it.dataset.leafChapter === command.id);
+            if (position >= 0) {
+              const chapter = all[position];
               const end = position + 1 < all.length
                 ? all[position + 1].offsetTop
                 : chapter.offsetTop + chapter.offsetHeight;
               const travel = Math.max(0, end - chapter.offsetTop - window.innerHeight);
               window.scrollTo(0, chapter.offsetTop + travel * command.percent / 100);
             }
-          } else if (command.type === 'prune') {
-            const keep = chapters().find(it => it.dataset.leafChapter === command.id);
-            if (keep) {
-              const top = keep.getBoundingClientRect().top;
-              chapters().filter(it => it.offsetTop < keep.offsetTop).forEach(it => it.remove());
-              window.scrollBy(0, keep.getBoundingClientRect().top - top);
+          } else if (command.type === 'keep') {
+            const all = chapters();
+            const doomed = all.filter(it => !command.ids.includes(it.dataset.leafChapter));
+            if (doomed.length > 0) {
+              // The anchor has to be one of the survivors, so a window that has moved off the
+              // section under the reader still measures against something that stays.
+              const anchor = all.slice(activeIn(all)).find(it => !doomed.includes(it));
+              keepingPlace(anchor, () => doomed.forEach(it => it.remove()));
             }
           }
           scheduleReport();
