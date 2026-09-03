@@ -448,14 +448,15 @@ fun NovelReaderScreen(
         MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     }
 
-    // WebView's native find facility highlights the exact visible text and brings it on screen,
-    // without enabling JavaScript for book content. Repeated sections advance to their occurrence.
-    LaunchedEffect(state.speaking, state.speechText, state.speechOccurrence) {
-        val text = state.speechText
-        if (state.speaking && text != null) {
-            webViewController.highlightSpeech(text, state.speechOccurrence)
-        } else {
-            webViewController.clearSpeechHighlight()
+    // A continuous document scripts its own mark, because a find counts matches across every
+    // loaded chapter and would send the page to whichever came first. Paged reading has no script,
+    // so it keeps WebView's native find facility, which needs no JavaScript in book content.
+    LaunchedEffect(continuousChapters, state.speaking, state.speechText, state.speechOccurrence) {
+        val text = state.speechText.takeIf { state.speaking }
+        when {
+            continuousChapters -> webViewController.markSpeech(text)
+            text != null -> webViewController.highlightSpeech(text, state.speechOccurrence)
+            else -> webViewController.clearSpeechHighlight()
         }
     }
 
