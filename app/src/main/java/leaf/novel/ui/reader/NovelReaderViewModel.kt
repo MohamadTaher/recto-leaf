@@ -420,6 +420,12 @@ class NovelReaderViewModel(
     /** The last chapter whose pieces are in the queue. Speech reads on from the one after it. */
     private var speechChapterIndex = 0
 
+    /** Where the chapter being spoken starts in the queue, so a repeat is counted within it. */
+    private var speechChapterStart = 0
+
+    /** Where the chapter after it starts, or -1 once the voice has reached it. */
+    private var speechNextStart = -1
+
     private var speechExtendJob: Job? = null
 
     private var speechStopJob: Job? = null
@@ -467,6 +473,8 @@ class NovelReaderViewModel(
         // A fresh queue: whatever had been read ahead belongs to a run that no longer exists.
         speechExtendJob?.cancel()
         speechChapterIndex = state.value.currentIndex
+        speechChapterStart = 0
+        speechNextStart = -1
         val engine = speaker ?: NovelSpeaker(context).also { created ->
             speaker = created
             // Mirrored into the reader's own state so the screen has one thing to collect, and so
@@ -478,6 +486,11 @@ class NovelReaderViewModel(
                     if (wasSpeaking && !speech.speaking) cancelSpeechStop()
                     wasSpeaking = speech.speaking
                     if (speech.speaking) extendSpeech(speech.index)
+                    // The count restarts with the chapter, which is what the page holds.
+                    if (speechNextStart in 0..speech.index) {
+                        speechChapterStart = speechNextStart
+                        speechNextStart = -1
+                    }
                     holdProcessOpen(speech.speaking, speech.paused)
                     mutableState.update {
                         it.copy(
@@ -486,7 +499,11 @@ class NovelReaderViewModel(
                             speechIndex = speech.index,
                             speechCount = speechUtterances.size,
                             speechText = speechUtterances.getOrNull(speech.index),
-                            speechOccurrence = NovelSpeech.occurrenceAt(speech.index, speechUtterances),
+                            speechOccurrence = NovelSpeech.occurrenceAt(
+                                speech.index,
+                                speechUtterances,
+                                from = speechChapterStart,
+                            ),
                             speechUnavailable = speech.initialised && !speech.available,
                         )
                     }
@@ -574,6 +591,7 @@ class NovelReaderViewModel(
             if (index != speechChapterIndex + 1) return@launch
 
             speechChapterIndex = index
+            speechNextStart = speechUtterances.size
             speechUtterances = speechUtterances + more
             speaker?.extend(more)
         }

@@ -30,8 +30,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import leaf.novel.ui.reader.NovelReaderCss
-import leaf.novel.ui.reader.NovelSpeech
 import leaf.novel.ui.reader.NovelStatusLine
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
@@ -123,19 +121,6 @@ private class NovelWebView(context: Context) : WebView(context) {
 
     fun prependChapter(section: String) {
         chapterCommand(JSONObject().put("type", "prepend").put("html", section).toString())
-    }
-
-    /**
-     * Marks the block being spoken, or clears the mark when [text] is null.
-     *
-     * Dropped rather than queued while the document is being rebuilt: the mark is worth only as
-     * long as that piece is being said, and a burst of stale ones would scroll the page about.
-     */
-    fun markSpeech(text: String?) {
-        if (!chapterBridgeReady) return
-        chapterCommand(
-            JSONObject().put("type", "speak").put("text", text ?: JSONObject.NULL).toString(),
-        )
     }
 
     fun scrollToChapter(chapterId: Long, percent: Int) {
@@ -360,7 +345,6 @@ fun NovelChapterWebView(
                     appendChapter = ::appendChapter,
                     prependChapter = ::prependChapter,
                     scrollToChapter = ::scrollToChapter,
-                    markSpeech = ::markSpeech,
                     keepChapters = ::keepChapters,
                 )
                 setFindListener { activeMatchOrdinal, numberOfMatches, doneCounting ->
@@ -711,12 +695,9 @@ private const val CHAPTER_SECURITY = """
  * generated document's CSP permits this nonce-bearing script and refuses every script from book
  * content, so the bridge stays app-owned without depending on a recent WebView feature.
  */
-private val CHAPTER_OBSERVER_SCRIPT = """
+private const val CHAPTER_OBSERVER_SCRIPT = """
     (() => {
       const chapters = () => Array.from(document.querySelectorAll('[data-leaf-chapter]'));
-      const BLOCKS = '${NovelSpeech.BLOCK_SELECTOR}';
-      const SPEAKING = '${NovelReaderCss.SPEAKING_CLASS}';
-      const SPEAKING_MARGIN = 0.25;
       let scheduled = false;
 
       /** Which section the top of the viewport is in, which every measurement is relative to. */
@@ -747,36 +728,6 @@ private val CHAPTER_OBSERVER_SCRIPT = """
         if (!section) return null;
         const id = section.dataset.leafChapter;
         return chapters().some(it => it.dataset.leafChapter === id) ? null : section;
-      };
-
-      /**
-       * Puts the mark on the block holding the words being spoken and brings it into view.
-       *
-       * The nearest such block rather than the first in the document: an identical line in a
-       * chapter above must not pull the page back to it, and a document that has since had
-       * sections added or dropped must not move the mark with them.
-       */
-      const mark = text => {
-        // Both sides through the same normalisation: the spoken text keeps the non-breaking
-        // spaces the markup had, and a line with one would otherwise never match.
-        const needle = text.replace(/\s+/g, ' ');
-        let best = null;
-        let closest = Infinity;
-        document.querySelectorAll(BLOCKS).forEach(block => {
-          if (block.textContent.replace(/\s+/g, ' ').indexOf(needle) < 0) return;
-          // A block inside a block holds its child's words too, and the child is the piece.
-          if (block.querySelector(BLOCKS)) return;
-          const distance = Math.abs(block.getBoundingClientRect().top);
-          if (distance < closest) { closest = distance; best = block; }
-        });
-        if (!best) return;
-        best.classList.add(SPEAKING);
-        // Only once it has actually left the page, so the voice does not drag the page a few
-        // pixels at a time through a paragraph the reader can already see all of.
-        const rect = best.getBoundingClientRect();
-        if (rect.top < 0 || rect.bottom > window.innerHeight) {
-          window.scrollBy(0, rect.top - window.innerHeight * SPEAKING_MARGIN);
-        }
       };
 
       const report = () => {
@@ -843,10 +794,6 @@ private val CHAPTER_OBSERVER_SCRIPT = """
               const anchor = all.slice(activeIn(all)).find(it => !doomed.includes(it));
               keepingPlace(anchor, () => doomed.forEach(it => it.remove()));
             }
-          } else if (command.type === 'speak') {
-            const marked = document.querySelector('.' + SPEAKING);
-            if (marked) marked.classList.remove(SPEAKING);
-            if (command.text) mark(command.text);
           }
           scheduleReport();
         },
