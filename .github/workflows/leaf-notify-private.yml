@@ -1,0 +1,25 @@
+# Tells the private downstream to pull this repo's main. Skips silently when the
+# PRIVATE_SYNC_TOKEN secret is absent, so forks and clones are unaffected.
+name: Notify the private downstream
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.repository == 'MohamadTaher/recto-leaf'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch a sync
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SYNC_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo 'PRIVATE_SYNC_TOKEN is not set; nothing to notify.'
+            exit 0
+          fi
+          gh api -X POST repos/MohamadTaher/recto-leaf-private/dispatches -f event_type=public-push
