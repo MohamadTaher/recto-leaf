@@ -32,6 +32,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
@@ -50,7 +51,9 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.components.NovelChapterWebView
@@ -59,7 +62,6 @@ import leaf.novel.presentation.reader.components.NovelStatusBar
 import leaf.novel.presentation.reader.components.NovelStatusBarHeight
 import leaf.novel.presentation.reader.components.NovelTiltPageTurns
 import leaf.novel.presentation.reader.components.NovelWebViewController
-import leaf.novel.presentation.reader.components.supportsContinuousChapters
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsDialog
 import leaf.novel.presentation.reader.settings.NovelReaderSettingsTab
 import leaf.novel.presentation.reader.settings.NovelTextReplacementDialog
@@ -203,8 +205,37 @@ fun NovelReaderScreen(
     }
 
     fun turnSpeechPage(forward: Boolean) {
+        val from = livePercent
         if (forward) webViewController.pageDown() else webViewController.pageUp()
-        if (state.speaking) viewModel.restartSpeaking(livePercent, state.speechPaused)
+        if (!state.speaking) return
+        scope.launch {
+            // A continuous document reports where it landed back through the page a frame later,
+            // rather than from the scroll itself, so the restart waits for the page it turned to
+            // instead of speaking the one it left.
+            withTimeoutOrNull(SPEECH_PAGE_SETTLE_MS) {
+                snapshotFlow { livePercent }.first { it != from }
+            }
+            viewModel.restartSpeaking(livePercent, state.speechPaused)
+        }
+    }
+
+    /**
+     * What a tap on the page means while read-aloud is running.
+     *
+     * The deck covers the bottom of the page, so the first tap takes it away and leaves the voice
+     * running over the text it was hiding. The second stops the voice being read over and brings
+     * the deck back, which is where every other control is. Reports whether it took the tap, so
+     * the reader's own tap zones go on working the moment speech is off.
+     */
+    fun performSpeechTap(): Boolean {
+        if (!state.speaking) return false
+        if (showSpeechControls) {
+            showSpeechControls = false
+        } else {
+            if (!state.speechPaused) viewModel.toggleSpeechPlayback(livePercent)
+            showSpeechControls = true
+        }
+        return true
     }
 
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
@@ -380,7 +411,7 @@ fun NovelReaderScreen(
     // paged layout are gated on it below; keeping a line and the page-turn sound apply to page up
     // and page down in either mode, and are offered in either mode to match.
     val paged by viewModel.novelReaderPreferences.paged.collectAsState()
-    val continuousChapters = remember(paged) { !paged && supportsContinuousChapters() }
+    val continuousChapters = !paged
     var documentPaged by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(paged) {
         if (documentPaged != null && documentPaged != paged) {
@@ -488,7 +519,7 @@ fun NovelReaderScreen(
             else -> {
                 val startIndex = state.chapters.indexOfFirst { it.id == documentStartChapterId }
                 if (chapter != null && startIndex >= 0) {
-                    key(documentStartChapterId) {
+                    key(documentStartChapterId, paged) {
                         ChapterContent(
                             viewModel = viewModel,
                             startIndex = startIndex,
@@ -519,8 +550,10 @@ fun NovelReaderScreen(
                             pinchEnabled = pinchFontSize,
                             onPinch = ::performPinch,
                             onEdgeDrag = ::performEdgeDrag,
+                            // A continuous document already carries on into the chapter on either
+                            // side, so the drag scrolls into it. Only a paged one has to be opened.
                             onPastEdge = { forward ->
-                                openChapter(state.currentIndex + if (forward) 1 else -1)
+                                if (paged) openChapter(state.currentIndex + if (forward) 1 else -1)
                             },
                             onChapterChange = { index, percent ->
                                 if (state.currentIndex != index) {
@@ -529,10 +562,23 @@ fun NovelReaderScreen(
                                 livePercent = percent
                             },
                             onTapCell = { cell ->
-                                performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
+                                if (!performSpeechTap()) {
+                                    performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
+                                }
                             },
                             onSwipe = { swipe ->
-                                performBinding(viewModel.novelReaderPreferences.swipes.getValue(swipe).get())
+                                val horizontal = swipe == NovelReaderSwipe.LEFT_TO_RIGHT ||
+                                    swipe == NovelReaderSwipe.RIGHT_TO_LEFT
+                                // Read-aloud claims the sideways swipe outright while it is on:
+                                // it is the one gesture that leaves it, from either state.
+                                if (horizontal && (state.speaking || showSpeechControls)) {
+                                    closeSpeechControls()
+                                    true
+                                } else {
+                                    performBinding(
+                                        viewModel.novelReaderPreferences.swipes.getValue(swipe).get(),
+                                    )
+                                }
                             },
                             onLongPress = ::performLongPress,
                             onInternalLink = { entry ->
@@ -615,8 +661,18 @@ fun NovelReaderScreen(
                 paused = state.speechPaused,
                 index = state.speechIndex,
                 count = state.speechCount,
-                previousPageEnabled = webViewController.screens.current > 1,
-                nextPageEnabled = webViewController.screens.current < webViewController.screens.total,
+                // A continuous document runs out at the ends of the loaded window rather than at
+                // the ends of the chapter, which is what the screen count measures.
+                previousPageEnabled = if (continuousChapters) {
+                    webViewController.canScrollUp
+                } else {
+                    webViewController.screens.current > 1
+                },
+                nextPageEnabled = if (continuousChapters) {
+                    webViewController.canScrollDown
+                } else {
+                    webViewController.screens.current < webViewController.screens.total
+                },
                 preferences = viewModel.novelReaderPreferences,
                 onPlayPause = {
                     if (state.speaking) {
@@ -858,7 +914,7 @@ private fun ChapterContent(
     onExternalLink: (String) -> Unit,
 ) {
     val assetServer = remember(viewModel) { viewModel.assetServer() }
-    val continuous = remember(paged) { !paged && supportsContinuousChapters() }
+    val continuous = !paged
 
     val loaded by produceState<NovelReaderViewModel.LoadedChapter?>(initialValue = null, startIndex) {
         value = viewModel.loadedChapter(startIndex)
@@ -908,32 +964,37 @@ private fun ChapterContent(
                 }
             }
 
-            // As soon as the active section changes, move the same three-chapter preload window
-            // forward. Appending changes the DOM in place, so the scroll offset never resets.
+            // As soon as the active section changes, the window of loaded chapters moves with it.
+            // Both ends change the DOM in place and correct the scroll offset by however far they
+            // moved it, so the words on screen stay where they are.
             LaunchedEffect(activeIndex, continuous, style, colors, publisherFormatting) {
                 if (!continuous) return@LaunchedEffect
                 val chapters = viewModel.state.value.chapters
-                val lastLoaded = chapters.indexOfFirst { it.id == loadedPages.last().id }
-                val target = (activeIndex + NovelReaderViewModel.PRELOAD_CHAPTER_COUNT)
+                val first = (activeIndex - CHAPTERS_BEHIND).coerceAtLeast(0)
+                val last = (activeIndex + NovelReaderViewModel.PRELOAD_CHAPTER_COUNT)
                     .coerceAtMost(chapters.lastIndex)
-                for (index in (lastLoaded + 1)..target) {
-                    val next = viewModel.loadedChapter(index) ?: break
-                    val content = next.content.getOrNull() ?: break
-                    if (loadedPages.any { it.id == next.chapter.id }) continue
-                    val page = NovelDocumentChapter(next.chapter.id, next.chapter.name, content)
+
+                for (index in chapters.indexOfFirst { it.id == loadedPages.last().id } + 1..last) {
+                    val page = viewModel.documentChapter(index) ?: break
                     loadedPages += page
                     controller.appendChapter(
                         NovelReaderCss.chapterSection(page, style, colors, publisherFormatting),
                     )
                 }
+                // Downwards, so the chapter the reader is about to scroll back into is the first
+                // to arrive. Without one above, reading back off the top has nothing to read.
+                for (index in chapters.indexOfFirst { it.id == loadedPages.first().id } - 1 downTo first) {
+                    val page = viewModel.documentChapter(index) ?: break
+                    loadedPages.add(0, page)
+                    controller.prependChapter(
+                        NovelReaderCss.chapterSection(page, style, colors, publisherFormatting),
+                    )
+                }
 
-                val keepFrom = maxOf(startIndex, activeIndex - 1)
-                val keepId = chapters[keepFrom].id
-                if (loadedPages.first().id != keepId) {
-                    controller.pruneBeforeChapter(keepId)
-                    loadedPages.removeAll { page ->
-                        chapters.indexOfFirst { it.id == page.id } < keepFrom
-                    }
+                val window = chapters.subList(first, last + 1).mapTo(mutableSetOf()) { it.id }
+                if (loadedPages.any { it.id !in window }) {
+                    loadedPages.removeAll { it.id !in window }
+                    controller.keepChapters(loadedPages.map { it.id })
                     viewModel.trimChapterCache(activeIndex)
                 }
             }
@@ -990,6 +1051,19 @@ private fun ChapterContent(
             )
         }
     }
+}
+
+/**
+ * One fetched chapter as a section of the rolling document, or null if it could not be fetched.
+ *
+ * A chapter that will not load ends the window rather than leaving a hole in it: the section it
+ * would have filled is where the reader would otherwise scroll straight from one chapter into
+ * another that is not the next one.
+ */
+private suspend fun NovelReaderViewModel.documentChapter(index: Int): NovelDocumentChapter? {
+    val loaded = loadedChapter(index) ?: return null
+    val content = loaded.content.getOrNull() ?: return null
+    return NovelDocumentChapter(loaded.chapter.id, loaded.chapter.name, content)
 }
 
 @Composable
@@ -1133,6 +1207,17 @@ private fun novelReaderStyle(
 /** What a settings export is called and what it is. Both only reach the document picker. */
 private const val SETTINGS_FILE_NAME = "recto-leaf-reader-settings.json"
 private const val SETTINGS_MIME_TYPE = "application/json"
+
+/**
+ * How many chapters stay loaded above the one being read.
+ *
+ * One is enough to read back into: by the time its first page is reached the window has moved and
+ * the chapter before it has been prepended in turn.
+ */
+private const val CHAPTERS_BEHIND = 1
+
+/** How long the speech page buttons wait for the page to report where it landed. */
+private const val SPEECH_PAGE_SETTLE_MS = 500L
 
 /** Speed reading counts phrases a minute, where the timer counts milliseconds. */
 private const val MILLIS_PER_MINUTE = 60_000

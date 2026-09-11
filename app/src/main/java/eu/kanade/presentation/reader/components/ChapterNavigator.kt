@@ -69,7 +69,7 @@ fun ChapterNavigator(
     enabledPrevious: Boolean,
     currentPage: Int,
     totalPages: Int,
-    // [recto-leaf] The novel slider labels its zero-based value as a percentage.
+    // [recto-leaf] The novel slider labels its value as a percentage.
     pageLabel: (Int) -> String = Int::toString,
     onPageIndexChange: (Int) -> Unit,
     onPageIndexChangeFinished: () -> Unit,

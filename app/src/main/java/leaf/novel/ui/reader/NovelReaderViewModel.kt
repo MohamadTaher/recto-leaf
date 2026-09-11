@@ -340,27 +340,17 @@ class NovelReaderViewModel(
             .getOrNull()
     }
 
-    /**
-     * Opens another chapter.
-     *
-     * [keepSpeaking] is set only by speech itself, which has already read into the chapter being
-     * opened — there the reader is catching up with the voice, so stopping it would cut off the
-     * sentence that caused the move.
-     */
-    fun setCurrentChapter(
-        index: Int,
-        keepSpeaking: Boolean = false,
-        continuous: Boolean = false,
-    ) {
+    /** Opens another chapter. */
+    fun setCurrentChapter(index: Int, continuous: Boolean = false) {
         val chapter = state.value.chapters.getOrNull(index) ?: return
         if (state.value.currentIndex == index) return
 
         viewModelScope.launchNonCancellable { flushProgress() }
         restoredChapterId = chapter.id
         restartReadTimer()
-        // Auto scroll does not carry across a chapter boundary.
-        // Neither auto scroll nor a search carries across a chapter boundary.
-        if (!keepSpeaking) stopSpeaking()
+        // Neither auto scroll nor a search carries across a chapter boundary. Speech does, and a
+        // continuous document is one the reader crosses by scrolling, so neither stops there.
+        if (!continuous) stopSpeaking()
         stopSpeedReading()
         mutableState.update {
             it.copy(
@@ -424,21 +414,19 @@ class NovelReaderViewModel(
     /** The chapter's own markup, kept so speech can be cut from it without re-fetching. */
     private var currentHtml: String? = null
 
-    /** The open chapter's pieces, for exposing the active text and its repeated occurrence. */
+    /** Everything queued, for exposing the active text and its repeated occurrence. */
     private var speechUtterances: List<String> = emptyList()
 
-    /**
-     * Where the open chapter's first piece sits in the engine's own numbering.
-     *
-     * The engine counts continuously across chapters, because reading into the next one appends to
-     * the queue rather than starting a new one. The reader still counts from the chapter it shows.
-     */
+    /** The last chapter whose pieces are in the queue. Speech reads on from the one after it. */
+    private var speechChapterIndex = 0
+
+    /** Where the chapter being spoken starts in the queue, so a repeat is counted within it. */
     private var speechChapterStart = 0
 
-    /** The chapter already queued behind the open one, once speech has read that far ahead. */
-    private var speechNextChapter: StagedChapter? = null
+    /** Where the chapter after it starts, or -1 once the voice has reached it. */
+    private var speechNextStart = -1
 
-    private var speechStageJob: Job? = null
+    private var speechExtendJob: Job? = null
 
     private var speechStopJob: Job? = null
 
@@ -483,9 +471,10 @@ class NovelReaderViewModel(
 
         stopSpeedReading()
         // A fresh queue: whatever had been read ahead belongs to a run that no longer exists.
-        speechStageJob?.cancel()
-        speechNextChapter = null
+        speechExtendJob?.cancel()
+        speechChapterIndex = state.value.currentIndex
         speechChapterStart = 0
+        speechNextStart = -1
         val engine = speaker ?: NovelSpeaker(context).also { created ->
             speaker = created
             // Mirrored into the reader's own state so the screen has one thing to collect, and so
@@ -496,18 +485,25 @@ class NovelReaderViewModel(
                     if (!wasSpeaking && speech.speaking) scheduleSpeechStop()
                     if (wasSpeaking && !speech.speaking) cancelSpeechStop()
                     wasSpeaking = speech.speaking
-                    // Before the index is read: crossing a chapter moves where the count starts.
-                    followSpeechAcrossChapters(speech.index, speech.speaking)
+                    if (speech.speaking) extendSpeech(speech.index)
+                    // The count restarts with the chapter, which is what the page holds.
+                    if (speechNextStart in 0..speech.index) {
+                        speechChapterStart = speechNextStart
+                        speechNextStart = -1
+                    }
                     holdProcessOpen(speech.speaking, speech.paused)
-                    val index = speech.index - speechChapterStart
                     mutableState.update {
                         it.copy(
                             speaking = speech.speaking,
                             speechPaused = speech.paused,
-                            speechIndex = index,
+                            speechIndex = speech.index,
                             speechCount = speechUtterances.size,
-                            speechText = speechUtterances.getOrNull(index),
-                            speechOccurrence = NovelSpeech.occurrenceAt(index, speechUtterances),
+                            speechText = speechUtterances.getOrNull(speech.index),
+                            speechOccurrence = NovelSpeech.occurrenceAt(
+                                speech.index,
+                                speechUtterances,
+                                from = speechChapterStart,
+                            ),
                             speechUnavailable = speech.initialised && !speech.available,
                         )
                     }
@@ -575,46 +571,29 @@ class NovelReaderViewModel(
     /**
      * Carries speech over the end of a chapter.
      *
-     * The next chapter is fetched and queued a few pieces before the current one runs out, so the
-     * voice never stops at a chapter boundary — and the screen follows the voice rather than the
-     * other way round, catching up only once the first piece of the new chapter is reached.
+     * The paragraphs after the ones queued are added a few pieces before the voice runs out, so it
+     * never stops at a chapter boundary. Nothing here moves the reader: the continuous document
+     * already holds the chapters on either side of the open one, so the page follows the voice by
+     * scrolling to the highlighted text and reports the chapter it lands in for itself.
      */
-    private fun followSpeechAcrossChapters(engineIndex: Int, speaking: Boolean) {
-        if (!speaking) return
-
-        val staged = speechNextChapter
-        if (staged != null) {
-            if (engineIndex < staged.startsAt) return
-            speechChapterStart = staged.startsAt
-            speechUtterances = staged.utterances
-            currentHtml = staged.html
-            speechNextChapter = null
-            setCurrentChapter(staged.index, keepSpeaking = true)
-            return
-        }
-
-        if (speechStageJob?.isActive == true) return
-        val remaining = speechChapterStart + speechUtterances.size - engineIndex
-        if (remaining > SPEECH_STAGE_LOOKAHEAD) return
-        stageNextChapter()
-    }
-
-    /** Reads the chapter after the open one and adds it to what is already being said. */
-    private fun stageNextChapter() {
-        val index = state.value.currentIndex + 1
+    private fun extendSpeech(engineIndex: Int) {
+        if (speechExtendJob?.isActive == true) return
+        if (speechUtterances.size - engineIndex > SPEECH_STAGE_LOOKAHEAD) return
+        val index = speechChapterIndex + 1
         val chapter = state.value.chapters.getOrNull(index) ?: return
-        val startsAt = speechChapterStart + speechUtterances.size
 
-        speechStageJob = viewModelScope.launch {
+        speechExtendJob = viewModelScope.launch {
             val content = awaitChapter(chapter).getOrNull() ?: return@launch
-            val utterances = utterancesOf(content.html)
+            val more = utterancesOf(content.html)
             // Checked again on the way out: the fetch is slow enough for speech to have been
             // stopped, restarted or seeked somewhere else entirely while it ran.
-            if (utterances.isEmpty() || !state.value.speaking) return@launch
-            if (startsAt != speechChapterStart + speechUtterances.size) return@launch
+            if (more.isEmpty() || !state.value.speaking) return@launch
+            if (index != speechChapterIndex + 1) return@launch
 
-            speechNextChapter = StagedChapter(index, content.html, utterances, startsAt)
-            speaker?.extend(utterances)
+            speechChapterIndex = index
+            speechNextStart = speechUtterances.size
+            speechUtterances = speechUtterances + more
+            speaker?.extend(more)
         }
     }
 
@@ -642,8 +621,7 @@ class NovelReaderViewModel(
 
     fun stopSpeaking() {
         cancelSpeechStop()
-        speechStageJob?.cancel()
-        speechNextChapter = null
+        speechExtendJob?.cancel()
         speaker?.stop()
     }
 
@@ -957,21 +935,12 @@ class NovelReaderViewModel(
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
     }
 
-    /** A chapter fetched and queued behind the open one, waiting for speech to reach it. */
-    private data class StagedChapter(
-        val index: Int,
-        val html: String,
-        val utterances: List<String>,
-        /** Where its first piece sits in the engine's numbering. */
-        val startsAt: Int,
-    )
-
     companion object {
         /** Trailing whitespace and short final paragraphs mean a reader rarely hits a literal 100. */
         const val COMPLETION_THRESHOLD = 95
 
         /**
-         * How many pieces from the end of a chapter the next one is fetched and queued.
+         * How many pieces from the end of the queue the next chapter is fetched and added.
          *
          * Far enough that the fetch has time to finish, and that the engine is never told about
          * more to say after it has already decided it reached the last piece.

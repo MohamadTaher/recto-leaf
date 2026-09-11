@@ -33,8 +33,8 @@ class EpubContentProvider(
 
         val document = ByteArrayInputStream(bytes).use { Jsoup.parse(it, null, VIRTUAL_ORIGIN + entry) }
 
-        // Scripts never run (JavaScript is disabled) but there is no reason to hand them to the
-        // engine at all, and dropping them keeps the fragment to what is actually readable.
+        // The reader's document policy prevents book scripts from running, but there is no reason
+        // to hand them to the engine at all; dropping them keeps the fragment to what is readable.
         document.select("script").remove()
 
         NovelChapterContent(

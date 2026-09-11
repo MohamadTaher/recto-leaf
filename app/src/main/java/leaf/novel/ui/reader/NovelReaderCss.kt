@@ -56,7 +56,12 @@ object NovelReaderCss {
             publisherFormatting,
             chapter.title,
         )
-        val body = rendered.substringAfter(BODY_OPEN).substringBeforeLast(BODY_CLOSE)
+        val renderedBody = rendered.substringAfter(BODY_OPEN).substringBeforeLast(BODY_CLOSE)
+        val body = if (publisherFormatting) {
+            chapterHeading(chapter.title.ifBlank { chapter.content.title.orEmpty() }) + renderedBody
+        } else {
+            renderedBody
+        }
         val resolved = resolveChapterReferences(body, chapter.content.baseUrl, chapter.id)
         return """<section class="$CHAPTER_SECTION_CLASS" data-leaf-chapter="${chapter.id}">$resolved</section>"""
     }
@@ -181,7 +186,6 @@ object NovelReaderCss {
               padding-bottom: 0.6em;
               border-bottom: 1px solid $muted;
             }
-            .$CHAPTER_SECTION_CLASS { min-height: 100vh; }
             ::selection { background: $SPEECH_HIGHLIGHT; }
             ::search-text { background: $SPEECH_HIGHLIGHT; }
             </style>

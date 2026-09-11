@@ -11,6 +11,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.SoundEffectConstants
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -25,11 +26,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.webkit.JavaScriptExecutionWorld
-import androidx.webkit.JavaScriptReplyProxy
-import androidx.webkit.ScriptHandler
-import androidx.webkit.WebViewCompat
-import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +35,7 @@ import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelTapGrid
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -67,9 +64,9 @@ private class NovelWebView(context: Context) : WebView(context) {
     var paged: Boolean = false
 
     private var selectionMode: ActionMode? = null
-    private var chapterBridge: JavaScriptReplyProxy? = null
-    private var chapterWorld: JavaScriptExecutionWorld? = null
-    private var chapterScript: ScriptHandler? = null
+    private var chapterBridge: ChapterBridge? = null
+    private var chapterBridgeReady = false
+    private var chapterLoadGeneration = 0
     private val pendingChapterCommands = ArrayDeque<String>()
 
     /** Selection runs in an action mode, which is the only signal the view offers that it is on. */
@@ -93,27 +90,14 @@ private class NovelWebView(context: Context) : WebView(context) {
         onScroll?.invoke(scrollOffset, scrollRange)
     }
 
-    /**
-     * Measures titled sections from an isolated world. The page's own JavaScript stays disabled;
-     * only this app-owned observer can see and change the DOM.
-     */
+    /** Measures titled sections through the one script owned by the generated reader document. */
     fun attachChapterBridge(onPosition: (Long, Int, NovelStatusLine.Screens) -> Unit) {
-        if (!supportsContinuousChapters()) return
-        val world = WebViewCompat.getExecutionWorld(this, CHAPTER_WORLD)
-        chapterWorld = world
-        WebViewCompat.addWebMessageListener(
-            this,
-            CHAPTER_BRIDGE,
-            CHAPTER_ORIGINS,
-            world,
-        ) { _, message, _, isMainFrame, replyProxy ->
-            if (!isMainFrame) return@addWebMessageListener
-            chapterBridge = replyProxy
-            while (pendingChapterCommands.isNotEmpty()) {
-                replyProxy.postMessage(pendingChapterCommands.removeFirst())
-            }
+        val bridge = ChapterBridge(this) { message ->
             runCatching {
-                val value = JSONObject(message.data ?: return@runCatching)
+                val value = JSONObject(message)
+                if (value.optInt("generation", -1) != chapterLoadGeneration) return@runCatching
+                chapterBridgeReady = true
+                flushChapterCommands()
                 if (value.optString("type") == "position") {
                     onPosition(
                         value.getString("id").toLong(),
@@ -127,17 +111,16 @@ private class NovelWebView(context: Context) : WebView(context) {
                 }
             }
         }
-        chapterScript = WebViewCompat.addJavaScriptOnEvent(
-            this,
-            CHAPTER_OBSERVER_SCRIPT,
-            WebViewCompat.INJECTION_EVENT_DOCUMENT_END,
-            CHAPTER_ORIGINS,
-            world,
-        )
+        chapterBridge = bridge
+        addJavascriptInterface(bridge, CHAPTER_INTERFACE)
     }
 
     fun appendChapter(section: String) {
         chapterCommand(JSONObject().put("type", "append").put("html", section).toString())
+    }
+
+    fun prependChapter(section: String) {
+        chapterCommand(JSONObject().put("type", "prepend").put("html", section).toString())
     }
 
     fun scrollToChapter(chapterId: Long, percent: Int) {
@@ -150,28 +133,47 @@ private class NovelWebView(context: Context) : WebView(context) {
         )
     }
 
-    fun pruneBeforeChapter(chapterId: Long) {
-        chapterCommand(
-            JSONObject()
-                .put("type", "prune")
-                .put("id", chapterId.toString())
-                .toString(),
-        )
+    fun keepChapters(chapterIds: List<Long>) {
+        val ids = JSONArray().apply { chapterIds.forEach { put(it.toString()) } }
+        chapterCommand(JSONObject().put("type", "keep").put("ids", ids).toString())
+    }
+
+    fun beginChapterLoad(): Int {
+        chapterLoadGeneration++
+        chapterBridgeReady = false
+        return chapterLoadGeneration
     }
 
     private fun chapterCommand(command: String) {
-        chapterBridge?.postMessage(command) ?: pendingChapterCommands.addLast(command)
+        pendingChapterCommands.addLast(command)
+        flushChapterCommands()
+    }
+
+    private fun flushChapterCommands() {
+        if (!chapterBridgeReady) return
+        while (pendingChapterCommands.isNotEmpty()) {
+            val command = JSONObject.quote(pendingChapterCommands.removeFirst())
+            evaluateJavascript(
+                "window.rectoLeafChapters && window.rectoLeafChapters.command($command);",
+                null,
+            )
+        }
     }
 
     fun detachChapterBridge() {
+        removeJavascriptInterface(CHAPTER_INTERFACE)
         chapterBridge = null
-        val world = chapterWorld
-        chapterWorld = null
+        chapterBridgeReady = false
         pendingChapterCommands.clear()
-        chapterScript?.remove()
-        chapterScript = null
-        if (world != null) {
-            WebViewCompat.removeWebMessageListener(this, world, CHAPTER_BRIDGE)
+    }
+
+    private class ChapterBridge(
+        private val view: NovelWebView,
+        private val onMessage: (String) -> Unit,
+    ) {
+        @JavascriptInterface
+        fun postMessage(message: String) {
+            view.post { onMessage(message) }
         }
     }
 
@@ -309,7 +311,7 @@ fun NovelChapterWebView(
         modifier = modifier,
         factory = { context ->
             NovelWebView(context).apply {
-                configure(backgroundColor)
+                configure(backgroundColor, continuous)
                 if (continuous) {
                     attachChapterBridge { id, percent, screens ->
                         controller.screens = screens
@@ -341,8 +343,9 @@ fun NovelChapterWebView(
                     view = this,
                     turnPages = { pages -> turnPage(pages, currentPageOverlapPx, currentPageTurnSound) },
                     appendChapter = ::appendChapter,
+                    prependChapter = ::prependChapter,
                     scrollToChapter = ::scrollToChapter,
-                    pruneBeforeChapter = ::pruneBeforeChapter,
+                    keepChapters = ::keepChapters,
                 )
                 setFindListener { activeMatchOrdinal, numberOfMatches, doneCounting ->
                     controller.onFindResult(activeMatchOrdinal, numberOfMatches, doneCounting)
@@ -376,7 +379,14 @@ fun NovelChapterWebView(
 
         restored.value = false
         pageFinished.value = false
-        view.loadDataWithBaseURL(baseUrl, document, "text/html", "utf-8", null)
+        val chapterGeneration = if (continuous) view.beginChapterLoad() else 0
+        view.loadDataWithBaseURL(
+            baseUrl,
+            if (continuous) document.withChapterBridge(chapterGeneration) else document,
+            "text/html",
+            "utf-8",
+            null,
+        )
 
         pageFinished.first { it }
 
@@ -447,10 +457,11 @@ private suspend fun NovelWebView.awaitStableMaxScroll(): Int {
 }
 
 @SuppressLint("SetJavaScriptEnabled")
-private fun WebView.configure(backgroundColor: Int) {
+private fun WebView.configure(backgroundColor: Int, continuous: Boolean) {
     with(settings) {
-        // Nothing in the reader needs scripting, and a book is not trusted content.
-        javaScriptEnabled = false
+        // Continuous mode runs one app-owned script. Its document CSP refuses every other script,
+        // including inline handlers in an EPUB; single-chapter and paged reading stay script-free.
+        javaScriptEnabled = continuous
         domStorageEnabled = false
         // Everything the page may load comes through shouldInterceptRequest.
         allowFileAccess = false
@@ -666,30 +677,64 @@ private fun novelWebViewClient(
     }
 }
 
-/** Whether this device can observe the document without enabling JavaScript in the page world. */
-internal fun supportsContinuousChapters(): Boolean =
-    WebViewFeature.isFeatureSupported(WebViewFeature.JS_INJECTION_IN_FRAME_AND_WORLD)
+private fun String.withChapterBridge(generation: Int): String = replaceFirst(
+    "</head>",
+    "$CHAPTER_SECURITY\n<script nonce=\"$CHAPTER_SCRIPT_NONCE\">" +
+        "const rectoLeafGeneration = $generation;\n$CHAPTER_OBSERVER_SCRIPT</script>\n</head>",
+)
 
-private val CHAPTER_ORIGINS = setOf(VIRTUAL_ORIGIN.removeSuffix("/"))
-private const val CHAPTER_WORLD = "recto_leaf_reader"
-private const val CHAPTER_BRIDGE = "rectoLeafChapters"
+private const val CHAPTER_INTERFACE = "RectoLeafChapterBridge"
+private const val CHAPTER_SCRIPT_NONCE = "recto-leaf-reader"
+private const val CHAPTER_SECURITY = """
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https://novel.rectoleaf.invalid; media-src data: https://novel.rectoleaf.invalid; font-src https://novel.rectoleaf.invalid; style-src 'unsafe-inline' https://novel.rectoleaf.invalid; script-src 'nonce-recto-leaf-reader'">
+"""
 
 /**
- * Reports the titled section under the top quarter of the viewport and accepts append/seek
- * commands. It runs in an isolated WebView world, not in the untrusted chapter's page world.
+ * Reports the titled section at the top of the viewport and accepts the commands that move the
+ * window of loaded chapters around it: append, prepend, seek and keep. The
+ * generated document's CSP permits this nonce-bearing script and refuses every script from book
+ * content, so the bridge stays app-owned without depending on a recent WebView feature.
  */
 private const val CHAPTER_OBSERVER_SCRIPT = """
     (() => {
       const chapters = () => Array.from(document.querySelectorAll('[data-leaf-chapter]'));
       let scheduled = false;
 
+      /** Which section the top of the viewport is in, which every measurement is relative to. */
+      const activeIn = all => {
+        const probe = window.scrollY + 1;
+        let position = 0;
+        for (let i = 1; i < all.length && all[i].offsetTop <= probe; i++) position = i;
+        return position;
+      };
+
+      /**
+       * Changes the document and puts the page back over the same words.
+       *
+       * Adding or dropping a section above the reader moves everything below it by that section's
+       * height, so the scroll offset is corrected by however far the anchor actually travelled.
+       */
+      const keepingPlace = (anchor, change) => {
+        if (!anchor) { change(); return; }
+        const before = anchor.getBoundingClientRect().top;
+        change();
+        window.scrollBy(0, anchor.getBoundingClientRect().top - before);
+      };
+
+      const sectionOf = html => {
+        const template = document.createElement('template');
+        template.innerHTML = html.trim();
+        const section = template.content.firstElementChild;
+        if (!section) return null;
+        const id = section.dataset.leafChapter;
+        return chapters().some(it => it.dataset.leafChapter === id) ? null : section;
+      };
+
       const report = () => {
         scheduled = false;
         const all = chapters();
         if (all.length === 0) return;
-        const probe = window.scrollY + Math.min(window.innerHeight * 0.25, 96);
-        let position = 0;
-        for (let i = 1; i < all.length && all[i].offsetTop <= probe; i++) position = i;
+        const position = activeIn(all);
         const chapter = all[position];
         const end = position + 1 < all.length
           ? all[position + 1].offsetTop
@@ -698,8 +743,9 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         const percent = Math.max(0, Math.min(100,
           Math.round((window.scrollY - chapter.offsetTop) * 100 / travel)));
         const range = Math.max(1, end - chapter.offsetTop);
-        rectoLeafChapters.postMessage(JSON.stringify({
+        RectoLeafChapterBridge.postMessage(JSON.stringify({
           type: 'position',
+          generation: rectoLeafGeneration,
           id: chapter.dataset.leafChapter,
           percent: percent,
           offset: Math.max(0, Math.round(window.scrollY - chapter.offsetTop)),
@@ -714,35 +760,53 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         window.requestAnimationFrame(report);
       };
 
-      rectoLeafChapters.onmessage = event => {
-        const command = JSON.parse(event.data);
-        if (command.type === 'append') {
-          document.body.insertAdjacentHTML('beforeend', command.html);
-        } else if (command.type === 'scroll') {
-          const chapter = chapters().find(it => it.dataset.leafChapter === command.id);
-          if (chapter) {
+      window.rectoLeafChapters = {
+        command: value => {
+          const command = JSON.parse(value);
+          if (command.type === 'append') {
+            const section = sectionOf(command.html);
+            if (section) document.body.appendChild(section);
+          } else if (command.type === 'prepend') {
+            const section = sectionOf(command.html);
             const all = chapters();
-            const position = all.indexOf(chapter);
-            const end = position + 1 < all.length
-              ? all[position + 1].offsetTop
-              : chapter.offsetTop + chapter.offsetHeight;
-            const travel = Math.max(0, end - chapter.offsetTop - window.innerHeight);
-            window.scrollTo(0, chapter.offsetTop + travel * command.percent / 100);
+            if (section) {
+              keepingPlace(all[activeIn(all)], () => {
+                document.body.insertBefore(section, document.body.firstChild);
+              });
+            }
+          } else if (command.type === 'scroll') {
+            const all = chapters();
+            const position = all.findIndex(it => it.dataset.leafChapter === command.id);
+            if (position >= 0) {
+              const chapter = all[position];
+              const end = position + 1 < all.length
+                ? all[position + 1].offsetTop
+                : chapter.offsetTop + chapter.offsetHeight;
+              const travel = Math.max(0, end - chapter.offsetTop - window.innerHeight);
+              window.scrollTo(0, chapter.offsetTop + travel * command.percent / 100);
+            }
+          } else if (command.type === 'keep') {
+            const all = chapters();
+            const doomed = all.filter(it => !command.ids.includes(it.dataset.leafChapter));
+            if (doomed.length > 0) {
+              // The anchor has to be one of the survivors, so a window that has moved off the
+              // section under the reader still measures against something that stays.
+              const anchor = all.slice(activeIn(all)).find(it => !doomed.includes(it));
+              keepingPlace(anchor, () => doomed.forEach(it => it.remove()));
+            }
           }
-        } else if (command.type === 'prune') {
-          const keep = chapters().find(it => it.dataset.leafChapter === command.id);
-          if (keep) {
-            const top = keep.getBoundingClientRect().top;
-            chapters().filter(it => it.offsetTop < keep.offsetTop).forEach(it => it.remove());
-            window.scrollBy(0, keep.getBoundingClientRect().top - top);
-          }
-        }
-        scheduleReport();
+          scheduleReport();
+        },
       };
 
-      window.addEventListener('scroll', scheduleReport, { passive: true });
-      new ResizeObserver(scheduleReport).observe(document.body);
-      report();
+      // The script is injected into the head, so the body it observes and measures does not exist
+      // yet. Starting before it does throws, and the first report never reaches the reader.
+      const start = () => {
+        window.addEventListener('scroll', scheduleReport, { passive: true });
+        new ResizeObserver(scheduleReport).observe(document.body);
+        report();
+      };
+      if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
     })();
 """
 
