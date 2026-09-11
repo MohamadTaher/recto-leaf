@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.notificationBuilder
+import eu.kanade.tachiyomi.util.system.notify
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.MR
 
@@ -26,6 +27,19 @@ import tachiyomi.i18n.MR
  */
 class NovelSpeechService : Service() {
 
+    /**
+     * What the notification last showed, so an action intent — which carries none of this — has
+     * something to redraw from.
+     */
+    private var lastTitle = ""
+    private var lastChapter = ""
+    private var lastPaused = false
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -38,19 +52,31 @@ class NovelSpeechService : Service() {
             }
         }
 
-        startForeground(
-            NOTIFICATION_ID,
-            notification(
-                title = intent?.getStringExtra(EXTRA_TITLE).orEmpty(),
-                chapter = intent?.getStringExtra(EXTRA_CHAPTER).orEmpty(),
-                paused = intent?.getBooleanExtra(EXTRA_PAUSED, false) == true,
-            ),
-        )
+        if (intent?.hasExtra(EXTRA_TITLE) == true) {
+            lastTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+            lastChapter = intent.getStringExtra(EXTRA_CHAPTER).orEmpty()
+            lastPaused = intent.getBooleanExtra(EXTRA_PAUSED, false)
+        }
+
+        // The one call this makes to the system: every later update goes through update(), which
+        // just reposts the notification. Calling this again for those would ask the system to
+        // start the service afresh each time, which is exactly what a background chapter change
+        // is not allowed to do on Android 12+.
+        startForeground(NOTIFICATION_ID, notification(lastTitle, lastChapter, lastPaused))
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        instance = null
         controls = null
+    }
+
+    /** Redraws the already-posted notification. Called only while this instance is alive. */
+    private fun update(title: String, chapter: String, paused: Boolean) {
+        lastTitle = title
+        lastChapter = chapter
+        lastPaused = paused
+        notify(NOTIFICATION_ID, notification(title, chapter, paused))
     }
 
     private fun notification(title: String, chapter: String, paused: Boolean) = notificationBuilder(
@@ -109,8 +135,17 @@ class NovelSpeechService : Service() {
         @Volatile
         var controls: Controls? = null
 
+        /** The running instance, so a content update can be posted without asking to be started again. */
+        @Volatile
+        private var instance: NovelSpeechService? = null
+
         /** Starts the service, or updates what the notification says when it is already up. */
         fun show(context: Context, title: String, chapter: String, paused: Boolean) {
+            val running = instance
+            if (running != null) {
+                running.update(title, chapter, paused)
+                return
+            }
             val intent = Intent(context, NovelSpeechService::class.java)
                 .putExtra(EXTRA_TITLE, title)
                 .putExtra(EXTRA_CHAPTER, chapter)

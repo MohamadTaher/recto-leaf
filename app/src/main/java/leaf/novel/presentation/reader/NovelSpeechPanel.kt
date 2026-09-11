@@ -121,18 +121,11 @@ fun NovelSpeechPanel(
                     enabled = previousPageEnabled,
                     modifier = Modifier.size(SPEECH_BUTTON_SIZE),
                 ) {
-                    Row {
-                        Icon(
-                            imageVector = MaterialSymbols.Rounded.KeyboardArrowLeft,
-                            contentDescription = null,
-                            modifier = Modifier.size(SPEECH_PAGE_ICON_SIZE),
-                        )
-                        Icon(
-                            imageVector = MaterialSymbols.Rounded.KeyboardArrowLeft,
-                            contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_previous_page),
-                            modifier = Modifier.size(SPEECH_PAGE_ICON_SIZE),
-                        )
-                    }
+                    Icon(
+                        imageVector = MaterialSymbols.Rounded.SkipPrevious,
+                        contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_previous_page),
+                        modifier = Modifier.size(SPEECH_ICON_SIZE),
+                    )
                 }
                 IconButton(
                     onClick = onPrevious,
@@ -140,7 +133,7 @@ fun NovelSpeechPanel(
                     modifier = Modifier.size(SPEECH_BUTTON_SIZE),
                 ) {
                     Icon(
-                        imageVector = MaterialSymbols.Rounded.SkipPrevious,
+                        imageVector = MaterialSymbols.Rounded.KeyboardArrowLeft,
                         contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_previous),
                         modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
@@ -168,7 +161,7 @@ fun NovelSpeechPanel(
                     modifier = Modifier.size(SPEECH_BUTTON_SIZE),
                 ) {
                     Icon(
-                        imageVector = MaterialSymbols.Rounded.SkipNext,
+                        imageVector = MaterialSymbols.Rounded.KeyboardArrowRight,
                         contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_next),
                         modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
@@ -178,18 +171,11 @@ fun NovelSpeechPanel(
                     enabled = nextPageEnabled,
                     modifier = Modifier.size(SPEECH_BUTTON_SIZE),
                 ) {
-                    Row {
-                        Icon(
-                            imageVector = MaterialSymbols.Rounded.KeyboardArrowRight,
-                            contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_next_page),
-                            modifier = Modifier.size(SPEECH_PAGE_ICON_SIZE),
-                        )
-                        Icon(
-                            imageVector = MaterialSymbols.Rounded.KeyboardArrowRight,
-                            contentDescription = null,
-                            modifier = Modifier.size(SPEECH_PAGE_ICON_SIZE),
-                        )
-                    }
+                    Icon(
+                        imageVector = MaterialSymbols.Rounded.SkipNext,
+                        contentDescription = stringResource(MR.strings.leaf_novel_reader_speech_next_page),
+                        modifier = Modifier.size(SPEECH_ICON_SIZE),
+                    )
                 }
                 IconButton(onClick = onSettings, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
                     Icon(
@@ -460,7 +446,9 @@ private fun PreferenceSlider(
         label = label,
         value = value,
         valueRange = range.first.toFloat()..range.last.toFloat(),
-        steps = ((range.last - range.first) / step - 1).coerceAtLeast(0),
+        // Tick marks only where the step is coarser than one, so pitch, rate and the rest read as the
+        // smooth track the volume slider already is.
+        steps = if (step > 1) ((range.last - range.first) / step - 1).coerceAtLeast(0) else 0,
         valueText = valueText(rounded),
         onValueChange = { value = it },
         onValueChangeFinished = {
@@ -556,5 +544,4 @@ private val SPEECH_SLIDER_THUMB_SIZE = DpSize(14.dp, 14.dp)
 private val SPEECH_STEP_BUTTON_SIZE = 32.dp
 private val SPEECH_BUTTON_SIZE = 32.dp
 private val SPEECH_ICON_SIZE = 20.dp
-private val SPEECH_PAGE_ICON_SIZE = 14.dp
 private const val SPEED_READ_WPM_STEP = 50
