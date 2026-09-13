@@ -25,7 +25,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -182,10 +181,9 @@ class NovelReaderViewModel(
     }
 
     override fun onCleared() {
-        speaker?.shutdown()
-        // The reading session is over, so the notification offering to control it has to go with
-        // it — leaving it up would leave buttons wired to a speaker that no longer exists.
-        NovelSpeechService.hide(context)
+        // Speech that is still running belongs to NovelSpeechSession now, not to this reader —
+        // detach() only tears it down if nothing is left running to fire that later itself.
+        NovelSpeechSession.detach()
         runCatching { provider?.close() }
         provider = null
     }
@@ -257,6 +255,13 @@ class NovelReaderViewModel(
             it.copy(manga = manga, chapters = chapters, currentIndex = startIndex, isLoading = false)
         }
         preloadChapters(startIndex)
+        // Speech may already be running from a reader that has since been destroyed — attach to
+        // it rather than showing a stopped reader over audio that is still playing. Only when it
+        // is this novel's own session: a running session belonging to a different novel is left
+        // alone, not renamed and not extended with this novel's chapters.
+        if (NovelSpeechSession.isSpeaking() && NovelSpeechSession.queue.belongsTo(mangaId)) {
+            attachToSession()
+        }
     }
 
     /**
@@ -402,27 +407,18 @@ class NovelReaderViewModel(
 
     // region Speech
 
-    /**
-     * Built on first use, not with the reader.
-     *
-     * [NovelSpeaker] binds a system service, and a reader who never asks for speech should not be
-     * holding one open for the whole session — which is also why [onCleared] shuts down only what
-     * was actually created.
-     */
-    private var speaker: NovelSpeaker? = null
-
     /** The chapter's own markup, kept so speech can be cut from it without re-fetching. */
     private var currentHtml: String? = null
 
-    /** Each queued unit keeps its source location independently of the visible chapter. */
-    private var speechUtterances: List<NovelSpeech.Position> = emptyList()
-
-    /** The last chapter whose pieces are in the queue. Speech reads on from the one after it. */
-    private var speechChapterIndex = 0
+    /**
+     * Which [NovelSpeechSession.generation] this ViewModel last wired into [state], or
+     * [NO_GENERATION] if it never has. A stop-then-play cycle builds a new engine and a new
+     * generation, so comparing against the *current* generation — rather than a one-way "have I
+     * ever attached" flag — is what lets this reader wire a fresh collector to it (M4).
+     */
+    private var attachedGeneration = NO_GENERATION
 
     private var speechExtendJob: Job? = null
-
-    private var speechStopJob: Job? = null
 
     /**
      * Starts reading the open chapter aloud at [percentRead].
@@ -438,7 +434,7 @@ class NovelReaderViewModel(
     /** Rebuilds the queue when its division changes while the control sheet is open. */
     fun restartSpeaking(percentRead: Int, paused: Boolean) {
         queueSpeech(percentRead)
-        if (paused) speaker?.pause()
+        if (paused) NovelSpeechSession.speakerOrNull()?.pause()
     }
 
     /**
@@ -467,36 +463,11 @@ class NovelReaderViewModel(
         stopSpeedReading()
         // A fresh queue: whatever had been read ahead belongs to a run that no longer exists.
         speechExtendJob?.cancel()
-        speechChapterIndex = state.value.currentIndex
-        val engine = speaker ?: NovelSpeaker(context).also { created ->
-            speaker = created
-            // Mirrored into the reader's own state so the screen has one thing to collect, and so
-            // speech sits beside auto scroll rather than in a stream of its own.
-            var wasSpeaking = false
-            created.speech
-                .onEach { speech ->
-                    if (!wasSpeaking && speech.speaking) scheduleSpeechStop()
-                    if (wasSpeaking && !speech.speaking) cancelSpeechStop()
-                    wasSpeaking = speech.speaking
-                    if (speech.speaking) extendSpeech(speech.index)
-                    holdProcessOpen(speech.speaking, speech.paused)
-                    mutableState.update {
-                        it.copy(
-                            speaking = speech.speaking,
-                            speechPaused = speech.paused,
-                            speechIndex = speech.index,
-                            speechCount = speechUtterances.size,
-                            speechPosition = speechUtterances.getOrNull(speech.index),
-                            speechUnavailable = speech.initialised && !speech.available,
-                        )
-                    }
-                }
-                .launchIn(viewModelScope)
-        }
+        val engine = attachToSession()
 
-        speechUtterances = utterances
         val text = utterances.map { it.text }
         val fromIndex = NovelSpeech.indexAt(percentRead / 100f, text)
+        NovelSpeechSession.queue.start(mangaId, utterances, state.value.currentIndex)
         mutableState.update {
             it.copy(
                 autoScrolling = false,
@@ -517,6 +488,56 @@ class NovelReaderViewModel(
     }
 
     /**
+     * Wires the session's engine into [state] — either because this reader is about to start
+     * speaking, or because it opened onto a session already running — exactly once per engine
+     * [NovelSpeechSession] is currently holding.
+     *
+     * Checking [attachedGeneration] against [NovelSpeechSession.generation], rather than a plain
+     * "have I attached before" flag, is what makes a stop-then-play cycle work: `reset()` builds a
+     * new engine with a new generation, so the check below sees a mismatch and wires a fresh
+     * collector rather than returning early onto an engine nothing is listening to (M4).
+     *
+     * The engine's [NovelSpeaker.speech] is a `StateFlow`, so collecting it here immediately
+     * reports whatever it is already doing; that single mechanism both starts a fresh run's
+     * mirroring and adopts an inherited one.
+     */
+    private fun attachToSession(): NovelSpeaker {
+        val engine = NovelSpeechSession.speaker(context)
+        val generation = NovelSpeechSession.generation
+        if (attachedGeneration == generation) return engine
+        attachedGeneration = generation
+        NovelSpeechSession.attach()
+
+        // Seeded from the engine's current state, not hardcoded false: a `StateFlow` replays its
+        // latest value to a new collector, so adopting a session already speaking must not look
+        // like a false→true transition — that would re-arm the sleep timer from zero (M3).
+        val lifecycle = NovelSpeechLifecycle(initiallySpeaking = engine.speech.value.speaking)
+        engine.speech
+            .onEach { speech ->
+                when (lifecycle.observe(speech.speaking)) {
+                    NovelSpeechLifecycle.Transition.STARTED -> scheduleSpeechStop()
+                    NovelSpeechLifecycle.Transition.ENDED -> cancelSpeechStop()
+                    NovelSpeechLifecycle.Transition.NONE -> Unit
+                }
+                if (speech.speaking) extendSpeech(speech.index)
+                holdProcessOpen(speech.speaking, speech.paused)
+                val snapshot = NovelSpeechSession.queue.snapshot(speech)
+                mutableState.update {
+                    it.copy(
+                        speaking = snapshot.speaking,
+                        speechPaused = snapshot.paused,
+                        speechIndex = snapshot.index,
+                        speechCount = snapshot.count,
+                        speechPosition = snapshot.position,
+                        speechUnavailable = snapshot.unavailable,
+                    )
+                }
+            }
+            .launchIn(viewModelScope)
+        return engine
+    }
+
+    /**
      * Keeps the process alive, and the controls reachable, while speech runs off screen.
      *
      * Backgrounding the reader would otherwise take the speech with it: Android gives a process
@@ -534,7 +555,10 @@ class NovelReaderViewModel(
             NovelSpeechService.hide(context)
             return
         }
-        NovelSpeechService.controls = speechControls
+        // The controls now belong to NovelSpeechSession, which outlives this ViewModel — wiring
+        // it here rather than once keeps the notification pointed at whichever reader most
+        // recently touched it, with no cost, since a repeat assignment is free.
+        NovelSpeechService.controls = NovelSpeechSession
         NovelSpeechService.show(
             context = context,
             title = state.value.manga?.title.orEmpty(),
@@ -547,32 +571,22 @@ class NovelReaderViewModel(
     private var speechNotification: String? = null
 
     /**
-     * The notification's buttons.
-     *
-     * Play/pause goes through the speaker rather than [toggleSpeechPlayback], which needs a scroll
-     * position the reader is in no position to report while it is off screen.
-     */
-    private val speechControls = object : NovelSpeechService.Controls {
-        override fun togglePlayback() {
-            val engine = speaker ?: return
-            if (state.value.speechPaused) engine.resume() else engine.pause()
-        }
-
-        override fun stop() = stopSpeaking()
-    }
-
-    /**
      * Carries speech over the end of a chapter.
      *
      * The paragraphs after the ones queued are added a few pieces before the voice runs out, so it
      * never stops at a chapter boundary. Nothing here moves the reader: the continuous document
      * already holds the chapters on either side of the open one, so the page follows the voice by
      * scrolling to the highlighted text and reports the chapter it lands in for itself.
+     *
+     * With the reader gone, [state] and [awaitChapter] belong to a destroyed session and this
+     * simply stops finding a next chapter — the queue finishes what it already has and speech
+     * ends there. Moving chapter loading itself into the process-scoped session is out of scope.
      */
     private fun extendSpeech(engineIndex: Int) {
         if (speechExtendJob?.isActive == true) return
-        if (speechUtterances.size - engineIndex > SPEECH_STAGE_LOOKAHEAD) return
-        val index = speechChapterIndex + 1
+        val queue = NovelSpeechSession.queue
+        if (queue.positions.size - engineIndex > SPEECH_STAGE_LOOKAHEAD) return
+        val index = queue.chapterIndex + 1
         val chapter = state.value.chapters.getOrNull(index) ?: return
 
         speechExtendJob = viewModelScope.launch {
@@ -581,29 +595,30 @@ class NovelReaderViewModel(
             // Checked again on the way out: the fetch is slow enough for speech to have been
             // stopped, restarted or seeked somewhere else entirely while it ran.
             if (more.isEmpty() || !state.value.speaking) return@launch
-            if (index != speechChapterIndex + 1) return@launch
+            if (index != queue.chapterIndex + 1) return@launch
 
-            speechChapterIndex = index
-            speechUtterances = speechUtterances + more
-            speaker?.extend(more.map { it.text })
+            queue.extend(more, index)
+            NovelSpeechSession.speakerOrNull()?.extend(more.map { it.text })
         }
     }
 
     fun toggleSpeechPlayback(percentRead: Int) {
         when {
             !state.value.speaking -> startSpeaking(percentRead)
-            state.value.speechPaused -> speaker?.resume()
-            else -> speaker?.pause()
+            state.value.speechPaused -> NovelSpeechSession.speakerOrNull()?.resume()
+            else -> NovelSpeechSession.speakerOrNull()?.pause()
         }
     }
 
     fun seekSpeech(units: Int) {
-        speaker?.seekBy(units)
+        if (!ownsSession()) return
+        NovelSpeechSession.speakerOrNull()?.seekBy(units)
     }
 
     /** Applies changed controls without rebuilding or re-fetching the chapter. */
     fun applySpeechSettings() {
-        speaker?.update(
+        if (!ownsSession()) return
+        NovelSpeechSession.speakerOrNull()?.update(
             rate = novelReaderPreferences.speechRate.get(),
             pitch = novelReaderPreferences.speechPitch.get(),
             intervalMs = novelReaderPreferences.speechIntervalMs.get(),
@@ -611,30 +626,39 @@ class NovelReaderViewModel(
         )
     }
 
+    /**
+     * A reader that never attached to the running session — because it opened onto a different
+     * novel's speech and correctly left it alone — must not be able to touch it: not stop it by
+     * jumping a chapter or turning on auto scroll, and not seek or re-queue it with its own rate,
+     * pitch or division settings (M6).
+     */
+    private fun ownsSession(): Boolean =
+        attachedGeneration != NO_GENERATION &&
+            attachedGeneration == NovelSpeechSession.generation &&
+            NovelSpeechSession.queue.belongsTo(mangaId)
+
     fun stopSpeaking() {
+        if (!ownsSession()) return
         cancelSpeechStop()
         speechExtendJob?.cancel()
-        speaker?.stop()
+        NovelSpeechSession.speakerOrNull()?.stop()
     }
 
     fun applySpeechTimer() {
         if (state.value.speaking) scheduleSpeechStop()
     }
 
+    /**
+     * Arms the sleep timer on [NovelSpeechSession]'s own scope, not this ViewModel's — a reader
+     * being destroyed must not silently disarm a timer the user set.
+     */
     private fun scheduleSpeechStop() {
-        speechStopJob?.cancel()
-        speechStopJob = null
         val after = novelReaderPreferences.speechStopAfterMinutes.get()
-        if (after <= 0) return
-        speechStopJob = viewModelScope.launch {
-            delay(after.minutes)
-            stopSpeaking()
-        }
+        NovelSpeechSession.stopTimer.arm(after.minutes) { NovelSpeechSession.stop() }
     }
 
     private fun cancelSpeechStop() {
-        speechStopJob?.cancel()
-        speechStopJob = null
+        NovelSpeechSession.stopTimer.cancel()
     }
 
     // endregion
@@ -875,11 +899,13 @@ class NovelReaderViewModel(
     /**
      * Saves progress and history without being cancelled by the activity going away.
      *
-     * Speech stops here too: a chapter still being read aloud from a backgrounded reader is a
-     * support ticket, and a reader who has left the app has left the book.
+     * Speech used to stop here too, back when it belonged to this ViewModel and a paused reader
+     * was the only thing standing between it and running forever unsupervised. It now belongs to
+     * [NovelSpeechSession], which the notification's own stop action reaches directly, so `onPause`
+     * no longer has to be the backstop — and it should not be: `onPause` fires on a screen lock or
+     * a switch to another app, neither of which means "stop reading to me" (D001).
      */
     fun saveOnPause() {
-        stopSpeaking()
         viewModelScope.launchNonCancellable {
             flushProgress()
             updateHistory()
@@ -937,6 +963,9 @@ class NovelReaderViewModel(
          * more to say after it has already decided it reached the last piece.
          */
         private const val SPEECH_STAGE_LOOKAHEAD = 3
+
+        /** No [NovelSpeechSession.generation] is ever this — real generations start at 1. */
+        private const val NO_GENERATION = -1
 
         /** The visible chapter plus this many successors are kept ready. */
         const val PRELOAD_CHAPTER_COUNT = 3
