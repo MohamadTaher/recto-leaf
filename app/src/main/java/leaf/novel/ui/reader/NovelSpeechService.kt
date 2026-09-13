@@ -14,16 +14,20 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.MR
 
 /**
- * Keeps read-aloud running while the reader is not on screen.
+ * Keeps read-aloud running whether or not the reader is on screen — including after its task has
+ * been swiped away.
  *
  * Android stops giving a backgrounded process anything to run on, so speech that outlives the
  * screen has to be attached to something the system has been told about. That is all this is: it
  * owns no speech of its own, it holds the process open and puts the controls where they can be
- * reached with the app away — the voice itself stays with the reader that started it.
+ * reached with the app away. The voice itself lives in [NovelSpeechSession], at process scope, not
+ * with whichever reader happened to start it — a reader being destroyed is not a reason to stop
+ * talking partway through a chapter.
  *
  * It is bound to nothing and started with an explicit intent, so it lives exactly as long as speech
- * does. Swiping the reader out of recents takes the whole task down with it, which is the right
- * answer: the queue and the position belong to a reading session that no longer exists.
+ * does. Swiping the task away does not take it with it: `stopWithTask` already defaults to false,
+ * and the manifest says so out loud only because a guarantee this change rests on should not be
+ * left implicit.
  */
 class NovelSpeechService : Service() {
 
