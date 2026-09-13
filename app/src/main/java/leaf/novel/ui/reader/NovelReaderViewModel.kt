@@ -414,17 +414,11 @@ class NovelReaderViewModel(
     /** The chapter's own markup, kept so speech can be cut from it without re-fetching. */
     private var currentHtml: String? = null
 
-    /** Everything queued, for exposing the active text and its repeated occurrence. */
-    private var speechUtterances: List<String> = emptyList()
+    /** Each queued unit keeps its source location independently of the visible chapter. */
+    private var speechUtterances: List<NovelSpeech.Position> = emptyList()
 
     /** The last chapter whose pieces are in the queue. Speech reads on from the one after it. */
     private var speechChapterIndex = 0
-
-    /** Where the chapter being spoken starts in the queue, so a repeat is counted within it. */
-    private var speechChapterStart = 0
-
-    /** Where the chapter after it starts, or -1 once the voice has reached it. */
-    private var speechNextStart = -1
 
     private var speechExtendJob: Job? = null
 
@@ -453,7 +447,7 @@ class NovelReaderViewModel(
      * The replacement rules are also the TTS character filters: visible and spoken prose use the
      * same existing mechanism rather than maintaining two almost-identical rule lists.
      */
-    private fun utterancesOf(html: String): List<String> {
+    private fun utterancesOf(html: String, chapterId: Long): List<NovelSpeech.Position> {
         val spokenHtml = NovelTextReplacements.apply(
             html,
             NovelTextReplacements.combine(
@@ -461,20 +455,19 @@ class NovelReaderViewModel(
                 novelTextReplacements(),
             ),
         )
-        return NovelSpeech.utterances(spokenHtml, novelReaderPreferences.speechDivision.get())
+        return NovelSpeech.positions(spokenHtml, novelReaderPreferences.speechDivision.get(), chapterId)
     }
 
     private fun queueSpeech(percentRead: Int) {
         val html = currentHtml ?: return
-        val utterances = utterancesOf(html)
+        val chapterId = state.value.chapters.getOrNull(state.value.currentIndex)?.id ?: return
+        val utterances = utterancesOf(html, chapterId)
         if (utterances.isEmpty()) return
 
         stopSpeedReading()
         // A fresh queue: whatever had been read ahead belongs to a run that no longer exists.
         speechExtendJob?.cancel()
         speechChapterIndex = state.value.currentIndex
-        speechChapterStart = 0
-        speechNextStart = -1
         val engine = speaker ?: NovelSpeaker(context).also { created ->
             speaker = created
             // Mirrored into the reader's own state so the screen has one thing to collect, and so
@@ -486,11 +479,6 @@ class NovelReaderViewModel(
                     if (wasSpeaking && !speech.speaking) cancelSpeechStop()
                     wasSpeaking = speech.speaking
                     if (speech.speaking) extendSpeech(speech.index)
-                    // The count restarts with the chapter, which is what the page holds.
-                    if (speechNextStart in 0..speech.index) {
-                        speechChapterStart = speechNextStart
-                        speechNextStart = -1
-                    }
                     holdProcessOpen(speech.speaking, speech.paused)
                     mutableState.update {
                         it.copy(
@@ -498,12 +486,7 @@ class NovelReaderViewModel(
                             speechPaused = speech.paused,
                             speechIndex = speech.index,
                             speechCount = speechUtterances.size,
-                            speechText = speechUtterances.getOrNull(speech.index),
-                            speechOccurrence = NovelSpeech.occurrenceAt(
-                                speech.index,
-                                speechUtterances,
-                                from = speechChapterStart,
-                            ),
+                            speechPosition = speechUtterances.getOrNull(speech.index),
                             speechUnavailable = speech.initialised && !speech.available,
                         )
                     }
@@ -512,10 +495,20 @@ class NovelReaderViewModel(
         }
 
         speechUtterances = utterances
-        mutableState.update { it.copy(autoScrolling = false, searchQuery = null) }
+        val text = utterances.map { it.text }
+        val fromIndex = NovelSpeech.indexAt(percentRead / 100f, text)
+        mutableState.update {
+            it.copy(
+                autoScrolling = false,
+                searchQuery = null,
+                speechPosition = utterances[fromIndex],
+                speechIndex = fromIndex,
+                speechCount = utterances.size,
+            )
+        }
         engine.start(
-            text = utterances,
-            fromIndex = NovelSpeech.indexAt(percentRead / 100f, utterances),
+            text = text,
+            fromIndex = fromIndex,
             rate = novelReaderPreferences.speechRate.get(),
             pitch = novelReaderPreferences.speechPitch.get(),
             intervalMs = novelReaderPreferences.speechIntervalMs.get(),
@@ -584,16 +577,15 @@ class NovelReaderViewModel(
 
         speechExtendJob = viewModelScope.launch {
             val content = awaitChapter(chapter).getOrNull() ?: return@launch
-            val more = utterancesOf(content.html)
+            val more = utterancesOf(content.html, chapter.id)
             // Checked again on the way out: the fetch is slow enough for speech to have been
             // stopped, restarted or seeked somewhere else entirely while it ran.
             if (more.isEmpty() || !state.value.speaking) return@launch
             if (index != speechChapterIndex + 1) return@launch
 
             speechChapterIndex = index
-            speechNextStart = speechUtterances.size
             speechUtterances = speechUtterances + more
-            speaker?.extend(more)
+            speaker?.extend(more.map { it.text })
         }
     }
 
@@ -925,8 +917,7 @@ class NovelReaderViewModel(
         val speechPaused: Boolean = false,
         val speechIndex: Int = 0,
         val speechCount: Int = 0,
-        val speechText: String? = null,
-        val speechOccurrence: Int = 0,
+        val speechPosition: NovelSpeech.Position? = null,
         val speedReading: Boolean = false,
         val speedReadIndex: Int = 0,
         /** Set once the engine has bound and reported that the phone has no voice at all. */

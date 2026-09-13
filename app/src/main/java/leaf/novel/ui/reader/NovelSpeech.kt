@@ -2,6 +2,7 @@ package leaf.novel.ui.reader
 
 import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
 
 /**
  * Cutting a chapter into the pieces speech reads out, and working out where in the page a piece is.
@@ -19,20 +20,38 @@ object NovelSpeech {
      * utterances, and an empty one makes the position reported back meaningless.
      */
     fun utterances(html: String, division: NovelSpeechDivision): List<String> {
-        val paragraphs = Jsoup.parse(html)
-            .select(BLOCK_SELECTOR)
-            // A block inside a block would otherwise be spoken twice, once on its own and once as
-            // part of its parent. Searched from the children rather than the element, because
-            // jsoup's `select` matches the element it is called on as well as its descendants.
-            .filter { element -> element.children().select(BLOCK_SELECTOR).isEmpty() }
-            .map { it.text().trim() }
-            .filter { it.isNotEmpty() }
-
-        return when (division) {
-            NovelSpeechDivision.PARAGRAPH -> paragraphs
-            NovelSpeechDivision.SENTENCE -> paragraphs.flatMap(::sentencesIn)
-        }
+        return positions(html, division, chapterId = 0).map { it.text }
     }
+
+    /** A source location stays unambiguous even when another paragraph or chapter says the same thing. */
+    data class Position(val chapterId: Long, val block: Int, val start: Int, val text: String)
+
+    fun positions(html: String, division: NovelSpeechDivision, chapterId: Long): List<Position> =
+        blocks(Jsoup.parse(html)).flatMapIndexed { block, element ->
+            val paragraph = element.text().trim()
+            val pieces = when (division) {
+                NovelSpeechDivision.PARAGRAPH -> listOf(paragraph)
+                NovelSpeechDivision.SENTENCE -> sentencesIn(paragraph)
+            }
+            var cursor = 0
+            pieces.map { text ->
+                val start = paragraph.indexOf(text, cursor)
+                cursor = start + text.length
+                Position(chapterId, block, start, text)
+            }
+        }
+
+    /** Mark before reading aids change the markup, using the same blocks as the speech queue. */
+    fun anchorBlocks(html: String): String {
+        val document = Jsoup.parse(html)
+        document.outputSettings().prettyPrint(false)
+        document.select("[$BLOCK_ATTRIBUTE]").removeAttr(BLOCK_ATTRIBUTE)
+        blocks(document).forEachIndexed { index, element -> element.attr(BLOCK_ATTRIBUTE, index.toString()) }
+        return document.body().html()
+    }
+
+    private fun blocks(root: Element): List<Element> = root.select(BLOCK_SELECTOR)
+        .filter { it.children().select(BLOCK_SELECTOR).isEmpty() && it.text().isNotBlank() }
 
     /** The unit nearest [fraction] through the prose, weighted by text length. */
     fun indexAt(fraction: Float, utterances: List<String>): Int {
@@ -44,18 +63,6 @@ object NovelSpeech {
             before += utterance.length
         }
         return utterances.lastIndex
-    }
-
-    /**
-     * Which identical visible match [index] names, for WebView's native text highlighting.
-     *
-     * Counted from [from] rather than from the start, because the queue runs on past the end of a
-     * chapter while the document holds only the chapters around the reader. Counting the whole
-     * queue would name a match that is no longer in the page and send the search wandering.
-     */
-    fun occurrenceAt(index: Int, utterances: List<String>, from: Int = 0): Int {
-        val current = utterances.getOrNull(index) ?: return 0
-        return (from.coerceAtLeast(0) until index).count { utterances[it] == current }
     }
 
     /**
@@ -101,6 +108,9 @@ object NovelSpeech {
     private val ABBREVIATIONS = setOf(
         "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc", "e.g", "i.e", "vol",
     )
+
+    /** The attribute [anchorBlocks] stamps a block with, so speech can name one from Kotlin. */
+    const val BLOCK_ATTRIBUTE = "data-leaf-speech-block"
 
     /** The blocks a chapter's prose lives in. A longer list is a dictionary, not a splitter. */
     private const val BLOCK_SELECTOR = "p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, dt"

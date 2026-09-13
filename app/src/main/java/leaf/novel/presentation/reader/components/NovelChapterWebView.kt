@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import leaf.novel.ui.reader.NovelSpeech
 import leaf.novel.ui.reader.NovelStatusLine
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
 import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
@@ -131,6 +132,15 @@ private class NovelWebView(context: Context) : WebView(context) {
                 .put("percent", percent.coerceIn(0, 100))
                 .toString(),
         )
+    }
+
+    fun highlightSpeech(position: NovelSpeech.Position?) {
+        val value = position?.let {
+            JSONObject().put("chapterId", it.chapterId.toString())
+                .put("block", it.block).put("start", it.start).put("text", it.text)
+        } ?: JSONObject.NULL
+        pendingChapterCommands.removeAll { JSONObject(it).optString("type") == "speech" }
+        chapterCommand(JSONObject().put("type", "speech").put("position", value).toString())
     }
 
     fun keepChapters(chapterIds: List<Long>) {
@@ -311,9 +321,9 @@ fun NovelChapterWebView(
         modifier = modifier,
         factory = { context ->
             NovelWebView(context).apply {
-                configure(backgroundColor, continuous)
-                if (continuous) {
-                    attachChapterBridge { id, percent, screens ->
+                configure(backgroundColor)
+                attachChapterBridge { id, percent, screens ->
+                    if (continuous) {
                         controller.screens = screens
                         currentOnChapterProgress(id, percent)
                     }
@@ -346,9 +356,10 @@ fun NovelChapterWebView(
                     prependChapter = ::prependChapter,
                     scrollToChapter = ::scrollToChapter,
                     keepChapters = ::keepChapters,
+                    highlightSpeech = ::highlightSpeech,
                 )
-                setFindListener { activeMatchOrdinal, numberOfMatches, doneCounting ->
-                    controller.onFindResult(activeMatchOrdinal, numberOfMatches, doneCounting)
+                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
+                    controller.onFindResult(activeMatchOrdinal, numberOfMatches)
                 }
                 onScroll = { offset, range ->
                     if (!continuous) {
@@ -379,10 +390,10 @@ fun NovelChapterWebView(
 
         restored.value = false
         pageFinished.value = false
-        val chapterGeneration = if (continuous) view.beginChapterLoad() else 0
+        val chapterGeneration = view.beginChapterLoad()
         view.loadDataWithBaseURL(
             baseUrl,
-            if (continuous) document.withChapterBridge(chapterGeneration) else document,
+            document.withChapterBridge(chapterGeneration, initialChapterId),
             "text/html",
             "utf-8",
             null,
@@ -456,12 +467,23 @@ private suspend fun NovelWebView.awaitStableMaxScroll(): Int {
     return maxScroll
 }
 
+/**
+ * The one place the reader steps outside Kotlin, and the terms it does so on.
+ *
+ * Two things cannot be had from Kotlin at any sane price: which titled section the viewport is in
+ * while several share one document, and where in the DOM a queued utterance is. WebView's own
+ * find-in-page was the script-free answer to the second and got it wrong — it searches the whole
+ * document asynchronously, so a line of dialogue the book repeats highlighted whichever copy the
+ * find cursor reached first. Naming the chapter and the block instead needs the DOM.
+ *
+ * So scripting is on in every mode, and the generated document's CSP is what makes that safe: it
+ * admits one nonce-bearing script, which is ours, and refuses every script a book brings —
+ * including the head the publisher-formatting document keeps verbatim.
+ */
 @SuppressLint("SetJavaScriptEnabled")
-private fun WebView.configure(backgroundColor: Int, continuous: Boolean) {
+private fun WebView.configure(backgroundColor: Int) {
     with(settings) {
-        // Continuous mode runs one app-owned script. Its document CSP refuses every other script,
-        // including inline handlers in an EPUB; single-chapter and paged reading stay script-free.
-        javaScriptEnabled = continuous
+        javaScriptEnabled = true
         domStorageEnabled = false
         // Everything the page may load comes through shouldInterceptRequest.
         allowFileAccess = false
@@ -677,11 +699,23 @@ private fun novelWebViewClient(
     }
 }
 
-private fun String.withChapterBridge(generation: Int): String = replaceFirst(
-    "</head>",
-    "$CHAPTER_SECURITY\n<script nonce=\"$CHAPTER_SCRIPT_NONCE\">" +
-        "const rectoLeafGeneration = $generation;\n$CHAPTER_OBSERVER_SCRIPT</script>\n</head>",
+/**
+ * Puts the reader's policy and its one script at the top of the generated document's head.
+ *
+ * Anchored on the charset rather than on the head tag itself, so the declaration stays inside
+ * the thousand bytes a parser sniffs it in and the policy still lands ahead of the book’s own
+ * head — which the publisher-formatting document keeps verbatim, and which the policy is what
+ * makes safe.
+ */
+private fun String.withChapterBridge(generation: Int, chapterId: Long?): String = replaceFirst(
+    CHARSET_META,
+    "$CHARSET_META$CHAPTER_SECURITY\n<script nonce=\"$CHAPTER_SCRIPT_NONCE\">" +
+        "const rectoLeafGeneration = $generation;\n" +
+        "const rectoLeafChapterId = ${JSONObject.quote(chapterId?.toString().orEmpty())};\n" +
+        "$NOVEL_SPEECH_SCRIPT\n$CHAPTER_OBSERVER_SCRIPT</script>\n",
 )
+
+private const val CHARSET_META = """<meta charset="utf-8">"""
 
 private const val CHAPTER_INTERFACE = "RectoLeafChapterBridge"
 private const val CHAPTER_SCRIPT_NONCE = "recto-leaf-reader"
@@ -763,9 +797,12 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
       window.rectoLeafChapters = {
         command: value => {
           const command = JSON.parse(value);
-          if (command.type === 'append') {
+          if (command.type === 'speech') {
+            window.rectoLeafSpeech.highlight(command.position);
+          } else if (command.type === 'append') {
             const section = sectionOf(command.html);
             if (section) document.body.appendChild(section);
+            window.rectoLeafSpeech.retry();
           } else if (command.type === 'prepend') {
             const section = sectionOf(command.html);
             const all = chapters();
@@ -774,6 +811,7 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
                 document.body.insertBefore(section, document.body.firstChild);
               });
             }
+            window.rectoLeafSpeech.retry();
           } else if (command.type === 'scroll') {
             const all = chapters();
             const position = all.findIndex(it => it.dataset.leafChapter === command.id);
@@ -802,6 +840,7 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
       // The script is injected into the head, so the body it observes and measures does not exist
       // yet. Starting before it does throws, and the first report never reaches the reader.
       const start = () => {
+        RectoLeafChapterBridge.postMessage(JSON.stringify({type: 'ready', generation: rectoLeafGeneration}));
         window.addEventListener('scroll', scheduleReport, { passive: true });
         new ResizeObserver(scheduleReport).observe(document.body);
         report();
