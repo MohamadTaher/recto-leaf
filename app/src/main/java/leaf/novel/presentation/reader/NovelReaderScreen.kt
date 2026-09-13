@@ -467,12 +467,11 @@ fun NovelReaderScreen(
         MutableSharedFlow<Int>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     }
 
-    // WebView's native find facility highlights the exact visible text and brings it on screen,
-    // without enabling JavaScript for book content. Repeated sections advance to their occurrence.
-    LaunchedEffect(state.speaking, state.speechText, state.speechOccurrence) {
-        val text = state.speechText
-        if (state.speaking && text != null) {
-            webViewController.highlightSpeech(text, state.speechOccurrence)
+    // Follow the location queued with the voice, independently of the visible chapter.
+    LaunchedEffect(state.speaking, state.speechPosition) {
+        val position = state.speechPosition
+        if (state.speaking && position != null) {
+            webViewController.highlightSpeech(position)
         } else {
             webViewController.clearSpeechHighlight()
         }

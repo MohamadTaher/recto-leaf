@@ -7,6 +7,7 @@ import leaf.novel.ui.reader.setting.NovelLinkColor
 import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderStyle
 import leaf.novel.ui.reader.setting.NovelReaderTheme
+import org.jsoup.Jsoup
 import org.junit.jupiter.api.Test
 
 private const val WHITE = 0xFFFFFFFF.toInt()
@@ -159,7 +160,7 @@ class NovelReaderCssTest {
         document.contains(styledContent.head) shouldBe false
         // Ours is still there; only the book's went.
         document.contains("-webkit-text-size-adjust") shouldBe true
-        document.contains("<p>text</p>") shouldBe true
+        Jsoup.parse(document).select("p").single().text() shouldBe "text"
     }
 
     /**
@@ -205,7 +206,7 @@ class NovelReaderCssTest {
         document.contains("body * { color:") shouldBe false
         document.contains("padding: 3px") shouldBe false
         document.contains("text-align: justify") shouldBe false
-        document.contains("<p>text</p>") shouldBe true
+        Jsoup.parse(document).select("p").single().text() shouldBe "text"
     }
 
     @Test
@@ -320,7 +321,39 @@ class NovelReaderCssTest {
     @Test
     fun `embeds the chapter body`() {
         val document = NovelReaderCss.document(content, style(), colors = colors(WHITE))
-        document.contains("<p>text</p>") shouldBe true
+        Jsoup.parse(document).select("p").single().text() shouldBe "text"
+    }
+
+    /**
+     * The chapter bridge injects its policy and its script by replacing this exact tag, so that the
+     * charset stays inside the thousand bytes a parser sniffs it in. Nothing announces a
+     * `replaceFirst` that found nothing: reword the tag and scripting is left on with no policy and
+     * no bridge behind it.
+     */
+    @Test
+    fun `every document carries the charset the chapter bridge is injected at`() {
+        val charset = """<meta charset="utf-8">"""
+
+        NovelReaderCss.document(content, style(), colors(WHITE)).contains(charset) shouldBe true
+        NovelReaderCss.document(
+            content,
+            style(),
+            colors(WHITE),
+            publisherFormatting = true,
+        ).contains(charset) shouldBe true
+    }
+
+    @Test
+    fun `speech anchors survive blank line trimming and text emphasis`() {
+        val html = "<p></p><p>Yes. Yes.</p><p>Yes.</p>"
+        val document = NovelReaderCss.document(
+            NovelChapterContent(html = html),
+            style(trimBlankLines = true, highlightFirstWord = true, highlightInitialChars = true),
+            colors(WHITE),
+        )
+        val blocks = Jsoup.parse(document).select("[${NovelSpeech.BLOCK_ATTRIBUTE}]")
+        blocks.map { it.attr(NovelSpeech.BLOCK_ATTRIBUTE) } shouldBe listOf("0", "1")
+        blocks.map { it.text() } shouldBe listOf("Yes. Yes.", "Yes.")
     }
 
     @Test
@@ -502,7 +535,11 @@ class NovelReaderCssTest {
         document.contains("data-leaf-chapter=\"10\"") shouldBe true
         document.contains("data-leaf-chapter=\"11\"") shouldBe true
         (document.indexOf("Chapter ten") < document.indexOf("Chapter eleven")) shouldBe true
-        (document.indexOf("<p>ten</p>") < document.indexOf("<p>eleven</p>")) shouldBe true
+        val sections = Jsoup.parse(document).select("[data-leaf-chapter]")
+        sections.map { it.select("p").text() } shouldBe listOf("ten", "eleven")
+        sections.forEach {
+            it.select("[${NovelSpeech.BLOCK_ATTRIBUTE}=0]").single().text() shouldBe it.select("p").text()
+        }
     }
 
     @Test
