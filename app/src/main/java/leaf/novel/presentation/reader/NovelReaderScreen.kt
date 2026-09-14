@@ -944,7 +944,9 @@ private fun ChapterContent(
             }
             val loadedPages = remember(startIndex) { mutableListOf(firstPage) }
             var activeIndex by remember(startIndex) { mutableIntStateOf(startIndex) }
-            val document = remember(firstPage, style, colors, publisherFormatting, continuous) {
+            // Not keyed on the colours: a theme change is swapped into the open page below,
+            // where rebuilding the document would reload it.
+            val document = remember(firstPage, style, publisherFormatting, continuous) {
                 if (continuous) {
                     NovelReaderCss.continuousDocument(
                         loadedPages.toList(),
@@ -963,10 +965,17 @@ private fun ChapterContent(
                 }
             }
 
+            // The two colours are all a theme is, and the stylesheet is the only place they live,
+            // so rewriting it repaints the page where a reload would blank it and seek back. This is
+            // the text reader's version of Mihon recolouring its container and being done.
+            LaunchedEffect(colors, style, publisherFormatting) {
+                controller.applyStylesheet(NovelReaderCss.stylesheet(style, colors, publisherFormatting))
+            }
+
             // As soon as the active section changes, the window of loaded chapters moves with it.
             // Both ends change the DOM in place and correct the scroll offset by however far they
             // moved it, so the words on screen stay where they are.
-            LaunchedEffect(activeIndex, continuous, style, colors, publisherFormatting) {
+            LaunchedEffect(activeIndex, continuous, style, publisherFormatting) {
                 if (!continuous) return@LaunchedEffect
                 val chapters = viewModel.state.value.chapters
                 val first = (activeIndex - CHAPTERS_BEHIND).coerceAtLeast(0)

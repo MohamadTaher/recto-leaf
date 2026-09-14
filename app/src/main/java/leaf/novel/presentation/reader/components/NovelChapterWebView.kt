@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelSpeech
 import leaf.novel.ui.reader.NovelStatusLine
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
@@ -114,6 +115,25 @@ private class NovelWebView(context: Context) : WebView(context) {
         }
         chapterBridge = bridge
         addJavascriptInterface(bridge, CHAPTER_INTERFACE)
+    }
+
+    /**
+     * Swaps the reader's own rules into the document that is already open.
+     *
+     * A theme is only ever two colours, and the only place they live is that one stylesheet — so
+     * rewriting its text repaints the page in the frame it arrives. Rebuilding the document
+     * instead would blank the WebView, wait for its height to settle and seek back to the line the
+     * reader never left, which is the delay this removes.
+     *
+     * Not a chapter bridge command: it has to land on a page whose bridge may not have reported in
+     * yet, and there is nothing to queue — a reload already carries the current colours.
+     */
+    fun applyStylesheet(css: String) {
+        evaluateJavascript(
+            "(function(){var s=document.getElementById('${NovelReaderCss.STYLE_ID}');" +
+                "if(s)s.textContent=${JSONObject.quote(css)};})();",
+            null,
+        )
     }
 
     fun appendChapter(section: String) {
@@ -357,6 +377,7 @@ fun NovelChapterWebView(
                     scrollToChapter = ::scrollToChapter,
                     keepChapters = ::keepChapters,
                     highlightSpeech = ::highlightSpeech,
+                    applyStylesheet = ::applyStylesheet,
                 )
                 setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
                     controller.onFindResult(activeMatchOrdinal, numberOfMatches)

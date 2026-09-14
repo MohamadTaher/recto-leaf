@@ -128,6 +128,28 @@ class NovelReaderCssTest {
     }
 
     /**
+     * The reader swaps a theme into the open page by rewriting one element's text, so what
+     * [NovelReaderCss.stylesheet] returns has to be exactly what the document was built with.
+     * Were they to drift, a theme change would repaint the page into something it never was.
+     */
+    @Test
+    fun `the document carries the stylesheet the reader can swap`() {
+        val document = NovelReaderCss.document(content, style(), colors = colors(BLACK))
+
+        document.contains(NovelReaderCss.stylesheet(style(), colors(BLACK))) shouldBe true
+    }
+
+    /** And the only difference two themes make to a document is inside that element. */
+    @Test
+    fun `colours change nothing outside the stylesheet`() {
+        val light = NovelReaderCss.document(content, style(), colors = colors(WHITE))
+        val dark = NovelReaderCss.document(content, style(), colors = colors(BLACK))
+
+        light.replace(NovelReaderCss.stylesheet(style(), colors(WHITE)), "") shouldBe
+            dark.replace(NovelReaderCss.stylesheet(style(), colors(BLACK)), "")
+    }
+
+    /**
      * Regression test. `body *` used to be written as `body, body *`, which at equal specificity
      * came after the `body` rule and so cancelled the reader's own background with
      * `background-color: transparent`.
