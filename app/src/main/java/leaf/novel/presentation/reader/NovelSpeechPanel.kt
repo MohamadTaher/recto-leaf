@@ -23,8 +23,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -474,6 +476,14 @@ private fun LabeledSlider(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val colors = SliderDefaults.colors()
+    val sliderState = key(valueRange, steps) {
+        rememberSliderState(
+            value = value,
+            steps = steps,
+            trackRange = valueRange,
+        )
+    }
+        .also { it.value = value }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -491,10 +501,8 @@ private fun LabeledSlider(
             modifier = Modifier.width(SPEECH_SLIDER_VALUE_WIDTH),
         )
         Slider(
-            value = value,
+            state = sliderState,
             onValueChange = onValueChange,
-            valueRange = valueRange,
-            steps = steps,
             onValueChangeFinished = onValueChangeFinished,
             colors = colors,
             interactionSource = interactionSource,

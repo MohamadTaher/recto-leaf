@@ -235,6 +235,7 @@ dependencies {
     implementation(libs.androidx.compose.uiUtil)
 
     implementation(libs.androidx.interpolator)
+
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
 
@@ -299,7 +300,6 @@ dependencies {
     implementation(libs.image.decoder)
 
     implementation(libs.webgpuviewer)
-    implementation(libs.kim)
 
     // UI libraries
     implementation(libs.material)
