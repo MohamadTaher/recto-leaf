@@ -113,6 +113,7 @@ object NovelReaderCss {
             // First, so a rule matches what the book said rather than what the aids below have
             // since made of it.
             .let { NovelTextReplacements.apply(it, style.textReplacements) }
+            .let(NovelSpeech::anchorBlocks)
             // Trimming the top of a page is the same pass as trimming the chapter — a column break
             // cannot be targeted separately — so the paged setting turns on the one that exists
             // rather than a second doing identical work.
@@ -188,6 +189,7 @@ object NovelReaderCss {
             }
             ::selection { background: $SPEECH_HIGHLIGHT; }
             ::search-text { background: $SPEECH_HIGHLIGHT; }
+            ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
             </style>
             </head>
             <body>
@@ -247,8 +249,7 @@ object NovelReaderCss {
      * The rules that turn one long scroll into a row of pages.
      *
      * CSS multi-column, with a column exactly a viewport wide, so the browser does the pagination
-     * and the reader only has to scroll sideways by whole viewports. No JavaScript, which is the
-     * constraint every feature in this reader has been held to — and no layout engine of our own,
+     * and the reader only has to scroll sideways by whole viewports. No layout engine of our own,
      * which is the reason this was left until last rather than done by measuring text.
      *
      * The gutter between pages is the two side margins added together, because the body's own
@@ -258,9 +259,9 @@ object NovelReaderCss {
      * Emitted before the main `body` rule so that rule still owns the padding and the colours; this
      * one sets only what it does not.
      *
-     * Nothing here hides overflow, and nothing may. The reader runs no JavaScript, so a page turn is
-     * the WebView's own `scrollBy` — which moves the *document*, and only has anywhere to move it if
-     * the columns overflow the root scroller visibly. Hiding overflow on `html` or `body` leaves
+     * Nothing here hides overflow, and nothing may. A page turn is the WebView's own `scrollBy` —
+     * which moves the *document*, and only has anywhere to move it if the columns overflow the root
+     * scroller visibly. Hiding overflow on `html` or `body` leaves
      * `computeHorizontalScrollRange()` equal to the viewport, which reads as a chapter with one page
      * that is already finished. Capping the height is what turns the text sideways; clipping it is
      * what would strand the reader on the first column.
@@ -301,10 +302,12 @@ object NovelReaderCss {
             html { -webkit-text-size-adjust: 100%; }
             body { background: ${colors.background.toCssColor()} !important; color: ${colors.foreground.toCssColor()}; }
             img, svg, video { max-width: 100%; height: auto; }
+            ::selection { background: $SPEECH_HIGHLIGHT; }
+            ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
             </style>
             </head>
             <body>
-            ${content.html}
+            ${NovelSpeech.anchorBlocks(content.html)}
             </body>
             </html>
         """.trimIndent()
