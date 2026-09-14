@@ -25,3 +25,7 @@ local.properties
 # Local agent instructions
 CLAUDE.md
 AGENTS.md
+
+# Claude task buckets — working context, never tracked.
+.claude/scratch/
+/.claude/settings.json
