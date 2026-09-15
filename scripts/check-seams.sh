@@ -87,7 +87,7 @@ RENUMBERED="
 # Workflows are the one place the fork adds files beside upstream's rather than under a tree of its
 # own, so they carry the ownership in the name: anything the fork adds under .github/workflows/ is
 # called leaf-*.yml, and upstream's own workflows stay on the contract.
-FORK_TREES='^scripts/|^CLAUDE.md$|^novel-api/|^novel-extensions/|^\.github/workflows/leaf-|(^|/)leaf/'
+FORK_TREES='^scripts/|^CLAUDE.md$|^novel-api/|^\.github/workflows/leaf-|(^|/)leaf/'
 
 fail() {
     printf '  FAIL  %s\n' "$1"
