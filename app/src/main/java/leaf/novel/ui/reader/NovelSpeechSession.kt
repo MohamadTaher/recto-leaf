@@ -7,6 +7,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import mihon.app.di.appGraph
+import tachiyomi.domain.chapter.model.ChapterUpdate
 
 /**
  * The read-aloud engine and its queue, held at process scope rather than by the reader's
@@ -94,6 +96,16 @@ object NovelSpeechSession : NovelSpeechService.Controls {
         if (speaker.speech.value.paused) speaker.resume() else speaker.pause()
     }
 
+    /** A hardware play key — a headset button, or a media control surface — reaching the engine. */
+    override fun play() {
+        engine?.resume()
+    }
+
+    /** The pause half of the same hardware path, and what a headset disconnecting also asks for. */
+    override fun pause() {
+        engine?.pause()
+    }
+
     override fun stop() {
         engine?.stop()
     }
@@ -104,15 +116,36 @@ object NovelSpeechSession : NovelSpeechService.Controls {
      * `NovelSpeaker.State.speaking` stays true while paused, so only a speaking→not-speaking edge
      * counts — and [NovelSpeechAttachment.mayResetOn] is what tells "nobody is watching" apart from
      * "a reader is right there and will hide the notification itself" (M4).
+     *
+     * Progress is checkpointed here too, for the same reason: a reader normally reports its own
+     * scroll percent, but there is no reader to do that while speech runs unattached, and that is
+     * exactly when losing the position matters most — the next thing to see it is this object
+     * being torn down, whether by the last utterance ending, the notification's Stop button, or the
+     * task being swiped away.
      */
     private fun observe(speaker: NovelSpeaker) {
         val lifecycle = NovelSpeechLifecycle()
         observerJob = speaker.speech
             .onEach { state ->
                 val ended = lifecycle.observe(state.speaking) == NovelSpeechLifecycle.Transition.ENDED
+                if (!attachment.attached) persistProgress(state.index)
                 if (attachment.mayResetOn(ended)) reset()
             }
             .launchIn(scope)
+    }
+
+    /**
+     * Writes the chapter position speech has reached, so it is not lost with no reader attached to
+     * report it. Only `lastPageRead` is touched — marking a chapter read, and pushing it to a
+     * tracker, stays [NovelReaderViewModel.persistProgress]'s job for whenever a reader next opens
+     * onto this manga, so this does not have to duplicate that bookkeeping.
+     */
+    private suspend fun persistProgress(index: Int) {
+        val context = appContext ?: return
+        val (chapterId, percent) = queue.chapterProgress(index) ?: return
+        runCatching {
+            context.appGraph.updateChapter.await(ChapterUpdate(id = chapterId, lastPageRead = percent.toLong()))
+        }
     }
 
     /**
@@ -172,6 +205,21 @@ class NovelSpeechQueue {
 
     /** Whether a reader for [mangaId] is the one this queue is currently speaking for. */
     fun belongsTo(mangaId: Long): Boolean = this.mangaId == mangaId
+
+    /** The chapter [index] falls in, and how far through that chapter it sits, as a percent. */
+    fun chapterProgress(index: Int): Pair<Long, Int>? {
+        if (positions.isEmpty()) return null
+        val bounded = index.coerceIn(0, positions.lastIndex)
+        val chapterId = positions[bounded].chapterId
+        val chapterTexts = mutableListOf<String>()
+        var localIndex = 0
+        positions.forEachIndexed { i, position ->
+            if (position.chapterId != chapterId) return@forEachIndexed
+            if (i == bounded) localIndex = chapterTexts.size
+            chapterTexts += position.text
+        }
+        return chapterId to NovelSpeech.percentAt(localIndex, chapterTexts)
+    }
 
     /** What a reader attaching now should show, built from the engine's own report. */
     fun snapshot(engine: NovelSpeaker.State) = Snapshot(

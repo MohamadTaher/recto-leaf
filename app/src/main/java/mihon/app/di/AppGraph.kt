@@ -48,6 +48,7 @@ import mihon.domain.extension.interactor.GetExtensionStoreCountAsFlow
 import tachiyomi.domain.backup.service.BackupPreferences
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.category.interactor.ResetCategoryFlags
+import tachiyomi.domain.chapter.interactor.UpdateChapter
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.interactor.GetFavorites
@@ -127,6 +128,10 @@ interface AppGraph : ViewModelGraph {
     val novelImporter: NovelImporter
     val novelLibraryPreferences: NovelLibraryPreferences
     val novelReaderRouter: NovelReaderRouter
+
+    // [recto-leaf] Reached from NovelSpeechSession, which writes chapter progress at process
+    // scope while read-aloud runs with no reader attached to do it through the usual ViewModel.
+    val updateChapter: UpdateChapter
 
     @DependencyGraph.Factory
     fun interface Factory {

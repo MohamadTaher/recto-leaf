@@ -66,6 +66,20 @@ object NovelSpeech {
     }
 
     /**
+     * [indexAt]'s inverse: how far through [utterances] the unit at [index] sits, as a percent.
+     *
+     * What lets speech checkpoint its own position to the same `lastPageRead` field the reader's
+     * scroll percent writes, with no reader on screen to report one itself.
+     */
+    fun percentAt(index: Int, utterances: List<String>): Int {
+        if (utterances.isEmpty()) return 0
+        val total = utterances.sumOf { it.length }
+        if (total <= 0) return 0
+        val before = utterances.take(index.coerceIn(0, utterances.lastIndex)).sumOf { it.length }
+        return (before * 100 / total).coerceIn(0, 100)
+    }
+
+    /**
      * One paragraph as sentences.
      *
      * Splitting on terminal punctuation alone breaks "Mr. Grey" in half, so a piece ending in a

@@ -135,5 +135,22 @@ class NovelSpeechTest {
         NovelSpeech.indexAt(0.5f, emptyList()) shouldBe 0
     }
 
+    @Test
+    fun `reports how far a spoken unit sits, weighted the same way indexAt reads it back`() {
+        val utterances = listOf("aaaaaaaaa", "b")
+
+        NovelSpeech.percentAt(0, utterances) shouldBe 0
+        NovelSpeech.percentAt(1, utterances) shouldBe 90
+    }
+
+    @Test
+    fun `clamps a spoken position to the chapter`() {
+        val utterances = listOf("one", "two")
+
+        NovelSpeech.percentAt(-1, utterances) shouldBe 0
+        NovelSpeech.percentAt(5, utterances) shouldBe 50
+        NovelSpeech.percentAt(0, emptyList()) shouldBe 0
+    }
+
     // endregion
 }

@@ -2,8 +2,13 @@ package leaf.novel.ui.reader
 
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import eu.kanade.tachiyomi.R
@@ -14,8 +19,8 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.MR
 
 /**
- * Keeps read-aloud running whether or not the reader is on screen — including after its task has
- * been swiped away.
+ * Keeps read-aloud running whenever the reader is merely off screen — backgrounded, or closed
+ * outright while its chapter keeps talking — but not once the task itself is swiped out of Recents.
  *
  * Android stops giving a backgrounded process anything to run on, so speech that outlives the
  * screen has to be attached to something the system has been told about. That is all this is: it
@@ -24,10 +29,18 @@ import tachiyomi.i18n.MR
  * with whichever reader happened to start it — a reader being destroyed is not a reason to stop
  * talking partway through a chapter.
  *
+ * A swiped-away task is a reason: [onTaskRemoved] is the one signal telling those two cases apart,
+ * so it is also the one place this stops speech itself rather than just outliving whatever asked it
+ * to. `stopWithTask` stays false so nothing happens without that call actually running.
+ *
  * It is bound to nothing and started with an explicit intent, so it lives exactly as long as speech
- * does. Swiping the task away does not take it with it: `stopWithTask` already defaults to false,
- * and the manifest says so out loud only because a guarantee this change rests on should not be
- * left implicit.
+ * does.
+ *
+ * The [MediaSession] is what a Bluetooth headset's own button, or its in-ear detection taking a bud
+ * out, actually reaches — both arrive as ordinary media-button events, the same as a wired remote,
+ * with no code of this fork's own involved on the device end. [becomingNoisyReceiver] covers the
+ * other half of "a headset stopped being the way this is heard": a disconnect rather than a button,
+ * which is a route change the system announces instead.
  */
 class NovelSpeechService : Service() {
 
@@ -39,9 +52,44 @@ class NovelSpeechService : Service() {
     private var lastChapter = ""
     private var lastPaused = false
 
+    private var mediaSession: MediaSession? = null
+
+    /** Routes a hardware play/pause/stop press to whatever is currently speaking. */
+    private val sessionCallback = object : MediaSession.Callback() {
+        override fun onPlay() {
+            controls?.play()
+        }
+
+        override fun onPause() {
+            controls?.pause()
+        }
+
+        override fun onStop() {
+            controls?.stop()
+            stopSelf()
+        }
+    }
+
+    /** The output is about to switch to the speaker — a Bluetooth or wired headset disconnecting. */
+    private val becomingNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            controls?.pause()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        mediaSession = MediaSession(this, "NovelSpeech").apply {
+            setCallback(sessionCallback)
+            isActive = true
+        }
+        ContextCompat.registerReceiver(
+            this,
+            becomingNoisyReceiver,
+            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -60,6 +108,7 @@ class NovelSpeechService : Service() {
             lastTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
             lastChapter = intent.getStringExtra(EXTRA_CHAPTER).orEmpty()
             lastPaused = intent.getBooleanExtra(EXTRA_PAUSED, false)
+            updatePlaybackState(lastPaused)
         }
 
         // The one call this makes to the system: every later update goes through update(), which
@@ -73,6 +122,22 @@ class NovelSpeechService : Service() {
     override fun onDestroy() {
         instance = null
         controls = null
+        unregisterReceiver(becomingNoisyReceiver)
+        mediaSession?.release()
+        mediaSession = null
+    }
+
+    /**
+     * The task hosting the app was swiped out of Recents. Unlike a reader closing or the app being
+     * backgrounded — both of which leave speech running — nothing can reattach to a task that no
+     * longer exists, so this is where the survive-in-the-background guarantee ends: stop the same
+     * way the notification's own Stop button does, rather than ride out `stopWithTask=false` the way
+     * every other kind of "off screen" is meant to.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        controls?.stop()
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
     }
 
     /** Redraws the already-posted notification. Called only while this instance is alive. */
@@ -80,7 +145,29 @@ class NovelSpeechService : Service() {
         lastTitle = title
         lastChapter = chapter
         lastPaused = paused
+        updatePlaybackState(paused)
         notify(NOTIFICATION_ID, notification(title, chapter, paused))
+    }
+
+    /**
+     * Tells the session what a hardware play/pause key should do next. A single `PLAY_PAUSE` press
+     * — what a headset actually sends — has no direction of its own; [MediaSession.Callback] picks
+     * [sessionCallback]'s `onPlay` or `onPause` for it by comparing against the state set here, so
+     * this has to stay current for the button to toggle the right way.
+     */
+    private fun updatePlaybackState(paused: Boolean) {
+        val state = if (paused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING
+        mediaSession?.setPlaybackState(
+            PlaybackState.Builder()
+                .setActions(
+                    PlaybackState.ACTION_PLAY or
+                        PlaybackState.ACTION_PAUSE or
+                        PlaybackState.ACTION_PLAY_PAUSE or
+                        PlaybackState.ACTION_STOP,
+                )
+                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
+                .build(),
+        )
     }
 
     private fun notification(title: String, chapter: String, paused: Boolean) = notificationBuilder(
@@ -114,9 +201,14 @@ class NovelSpeechService : Service() {
         PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** What the notification's buttons do. Implemented by whatever is currently speaking. */
+    /**
+     * What the notification's buttons, and now the hardware ones, do. Implemented by whatever is
+     * currently speaking.
+     */
     interface Controls {
         fun togglePlayback()
+        fun play()
+        fun pause()
         fun stop()
     }
 

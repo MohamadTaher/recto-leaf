@@ -1,14 +1,18 @@
 package leaf.novel.ui.reader
 
 import io.kotest.matchers.shouldBe
+import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import org.junit.jupiter.api.Test
 
 /**
  * [NovelSpeechQueue] is the half of speech's process-scoped ownership that has no Android types in
  * it, so it is the only half a JVM test can drive directly. What it has to prove: the queue and the
  * engine's own reported position outlive whatever reader last touched them, a reader that attaches
- * to a session already running adopts that position instead of resetting it, and a session records
- * which novel it belongs to so a different novel's reader cannot mistake it for its own (M2).
+ * to a session already running adopts that position instead of resetting it, a session records
+ * which novel it belongs to so a different novel's reader cannot mistake it for its own (M2), and
+ * [NovelSpeechQueue.chapterProgress] can checkpoint speech's own position with no reader attached
+ * to report one, picking the right chapter and percent back out of a queue that may already span
+ * more than one.
  */
 class NovelSpeechQueueTest {
 
@@ -80,5 +84,32 @@ class NovelSpeechQueueTest {
         queue.positions shouldBe emptyList()
         queue.chapterIndex shouldBe 0
         queue.belongsTo(1L) shouldBe false
+    }
+
+    @Test
+    fun `reports the percent through the chapter a global index falls in`() {
+        val queue = NovelSpeechQueue()
+        val first = NovelSpeech.positions("<p>aaaaaaaaa</p><p>b</p>", NovelSpeechDivision.PARAGRAPH, chapterId = 1)
+        queue.start(mangaId = 5, positions = first, chapterIndex = 0)
+
+        queue.chapterProgress(0) shouldBe (1L to 0)
+        queue.chapterProgress(1) shouldBe (1L to 90)
+    }
+
+    @Test
+    fun `keeps each chapter's percent independent of the ones queued around it`() {
+        val queue = NovelSpeechQueue()
+        val first = NovelSpeech.positions("<p>aaaaaaaaa</p><p>b</p>", NovelSpeechDivision.PARAGRAPH, chapterId = 1)
+        val second = NovelSpeech.positions("<p>c</p><p>dddddddd</p>", NovelSpeechDivision.PARAGRAPH, chapterId = 2)
+        queue.start(mangaId = 5, positions = first, chapterIndex = 0)
+        queue.extend(second, chapterIndex = 1)
+
+        queue.chapterProgress(2) shouldBe (2L to 0)
+        queue.chapterProgress(3) shouldBe (2L to 11)
+    }
+
+    @Test
+    fun `has nothing to report for an empty queue`() {
+        NovelSpeechQueue().chapterProgress(0) shouldBe null
     }
 }
