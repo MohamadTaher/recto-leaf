@@ -65,6 +65,12 @@ object NovelSpeech {
         return utterances.lastIndex
     }
 
+    /** Retain the exact spoken unit across Stop; percentages alone round down into earlier units. */
+    fun resumeIndex(percent: Int, positions: List<Position>, bookmark: Position?): Int {
+        val exact = positions.indexOf(bookmark)
+        return if (exact >= 0) exact else indexAt(percent / 100f, positions.map { it.text })
+    }
+
     /**
      * [indexAt]'s inverse: how far through [utterances] the unit at [index] sits, as a percent.
      *

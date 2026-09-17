@@ -31,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -190,12 +191,10 @@ fun NovelReaderScreen(
         hideSpeechControls()
     }
 
-    // Where the reader currently is, seeded from the stored position and updated as it scrolls.
-    // Changing font size or theme rebuilds the document, and the reload restores from *this* rather
-    // than from the database, so adjusting type size does not throw the reader back to where it was
-    // when the chapter opened. It sits this high up because the chapter slider both displays it and
-    // drives it, and the action dispatcher below starts speed reading from it.
-    var livePercent by remember(chapter?.id) {
+    // Manual reading and TTS both update the chapter's single tracked position in the ViewModel.
+    val livePercent = chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0
+    // Geometry is only used to seek speech when its explicit page-turn buttons are pressed.
+    var visiblePercent by remember(chapter?.id) {
         mutableIntStateOf(chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0)
     }
 
@@ -209,12 +208,12 @@ fun NovelReaderScreen(
         if (viewModel.novelReaderPreferences.speechConfirmBeforeSpeak.get()) {
             confirmSpeech = true
         } else {
-            viewModel.startSpeaking(livePercent)
+            viewModel.startSpeaking()
         }
     }
 
     fun turnSpeechPage(forward: Boolean) {
-        val from = livePercent
+        val from = visiblePercent
         if (forward) webViewController.pageDown() else webViewController.pageUp()
         if (!state.speaking) return
         scope.launch {
@@ -222,9 +221,9 @@ fun NovelReaderScreen(
             // rather than from the scroll itself, so the restart waits for the page it turned to
             // instead of speaking the one it left.
             withTimeoutOrNull(SPEECH_PAGE_SETTLE_MS) {
-                snapshotFlow { livePercent }.first { it != from }
+                snapshotFlow { visiblePercent }.first { it != from }
             }
-            viewModel.restartSpeaking(livePercent, state.speechPaused)
+            viewModel.restartSpeaking(visiblePercent, state.speechPaused)
         }
     }
 
@@ -241,7 +240,7 @@ fun NovelReaderScreen(
         if (showSpeechControls) {
             showSpeechControls = false
         } else {
-            if (!state.speechPaused) viewModel.toggleSpeechPlayback(livePercent)
+            if (!state.speechPaused) viewModel.toggleSpeechPlayback()
             showSpeechControls = true
         }
         return true
@@ -283,7 +282,7 @@ fun NovelReaderScreen(
             }
             NovelReaderAction.TOGGLE_SPEECH -> {
                 openSpeechControls()
-                if (state.speaking) viewModel.toggleSpeechPlayback(livePercent) else requestSpeechStart()
+                if (state.speaking) viewModel.toggleSpeechPlayback() else requestSpeechStart()
             }
             NovelReaderAction.STOP_SPEAKING -> closeSpeechControls()
             NovelReaderAction.SPEED_READ -> {
@@ -360,8 +359,9 @@ fun NovelReaderScreen(
 
     // Keys are dispatched by the activity, which cannot reach the composition, so they arrive as
     // requests and are performed here alongside the taps.
-    LaunchedEffect(Unit) {
-        viewModel.actions.collect { performAction(it) }
+    val currentAction by rememberUpdatedState<(NovelReaderAction) -> Unit>(::performAction)
+    LaunchedEffect(viewModel) {
+        viewModel.actions.collect { currentAction(it) }
     }
 
     // Both of these hang off the chrome, so when it goes they go with it. An expanded menu left
@@ -579,7 +579,7 @@ fun NovelReaderScreen(
                             style = style,
                             colors = colors,
                             percentRead = livePercent,
-                            onPercentChange = { livePercent = it },
+                            onPercentChange = { visiblePercent = it },
                             seekRequests = seekRequests,
                             controller = webViewController,
                             ignoreEdgeTaps = disableTouchEdge,
@@ -603,10 +603,12 @@ fun NovelReaderScreen(
                                 if (paged) openChapter(state.currentIndex + if (forward) 1 else -1)
                             },
                             onChapterChange = { index, percent ->
-                                if (state.currentIndex != index) {
+                                if (!state.speaking && webViewController.tracksScrollProgress &&
+                                    state.currentIndex != index
+                                ) {
                                     viewModel.setCurrentChapter(index, continuous = true)
                                 }
-                                livePercent = percent
+                                visiblePercent = percent
                             },
                             onTapCell = { cell ->
                                 val binding = viewModel.novelReaderPreferences.tapZones[cell]
@@ -860,7 +862,7 @@ fun NovelReaderScreen(
                 TextButton(
                     onClick = {
                         confirmSpeech = false
-                        viewModel.startSpeaking(livePercent)
+                        viewModel.startSpeaking()
                     },
                 ) {
                     Text(stringResource(MR.strings.leaf_novel_action_speak))
@@ -1058,14 +1060,14 @@ private fun ChapterContent(
                     if (index < 0) return@NovelChapterWebView
                     activeIndex = index
                     onChapterChange(index, percent)
-                    viewModel.reportProgress(chapterId, percent)
+                    if (controller.tracksScrollProgress) viewModel.reportProgress(chapterId, percent)
                 },
                 seekRequests = seekRequests,
                 assetServer = assetServer,
                 backgroundColor = colors.background,
                 onProgress = {
                     onPercentChange(it)
-                    viewModel.reportProgress(first.chapter.id, it)
+                    if (controller.tracksScrollProgress) viewModel.reportProgress(first.chapter.id, it)
                 },
                 controller = controller,
                 ignoreEdgeTaps = ignoreEdgeTaps,

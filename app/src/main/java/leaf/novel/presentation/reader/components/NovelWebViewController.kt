@@ -21,6 +21,15 @@ import leaf.novel.ui.reader.NovelStatusLine
 @Stable
 class NovelWebViewController {
 
+    // Speech owns the location until deliberate navigation resumes. Resizing the viewport when
+    // its panel closes must not replace that location with a different scroll percentage.
+    var tracksScrollProgress: Boolean = true
+        private set
+
+    internal fun trackManualProgress() {
+        tracksScrollProgress = true
+    }
+
     private var webView: WebView? = null
     private var activeQuery: String? = null
     private var speechHighlight: NovelSpeech.Position? = null
@@ -85,6 +94,7 @@ class NovelWebViewController {
      * keeps being recorded while auto scroll runs.
      */
     fun scrollBy(dy: Int) {
+        trackManualProgress()
         webView?.scrollBy(0, dy)
     }
 
@@ -100,6 +110,7 @@ class NovelWebViewController {
 
     /** Moves to a chapter section already present in the rolling document. */
     fun scrollToChapter(chapterId: Long, percent: Int = 0) {
+        trackManualProgress()
         chapterScroller?.invoke(chapterId, percent)
     }
 
@@ -143,6 +154,7 @@ class NovelWebViewController {
      * Ordinary search uses the view's find-in-page; speech follows its own source locations.
      */
     fun find(query: String) {
+        trackManualProgress()
         speechHighlight = null
         speechHighlighter?.invoke(null)
         activeQuery = query
@@ -151,6 +163,7 @@ class NovelWebViewController {
 
     /** Steps to the next match, wrapping at the ends. */
     fun findNext(forward: Boolean) {
+        trackManualProgress()
         webView?.findNext(forward)
     }
 
@@ -163,6 +176,7 @@ class NovelWebViewController {
 
     /** Highlights only the chapter and block belonging to the spoken unit. */
     fun highlightSpeech(highlight: NovelSpeech.Position) {
+        tracksScrollProgress = false
         if (speechHighlight == highlight) return
         speechHighlight = highlight
         activeQuery = null

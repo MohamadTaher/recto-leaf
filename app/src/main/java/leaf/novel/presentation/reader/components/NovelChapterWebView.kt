@@ -55,6 +55,12 @@ import kotlin.math.roundToInt
 private class NovelWebView(context: Context) : WebView(context) {
 
     var onScroll: ((offset: Int, range: Int) -> Unit)? = null
+    var onManualNavigation: (() -> Unit)? = null
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_MOVE) onManualNavigation?.invoke()
+        return super.onTouchEvent(event)
+    }
 
     /**
      * Whether the chapter is laid out as a row of pages rather than one long column.
@@ -214,6 +220,7 @@ private class NovelWebView(context: Context) : WebView(context) {
      * overlap, so the caller passes zero while paged.
      */
     fun turnPage(pages: Int, overlap: Int, sound: Boolean) {
+        onManualNavigation?.invoke()
         // Columns cannot overlap, so keeping a line only means anything while scrolling.
         val step = (viewportExtent - if (paged) 0 else overlap).coerceAtLeast(1) * pages
         if (paged) scrollBy(step, 0) else scrollBy(0, step)
@@ -341,6 +348,7 @@ fun NovelChapterWebView(
         modifier = modifier,
         factory = { context ->
             NovelWebView(context).apply {
+                onManualNavigation = controller::trackManualProgress
                 configure(backgroundColor)
                 attachChapterBridge { id, percent, screens ->
                     if (continuous) {
@@ -401,6 +409,7 @@ fun NovelChapterWebView(
             controller.detach()
             view.detachChapterBridge()
             view.onScroll = null
+            view.onManualNavigation = null
             view.stopLoading()
             view.destroy()
         },
@@ -445,6 +454,7 @@ fun NovelChapterWebView(
     LaunchedEffect(webView, seekRequests) {
         val view = webView ?: return@LaunchedEffect
         seekRequests.collect { percent ->
+            controller.trackManualProgress()
             if (view.maxScroll > 0) view.seekTo(percent)
         }
     }

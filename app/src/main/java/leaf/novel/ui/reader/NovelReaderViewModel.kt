@@ -422,14 +422,14 @@ class NovelReaderViewModel(
     private var speechExtendJob: Job? = null
 
     /**
-     * Starts reading the open chapter aloud at [percentRead].
+     * Starts at the same tracked chapter position used by manual reading and speech progress.
      *
      * The utterances are cut afresh each time, so changing how the chapter is divided takes effect
      * on the next start rather than needing the chapter reopened.
      */
-    fun startSpeaking(percentRead: Int) {
+    fun startSpeaking() {
         if (state.value.speaking) return
-        queueSpeech(percentRead)
+        queueSpeech(state.value.currentChapter?.lastPageRead?.toInt() ?: 0)
     }
 
     /** Rebuilds the queue when its division changes while the control sheet is open. */
@@ -467,7 +467,10 @@ class NovelReaderViewModel(
         val engine = attachToSession()
 
         val text = utterances.map { it.text }
-        val fromIndex = NovelSpeech.indexAt(percentRead / 100f, text)
+        val bookmark = state.value.speechPosition.takeIf {
+            percentRead == state.value.currentChapter?.lastPageRead?.toInt()
+        }
+        val fromIndex = NovelSpeech.resumeIndex(percentRead, utterances, bookmark)
         NovelSpeechSession.queue.start(mangaId, utterances, state.value.currentIndex)
         mutableState.update {
             it.copy(
@@ -515,10 +518,18 @@ class NovelReaderViewModel(
         val lifecycle = NovelSpeechLifecycle(initiallySpeaking = engine.speech.value.speaking)
         engine.speech
             .onEach { speech ->
-                when (lifecycle.observe(speech.speaking)) {
+                val transition = lifecycle.observe(speech.speaking)
+                when (transition) {
                     NovelSpeechLifecycle.Transition.STARTED -> scheduleSpeechStop()
                     NovelSpeechLifecycle.Transition.ENDED -> cancelSpeechStop()
                     NovelSpeechLifecycle.Transition.NONE -> Unit
+                }
+                if (speech.speaking || transition == NovelSpeechLifecycle.Transition.ENDED) {
+                    NovelSpeechSession.queue.chapterProgress(speech.index)?.let { (chapterId, percent) ->
+                        val index = state.value.chapters.indexOfFirst { it.id == chapterId }
+                        if (index >= 0) setCurrentChapter(index, continuous = true)
+                        recordProgress(chapterId, percent, fromSpeech = true)
+                    }
                 }
                 if (speech.speaking) extendSpeech(speech.index)
                 holdProcessOpen(speech.speaking, speech.paused)
@@ -603,9 +614,9 @@ class NovelReaderViewModel(
         }
     }
 
-    fun toggleSpeechPlayback(percentRead: Int) {
+    fun toggleSpeechPlayback() {
         when {
-            !state.value.speaking -> startSpeaking(percentRead)
+            !state.value.speaking -> startSpeaking()
             state.value.speechPaused -> NovelSpeechSession.speakerOrNull()?.resume()
             else -> NovelSpeechSession.speakerOrNull()?.pause()
         }
@@ -835,6 +846,12 @@ class NovelReaderViewModel(
 
     /** Records how far through [chapterId] the reader has scrolled, as a percent in 0..100. */
     fun reportProgress(chapterId: Long, percent: Int) {
+        recordProgress(chapterId, percent, fromSpeech = false)
+    }
+
+    private fun recordProgress(chapterId: Long, percent: Int, fromSpeech: Boolean) {
+        if (state.value.speaking && !fromSpeech) return
+        mutableState.update { it.withProgress(chapterId, percent, fromSpeech) }
         if (incognitoMode) return
         pendingProgress[chapterId] = percent.coerceIn(0, 100)
         progressTicks.tryEmit(Unit)
@@ -945,6 +962,19 @@ class NovelReaderViewModel(
         val speechUnavailable: Boolean = false,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
+
+        /** Speech owns progress while active; its WebView highlight is only a visual follower. */
+        fun withProgress(chapterId: Long, percent: Int, fromSpeech: Boolean): State {
+            if (speaking && !fromSpeech) return this
+            val index = chapters.indexOfFirst { it.id == chapterId }
+            if (index < 0) return this
+            val position = percent.coerceIn(0, 100).toLong()
+            if (chapters[index].lastPageRead == position) return this
+            return copy(
+                chapters = chapters.toMutableList().apply { this[index] = this[index].copy(lastPageRead = position) },
+                speechPosition = speechPosition.takeIf { fromSpeech },
+            )
+        }
     }
 
     companion object {
