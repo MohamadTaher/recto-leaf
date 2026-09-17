@@ -41,7 +41,9 @@ import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import leaf.novel.api.NovelCommentScope
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
+import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
@@ -427,6 +429,60 @@ private fun ColumnScope.MiscellaneousPage(
                 labelOf = { stringResource(it.titleRes) },
             )
         }
+    }
+
+    SectionHeading(MR.strings.leaf_novel_reader_heading_comments)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_comments_setting_enabled),
+        pref = novelReaderPreferences.commentsEnabled,
+    )
+
+    // The rest configure a sheet that is not offered, so they follow the switch that offers it —
+    // the same rule the status bar rows follow above.
+    val commentsEnabled by novelReaderPreferences.commentsEnabled.collectAsState()
+    if (commentsEnabled) {
+        EnumSelectItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_scope),
+            preference = novelReaderPreferences.commentsScope,
+            options = NovelCommentScope.entries,
+            labelOf = {
+                stringResource(
+                    if (it == NovelCommentScope.CHAPTER) {
+                        MR.strings.leaf_novel_comments_scope_chapter
+                    } else {
+                        MR.strings.leaf_novel_comments_scope_novel
+                    },
+                )
+            },
+        )
+
+        EnumSelectItem(
+            label = stringResource(MR.strings.action_sort),
+            preference = novelReaderPreferences.commentsLocalSort,
+            options = NovelCommentLocalSort.entries,
+            labelOf = { stringResource(it.titleRes) },
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_auto_load),
+            pref = novelReaderPreferences.commentsAutoLoad,
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_collapse),
+            pref = novelReaderPreferences.commentsCollapseReplies,
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_avatars),
+            pref = novelReaderPreferences.commentsShowAvatars,
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_spoiler_guard),
+            pref = novelReaderPreferences.commentsSpoilerGuard,
+        )
     }
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_bar_buttons)

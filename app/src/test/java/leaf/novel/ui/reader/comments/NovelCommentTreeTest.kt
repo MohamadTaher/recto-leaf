@@ -1,0 +1,273 @@
+package leaf.novel.ui.reader.comments
+
+import io.kotest.matchers.shouldBe
+import leaf.novel.api.NovelComment
+import org.junit.jupiter.api.Test
+
+/**
+ * The tree is where every site's idea of a comment thread has to become one shape, so the cases
+ * worth holding are the ones a site can actually hand over: a flat list, a nested one, a reply
+ * whose parent never arrived, and a source that contradicts itself.
+ */
+class NovelCommentTreeTest {
+
+    private fun comment(
+        id: String,
+        parentId: String? = null,
+        score: Int? = null,
+        postedAt: Long = 0L,
+        pinned: Boolean = false,
+        replies: List<NovelComment> = emptyList(),
+        replyCount: Int = replies.size,
+    ) = NovelComment(
+        id = id,
+        body = id,
+        author = "author-$id",
+        parentId = parentId,
+        score = score,
+        postedAt = postedAt,
+        pinned = pinned,
+        replies = replies,
+        replyCount = replyCount,
+    )
+
+    // region build
+
+    @Test
+    fun `nests a flat list by its parent ids`() {
+        val flat = listOf(
+            comment("1"),
+            comment("2", parentId = "1"),
+            comment("3", parentId = "2"),
+            comment("4"),
+        )
+
+        val roots = NovelCommentTree.build(flat)
+
+        roots.map { it.id } shouldBe listOf("1", "4")
+        roots[0].replies.map { it.id } shouldBe listOf("2")
+        roots[0].replies[0].replies.map { it.id } shouldBe listOf("3")
+    }
+
+    @Test
+    fun `leaves an already nested list alone`() {
+        val nested = listOf(comment("1", replies = listOf(comment("2", parentId = "1"))))
+
+        NovelCommentTree.build(nested) shouldBe nested
+    }
+
+    /** A reply whose parent is on the previous page. Dropping it would lose a real comment. */
+    @Test
+    fun `treats a reply with no parent in the page as a root`() {
+        val flat = listOf(comment("2", parentId = "missing"), comment("3"))
+
+        NovelCommentTree.build(flat).map { it.id } shouldBe listOf("2", "3")
+    }
+
+    @Test
+    fun `drops a repeated id rather than drawing it twice`() {
+        val flat = listOf(comment("1"), comment("1"), comment("2", parentId = "1"))
+
+        val roots = NovelCommentTree.build(flat)
+
+        roots.size shouldBe 1
+        roots[0].replies.map { it.id } shouldBe listOf("2")
+    }
+
+    /** A source that names itself as its own parent would otherwise recurse forever. */
+    @Test
+    fun `survives a comment that is its own parent`() {
+        val flat = listOf(comment("1", parentId = "1"))
+
+        NovelCommentTree.build(flat).map { it.id } shouldBe listOf("1")
+    }
+
+    @Test
+    fun `survives a parent cycle between two comments`() {
+        val flat = listOf(comment("1", parentId = "2"), comment("2", parentId = "1"))
+
+        // Whichever way it is broken, both comments survive and nothing loops.
+        NovelCommentTree.count(NovelCommentTree.build(flat)) shouldBe 2
+    }
+
+    // endregion
+
+    // region sorting
+
+    @Test
+    fun `orders siblings at every level`() {
+        val roots = listOf(
+            comment("low", score = 1, replies = listOf(comment("a", score = 1), comment("b", score = 9))),
+            comment("high", score = 5),
+        )
+
+        val sorted = NovelCommentTree.sortedBy(roots, NovelCommentLocalSort.TOP)
+
+        sorted.map { it.id } shouldBe listOf("high", "low")
+        sorted[1].replies.map { it.id } shouldBe listOf("b", "a")
+    }
+
+    @Test
+    fun `keeps a pinned comment on top whatever the order`() {
+        val roots = listOf(
+            comment("normal", score = 100),
+            comment("pinned", score = 0, pinned = true),
+        )
+
+        NovelCommentTree.sortedBy(roots, NovelCommentLocalSort.TOP).map { it.id } shouldBe
+            listOf("pinned", "normal")
+    }
+
+    @Test
+    fun `leaves the order alone when the site gave no dates to sort by`() {
+        val roots = listOf(comment("1"), comment("2"), comment("3"))
+
+        NovelCommentTree.sortedBy(roots, NovelCommentLocalSort.OLDEST).map { it.id } shouldBe
+            listOf("1", "2", "3")
+    }
+
+    // endregion
+
+    // region flatten
+
+    @Test
+    fun `walks the forest depth first, carrying the ancestors`() {
+        val roots = listOf(
+            comment("1", replies = listOf(comment("1a"), comment("1b"))),
+            comment("2"),
+        )
+
+        val rows = NovelCommentTree.flatten(roots)
+
+        rows.map { it.key } shouldBe listOf("1", "1a", "1b", "2")
+        rows[1].ancestors shouldBe listOf("1")
+    }
+
+    @Test
+    fun `hides a collapsed subtree and says how much it hid`() {
+        val roots = listOf(
+            comment("1", replies = listOf(comment("1a", replies = listOf(comment("1a1"))))),
+        )
+
+        val rows = NovelCommentTree.flatten(roots, collapsed = setOf("1"))
+
+        rows.map { it.key } shouldBe listOf("1")
+        (rows[0] as NovelCommentRow.Body).hiddenCount shouldBe 2
+    }
+
+    @Test
+    fun `offers to continue a thread rather than indenting past the cap`() {
+        // One root plus enough replies to run past DISPLAY_DEPTH.
+        var deepest = comment("d${NovelCommentTree.DISPLAY_DEPTH}")
+        for (level in NovelCommentTree.DISPLAY_DEPTH - 1 downTo 0) {
+            deepest = comment("d$level", replies = listOf(deepest))
+        }
+
+        val rows = NovelCommentTree.flatten(listOf(deepest))
+
+        rows.count { it is NovelCommentRow.ContinueThread } shouldBe 1
+        rows.filterIsInstance<NovelCommentRow.Body>().size shouldBe NovelCommentTree.DISPLAY_DEPTH
+    }
+
+    /** Focusing re-bases the depth, which is what makes the cap a fold rather than a wall. */
+    @Test
+    fun `shows the rest of a thread once it is focused`() {
+        var deepest = comment("d${NovelCommentTree.DISPLAY_DEPTH}")
+        for (level in NovelCommentTree.DISPLAY_DEPTH - 1 downTo 0) {
+            deepest = comment("d$level", replies = listOf(deepest))
+        }
+
+        val rows = NovelCommentTree.flatten(listOf(deepest), root = "d1")
+
+        rows.first().key shouldBe "d1"
+        rows.none { it is NovelCommentRow.ContinueThread } shouldBe true
+    }
+
+    @Test
+    fun `offers the replies a lazy site has not sent`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a")), replyCount = 12))
+
+        val rows = NovelCommentTree.flatten(roots, lazyReplies = true)
+
+        val more = rows.filterIsInstance<NovelCommentRow.MoreReplies>().single()
+        more.count shouldBe 11
+    }
+
+    @Test
+    fun `does not offer replies on a site that sends them all`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a")), replyCount = 12))
+
+        NovelCommentTree.flatten(roots, lazyReplies = false)
+            .none { it is NovelCommentRow.MoreReplies } shouldBe true
+    }
+
+    /** A thread deeper than the JVM stack is a crash on someone's phone, not a layout problem. */
+    @Test
+    fun `flattens a thread far deeper than anything a screen could show`() {
+        var deepest = comment("d10000")
+        repeat(10_000) { level -> deepest = comment("d$level", replies = listOf(deepest)) }
+
+        NovelCommentTree.flatten(listOf(deepest)).isNotEmpty() shouldBe true
+    }
+
+    // endregion
+
+    // region editing
+
+    @Test
+    fun `replaces a comment without losing the replies already fetched`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a"))))
+
+        val updated = NovelCommentTree.replace(roots, comment("1", score = 5))
+
+        updated[0].score shouldBe 5
+        updated[0].replies.map { it.id } shouldBe listOf("1a")
+    }
+
+    @Test
+    fun `puts a new reply at the top of its parent's replies`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a"))))
+
+        val updated = NovelCommentTree.insert(roots, parentId = "1", comment = comment("mine"))
+
+        updated[0].replies.map { it.id } shouldBe listOf("mine", "1a")
+        updated[0].replyCount shouldBe 2
+    }
+
+    @Test
+    fun `puts a new top level comment at the top of the thread`() {
+        val roots = listOf(comment("1"))
+
+        NovelCommentTree.insert(roots, parentId = null, comment = comment("mine"))
+            .map { it.id } shouldBe listOf("mine", "1")
+    }
+
+    @Test
+    fun `merges lazily fetched replies without repeating the ones already there`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a")), replyCount = 3))
+
+        val updated = NovelCommentTree.addReplies(roots, "1", listOf(comment("1a"), comment("1b")))
+
+        updated[0].replies.map { it.id } shouldBe listOf("1a", "1b")
+    }
+
+    @Test
+    fun `counts every comment in the forest`() {
+        val roots = listOf(
+            comment("1", replies = listOf(comment("1a"), comment("1b", replies = listOf(comment("1b1"))))),
+            comment("2"),
+        )
+
+        NovelCommentTree.count(roots) shouldBe 5
+    }
+
+    @Test
+    fun `finds the ancestors a comment is buried under`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a", replies = listOf(comment("1a1"))))))
+
+        NovelCommentTree.ancestorsOf(roots, "1a1") shouldBe listOf("1", "1a")
+        NovelCommentTree.ancestorsOf(roots, "nope") shouldBe emptyList()
+    }
+
+    // endregion
+}

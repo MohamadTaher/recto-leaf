@@ -1,0 +1,140 @@
+package leaf.novel.ui.reader.comments
+
+import io.kotest.matchers.shouldBe
+import org.junit.jupiter.api.Test
+
+/**
+ * The markup pass is the one place a site's HTML reaches the reader, so the cases worth holding are
+ * the two kinds of surprise a site produces: markup that carries meaning the sheet must keep, and
+ * markup that carries none and must not survive.
+ */
+class NovelCommentMarkupTest {
+
+    private fun text(html: String) = NovelCommentMarkup.plainText(html)
+
+    @Test
+    fun `keeps the words of a plain comment`() {
+        text("Great chapter!") shouldBe "Great chapter!"
+    }
+
+    @Test
+    fun `starts a new line at each block`() {
+        text("<p>First</p><p>Second</p>") shouldBe "First\nSecond"
+    }
+
+    @Test
+    fun `treats a line break as a line break`() {
+        text("one<br>two") shouldBe "one\ntwo"
+    }
+
+    @Test
+    fun `keeps emphasis as a span rather than as characters`() {
+        val spans = NovelCommentMarkup.parse("plain <b>bold</b>")
+
+        spans.map { it.text } shouldBe listOf("plain ", "bold")
+        spans[0].bold shouldBe false
+        spans[1].bold shouldBe true
+    }
+
+    @Test
+    fun `merges neighbouring spans a site split for no reason`() {
+        NovelCommentMarkup.parse("<span>one</span><span> two</span>").size shouldBe 1
+    }
+
+    @Test
+    fun `keeps the text of a tag it does not know`() {
+        text("<marquee>still words</marquee>") shouldBe "still words"
+    }
+
+    @Test
+    fun `drops a script outright rather than unwrapping it to its source`() {
+        text("<p>hi</p><script>alert(1)</script>") shouldBe "hi"
+    }
+
+    @Test
+    fun `drops a stylesheet outright`() {
+        text("<style>p{color:red}</style><p>hi</p>") shouldBe "hi"
+    }
+
+    @Test
+    fun `keeps an http link`() {
+        NovelCommentMarkup.parse("""<a href="https://example.com">here</a>""")
+            .single()
+            .link shouldBe "https://example.com"
+    }
+
+    /** The words are the comment; the scheme is the attack. Keep one, drop the other. */
+    @Test
+    fun `keeps the text of a javascript link but not the link`() {
+        val span = NovelCommentMarkup.parse("""<a href="javascript:alert(1)">tap me</a>""").single()
+
+        span.text shouldBe "tap me"
+        span.link shouldBe null
+    }
+
+    @Test
+    fun `drops a relative link it cannot resolve`() {
+        NovelCommentMarkup.parse("""<a href="/u/someone">someone</a>""").single().link shouldBe null
+    }
+
+    @Test
+    fun `resolves a relative link against the comment's own page`() {
+        NovelCommentMarkup.parse(
+            html = """<a href="/u/someone">someone</a>""",
+            baseUrl = "https://example.com/chapter-1",
+        ).single().link shouldBe "https://example.com/u/someone"
+    }
+
+    @Test
+    fun `marks a spoiler however the site spells the class`() {
+        listOf("spoiler", "md-spoiler-text", "js-spoiler")
+            .forEach { className ->
+                NovelCommentMarkup.parse("""<span class="$className">twist</span>""")
+                    .single()
+                    .spoiler shouldBe true
+            }
+    }
+
+    @Test
+    fun `marks a spoiler declared as an attribute`() {
+        NovelCommentMarkup.parse("""<span data-spoiler="true">twist</span>""")
+            .single()
+            .spoiler shouldBe true
+    }
+
+    @Test
+    fun `carries a spoiler down to the text inside it`() {
+        NovelCommentMarkup.parse("""<div class="spoiler"><p><b>twist</b></p></div>""")
+            .all { it.spoiler } shouldBe true
+    }
+
+    @Test
+    fun `bullets a list item, having no list of its own to draw`() {
+        text("<ul><li>one</li><li>two</li></ul>") shouldBe "• one\n• two"
+    }
+
+    @Test
+    fun `sets a quote apart`() {
+        NovelCommentMarkup.parse("<blockquote>said</blockquote>").single().quote shouldBe true
+    }
+
+    @Test
+    fun `sets code apart`() {
+        NovelCommentMarkup.parse("<code>x = 1</code>").single().code shouldBe true
+    }
+
+    @Test
+    fun `trims the empty paragraphs sites wrap comments in`() {
+        text("<p></p><p>hi</p><p></p>") shouldBe "hi"
+    }
+
+    @Test
+    fun `treats a non-breaking space as a space`() {
+        text("one&nbsp;two") shouldBe "one two"
+    }
+
+    @Test
+    fun `survives an empty comment`() {
+        NovelCommentMarkup.parse("") shouldBe emptyList()
+    }
+}

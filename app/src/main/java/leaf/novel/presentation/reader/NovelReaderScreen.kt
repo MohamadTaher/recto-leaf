@@ -51,11 +51,14 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
+import leaf.novel.presentation.reader.comments.NovelCommentsSheet
 import leaf.novel.presentation.reader.components.NovelChapterWebView
 import leaf.novel.presentation.reader.components.NovelImageDialog
 import leaf.novel.presentation.reader.components.NovelStatusBar
@@ -129,6 +132,7 @@ fun NovelReaderScreen(
 
     var additionalOptionsExpanded by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+    var showComments by remember { mutableStateOf(false) }
     // A look, not a mode: it lasts until it is turned off again and stores nothing.
     var publisherFormatting by remember { mutableStateOf(false) }
     var openImage by remember { mutableStateOf<String?>(null) }
@@ -255,6 +259,10 @@ fun NovelReaderScreen(
             }
             NovelReaderAction.READING_RULER -> viewModel.novelReaderPreferences.readingRuler.toggle()
             NovelReaderAction.SHOW_CHAPTERS -> showChapters = true
+            NovelReaderAction.COMMENTS -> {
+                viewModel.comments.open()
+                showComments = true
+            }
             NovelReaderAction.BOOK_INFORMATION -> onOpenEntry()
             NovelReaderAction.SEARCH -> {
                 closeSpeechControls()
@@ -402,10 +410,23 @@ fun NovelReaderScreen(
     val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
     val tapImageToOpen by viewModel.novelReaderPreferences.tapImageToOpen.collectAsState()
 
-    // Whichever buttons the reader has put on the bottom bar, resolved from their slots.
+    // Whether this novel's source serves comments, and whether the reader wants them offered.
+    // Collected as the one flag rather than as the whole comment state: the sheet's own
+    // recompositions have no business reaching the chapter behind it.
+    val commentsAllowed by viewModel.novelReaderPreferences.commentsEnabled.collectAsState()
+    val commentsSupported by remember(viewModel) {
+        viewModel.comments.state
+            .map { it.capabilities != null }
+            .distinctUntilChanged()
+    }.collectAsState(initial = false)
+    val commentsOffered = commentsAllowed && commentsSupported
+
+    // Whichever buttons the reader has put on the bottom bar, resolved from their slots. A comments
+    // button is dropped rather than disabled on a source that has none: the bar has six slots and
+    // one that does nothing on this novel is worth more as the button beside it.
     val barButtons = NovelBarButtons.resolve(
         viewModel.novelReaderPreferences.barButtons.map { it.collectAsState().value },
-    )
+    ).filterNot { it == NovelReaderAction.COMMENTS && !commentsOffered }
 
     // The paging settings stage 17 stored and left inert. The three that only mean anything to a
     // paged layout are gated on it below; keeping a line and the page-turn sound apply to page up
@@ -745,6 +766,7 @@ fun NovelReaderScreen(
             onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },
             additionalOptions = { dismiss ->
                 AdditionalOptions(
+                    commentsOffered = commentsOffered,
                     autoScrolling = state.autoScrolling,
                     readingRuler = readingRuler,
                     publisherPreview = publisherPreview,
@@ -868,6 +890,17 @@ fun NovelReaderScreen(
             url = url,
             loadBytes = viewModel::imageBytes,
             onDismissRequest = { openImage = null },
+        )
+    }
+
+    if (showComments) {
+        NovelCommentsSheet(
+            comments = viewModel.comments,
+            preferences = viewModel.novelReaderPreferences,
+            onDismissRequest = {
+                viewModel.comments.close()
+                showComments = false
+            },
         )
     }
 
@@ -1283,6 +1316,7 @@ private fun adjustFontSize(preferences: NovelReaderPreferences, steps: Int) {
  */
 @Composable
 private fun ColumnScope.AdditionalOptions(
+    commentsOffered: Boolean,
     autoScrolling: Boolean,
     readingRuler: Boolean,
     publisherPreview: Boolean,
@@ -1297,6 +1331,14 @@ private fun ColumnScope.AdditionalOptions(
         text = { Text(stringResource(MR.strings.chapters)) },
         onClick = { onSelect(NovelReaderAction.SHOW_CHAPTERS) },
     )
+
+    // Withdrawn on a source with no comments, for the same reason the bar button is.
+    if (commentsOffered) {
+        DropdownMenuItem(
+            text = { Text(stringResource(MR.strings.leaf_novel_comments)) },
+            onClick = { onSelect(NovelReaderAction.COMMENTS) },
+        )
+    }
 
     DropdownMenuItem(
         text = { Text(stringResource(MR.strings.leaf_novel_action_book_information)) },

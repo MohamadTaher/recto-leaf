@@ -48,6 +48,7 @@ import leaf.novel.data.epub.NovelEpubException
 import leaf.novel.data.epub.novelEpubReader
 import leaf.novel.source.local.LocalNovelSource
 import leaf.novel.source.local.io.NovelFileSystem
+import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.loader.EpubContentProvider
 import leaf.novel.ui.reader.loader.NovelContentProvider
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
@@ -144,6 +145,14 @@ class NovelReaderViewModel(
 
     private val mutableState = MutableStateFlow(State())
     val state: StateFlow<State> = mutableState.asStateFlow()
+
+    /**
+     * The discussion under whatever chapter is open, for a source that serves one.
+     *
+     * Not part of [State]: nothing about a comment changes how the chapter is drawn, and folding a
+     * reply has no business recomposing the reader. It fetches nothing until the sheet is opened.
+     */
+    val comments = NovelComments(viewModelScope, novelReaderPreferences)
 
     private var provider: NovelContentProvider? = null
 
@@ -254,6 +263,8 @@ class NovelReaderViewModel(
         mutableState.update {
             it.copy(manga = manga, chapters = chapters, currentIndex = startIndex, isLoading = false)
         }
+        comments.bind(source, manga)
+        comments.setChapter(chapters[startIndex])
         preloadChapters(startIndex)
         // Speech may already be running from a reader that has since been destroyed — attach to
         // it rather than showing a stopped reader over audio that is still playing. Only when it
@@ -353,6 +364,9 @@ class NovelReaderViewModel(
         viewModelScope.launchNonCancellable { flushProgress() }
         restoredChapterId = chapter.id
         restartReadTimer()
+        // Comments belong to the chapter they are under, so crossing a boundary invalidates them
+        // exactly as it invalidates the search and the auto scroll below.
+        comments.setChapter(chapter)
         // Neither auto scroll nor a search carries across a chapter boundary. Speech does, and a
         // continuous document is one the reader crosses by scrolling, so neither stops there.
         if (!continuous) stopSpeaking()

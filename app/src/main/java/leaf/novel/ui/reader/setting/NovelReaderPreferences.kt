@@ -4,6 +4,8 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
+import leaf.novel.api.NovelCommentScope
+import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
@@ -255,6 +257,65 @@ class NovelReaderPreferences(
     val bluelightIntensity: Preference<Int> =
         preferenceStore.getInt("leaf_novel_bluelight_intensity", 50)
 
+    // region Comments
+
+    /**
+     * Whether the reader offers comments at all.
+     *
+     * Separate from whether a source *has* them: a source that does not implement
+     * [leaf.novel.api.NovelCommentSource] never shows the button whatever this says, and this is
+     * for a reader who would rather not see other people's opinions on a site that does.
+     */
+    val commentsEnabled: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_comments_enabled", true)
+
+    /** Which comments to open on, where the source serves both. */
+    val commentsScope: Preference<NovelCommentScope> =
+        preferenceStore.getEnum("leaf_novel_comments_scope", NovelCommentScope.CHAPTER)
+
+    /**
+     * The last order chosen, as the source's own key.
+     *
+     * One key for every source rather than one each, and deliberately: a key from one site is
+     * meaningless on another, so the sheet falls back to the source's first order whenever the
+     * stored key is not among the ones it offers. That makes "newest" stick across the sites that
+     * happen to call it the same thing, and costs nothing on the ones that do not.
+     */
+    val commentsSort: Preference<String> =
+        preferenceStore.getString("leaf_novel_comments_sort", "")
+
+    /** The order to apply ourselves, for a source that declares none. */
+    val commentsLocalSort: Preference<NovelCommentLocalSort> =
+        preferenceStore.getEnum("leaf_novel_comments_local_sort", NovelCommentLocalSort.TOP)
+
+    /**
+     * Whether opening the sheet fetches, or waits to be asked.
+     *
+     * On by default, because a sheet that opens on a button labelled "comments" and then shows a
+     * second button labelled "load comments" is a joke at the reader's expense. Off is for metered
+     * connections and rate-limited sites.
+     */
+    val commentsAutoLoad: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_comments_auto_load", true)
+
+    /** Starts every thread folded, which turns a long one into a table of contents. */
+    val commentsCollapseReplies: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_comments_collapse_replies", false)
+
+    /** Avatars are one request each and most of them are the site's default silhouette. */
+    val commentsShowAvatars: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_comments_show_avatars", true)
+
+    /**
+     * Hides every comment body until it is tapped.
+     *
+     * Comments under a chapter of an ongoing novel are the single most reliable way to be told what
+     * happens in the next one. Markup-declared spoilers are always hidden; this is for readers who
+     * have learnt not to trust the people who declare them.
+     */
+    val commentsSpoilerGuard: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_comments_spoiler_guard", false)
+
     // region Value gestures
 
     val edgeSwipeBrightness: Preference<Boolean> =
@@ -296,6 +357,8 @@ class NovelReaderPreferences(
 
     val pageTurnSound: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_page_turn_sound", false)
+
+    // endregion
 
     // endregion
 
@@ -409,13 +472,19 @@ class NovelReaderPreferences(
     }
 }
 
-/** Today's bar: the four settings tabs and the additional options menu, in that order. */
+/**
+ * The bar out of the box: the four settings tabs, comments, then the overflow menu.
+ *
+ * Kept in step with [leaf.novel.presentation.reader.appbars.NovelBarButtons.DEFAULT], which is what
+ * an empty bar falls back to; a test holds the two together.
+ */
 private fun defaultBarButton(slot: Int): NovelReaderAction = when (slot) {
     0 -> NovelReaderAction.VISUAL_OPTIONS
     1 -> NovelReaderAction.CONTROL_OPTIONS
     2 -> NovelReaderAction.MISCELLANEOUS
     3 -> NovelReaderAction.ADVANCED_OPTIONS
-    4 -> NovelReaderAction.ADDITIONAL_OPTIONS
+    4 -> NovelReaderAction.COMMENTS
+    5 -> NovelReaderAction.ADDITIONAL_OPTIONS
     else -> NovelReaderAction.NONE
 }
 
