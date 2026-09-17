@@ -84,19 +84,45 @@ class NovelReaderKeyDispatcherTest {
     }
 
     @Test
-    fun `earbud next and previous default to starting and stopping speech`() {
+    fun `earbud next and previous use speech section controls`() {
         val actions = mutableListOf<NovelReaderAction>()
         dispatch(KeyEvent.KEYCODE_MEDIA_NEXT, perform = actions::add)
         dispatch(KeyEvent.KEYCODE_MEDIA_PREVIOUS, perform = actions::add)
-        actions shouldBe listOf(NovelReaderAction.START_SPEAKING, NovelReaderAction.STOP_SPEAKING)
+        actions shouldBe listOf(NovelReaderAction.NEXT_SPEECH, NovelReaderAction.PREVIOUS_SPEECH)
     }
 
     @Test
-    fun `camera and search keys are no longer intercepted`() {
-        for (code in listOf(KeyEvent.KEYCODE_CAMERA, KeyEvent.KEYCODE_SEARCH)) {
+    fun `removed keys are no longer intercepted`() {
+        for (code in listOf(
+            KeyEvent.KEYCODE_CAMERA,
+            KeyEvent.KEYCODE_SEARCH,
+            KeyEvent.KEYCODE_BACK,
+            KeyEvent.KEYCODE_MENU,
+        )) {
             NovelReaderKey.of(code) shouldBe null
             dispatch(code) { error("Removed key dispatched") } shouldBe false
         }
+    }
+
+    @Test
+    fun `dpad defaults control volume sections and playback`() {
+        val actions = mutableListOf<NovelReaderAction>()
+        for (key in listOf(
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+        )) {
+            dispatch(key, perform = actions::add)
+        }
+        actions shouldBe listOf(
+            NovelReaderAction.VOLUME_UP,
+            NovelReaderAction.VOLUME_DOWN,
+            NovelReaderAction.PREVIOUS_SPEECH,
+            NovelReaderAction.NEXT_SPEECH,
+            NovelReaderAction.TOGGLE_SPEECH,
+        )
     }
 
     private fun dispatch(

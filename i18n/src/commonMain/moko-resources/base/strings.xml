@@ -1122,7 +1122,9 @@
     <string name="leaf_novel_key_dpad_left">D-pad left</string>
     <string name="leaf_novel_key_dpad_right">D-pad right</string>
     <string name="leaf_novel_key_dpad_center">D-pad center</string>
-    <string name="leaf_novel_key_headset_play">Headset play/pause</string>
+    <string name="leaf_novel_key_headset_play">Media play/pause</string>
+    <string name="leaf_novel_keys_dpad">D-pad</string>
+    <string name="leaf_novel_keys_media">Media</string>
     <string name="leaf_novel_key_media_play">Media play</string>
     <string name="leaf_novel_key_media_stop">Media stop</string>
     <string name="leaf_novel_key_media_next">Media next</string>
@@ -1148,6 +1150,8 @@
     <string name="leaf_novel_action_stop_speaking">Stop reading aloud</string>
     <string name="leaf_novel_speech_paragraph">Paragraph</string>
     <string name="leaf_novel_speech_sentence">Sentence</string>
+    <string name="leaf_novel_speech_comma">Comma (,)</string>
+    <string name="leaf_novel_speech_word">Word</string>
     <string name="leaf_novel_reader_speech_divide_by">Divide content by</string>
     <string name="leaf_novel_reader_speech_rate">Speed</string>
     <string name="leaf_novel_reader_speech_controls">Read-aloud controls</string>

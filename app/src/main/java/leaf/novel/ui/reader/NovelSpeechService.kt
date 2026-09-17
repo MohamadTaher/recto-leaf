@@ -72,6 +72,8 @@ class NovelSpeechService : Service() {
             NovelReaderAction.PAUSE_SPEAKING -> controls?.pause()
             NovelReaderAction.TOGGLE_SPEECH -> controls?.togglePlayback()
             NovelReaderAction.STOP_SPEAKING -> controls?.stop()
+            NovelReaderAction.PREVIOUS_SPEECH -> controls?.seek(-1)
+            NovelReaderAction.NEXT_SPEECH -> controls?.seek(1)
             else -> NovelReaderMediaSession.dispatchReaderAction(action)
         }
     }
@@ -201,6 +203,7 @@ class NovelSpeechService : Service() {
         fun play()
         fun pause()
         fun stop()
+        fun seek(units: Int)
     }
 
     companion object {

@@ -13,6 +13,43 @@ import org.junit.jupiter.api.Test
 class NovelSpeechTest {
 
     @Test
+    fun `comma division preserves punctuation and source offsets`() {
+        NovelSpeech.positions("<p>One, two，three، four.</p>", NovelSpeechDivision.COMMA, 7) shouldBe listOf(
+            NovelSpeech.Position(7, 0, 0, "One,"),
+            NovelSpeech.Position(7, 0, 5, "two，"),
+            NovelSpeech.Position(7, 0, 9, "three،"),
+            NovelSpeech.Position(7, 0, 16, "four."),
+        )
+    }
+
+    @Test
+    fun `word division preserves repeated words inline markup and punctuation`() {
+        NovelSpeech.positions("<p>Yes <em>yes</em>&nbsp; yes.</p><p>Next!</p>", NovelSpeechDivision.WORD, 7) shouldBe
+            listOf(
+                NovelSpeech.Position(7, 0, 0, "Yes"),
+                NovelSpeech.Position(7, 0, 4, "yes"),
+                NovelSpeech.Position(7, 0, 8, "yes."),
+                NovelSpeech.Position(7, 1, 0, "Next!"),
+            )
+    }
+
+    @Test
+    fun `visible location selects its containing speech unit instead of a percentage estimate`() {
+        val html = "<p>Earlier text.</p><p>First sentence. Second, sentence here.</p><p>Later.</p>"
+        val anchor = NovelSpeech.Anchor(7, 1, 26)
+        val expected = mapOf(
+            NovelSpeechDivision.PARAGRAPH to "First sentence. Second, sentence here.",
+            NovelSpeechDivision.SENTENCE to "Second, sentence here.",
+            NovelSpeechDivision.COMMA to "sentence here.",
+            NovelSpeechDivision.WORD to "sentence",
+        )
+        expected.forEach { (division, text) ->
+            val positions = NovelSpeech.positions(html, division, 7)
+            positions[NovelSpeech.resumeIndex(99, positions, null, anchor)].text shouldBe text
+        }
+    }
+
+    @Test
     fun `says one paragraph at a time by default`() {
         val html = "<p>First one.</p><p>Second one.</p>"
 

@@ -15,7 +15,8 @@ internal fun dispatchNovelReaderKey(
     val key = NovelReaderKey.of(keyCode) ?: return false
     val action = key.resolve(binding(key))
     if (action == NovelReaderAction.NONE || action == NovelReaderAction.TEXT_SELECTION) return false
-    val repeatable = action == NovelReaderAction.PAGE_UP || action == NovelReaderAction.PAGE_DOWN
+    val repeatable = action == NovelReaderAction.PAGE_UP || action == NovelReaderAction.PAGE_DOWN ||
+        action == NovelReaderAction.VOLUME_UP || action == NovelReaderAction.VOLUME_DOWN
     if (eventAction == KeyEvent.ACTION_DOWN && (repeatCount == 0 || repeatable)) perform(action)
     return true
 }

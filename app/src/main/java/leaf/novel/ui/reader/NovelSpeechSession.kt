@@ -110,6 +110,10 @@ object NovelSpeechSession : NovelSpeechService.Controls {
         engine?.stop()
     }
 
+    override fun seek(units: Int) {
+        engine?.seekBy(units)
+    }
+
     /**
      * Watches the engine this object just built, so speech ending has somewhere to be noticed even
      * with no reader attached. [NovelSpeechLifecycle] is what tells "ended" apart from "paused" —

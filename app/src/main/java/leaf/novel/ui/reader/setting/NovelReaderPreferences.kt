@@ -70,7 +70,7 @@ class NovelReaderPreferences(
 
     val marginRight: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_right", 10)
 
-    val marginTop: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_top", 3)
+    val marginTop: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_top", 7)
 
     val marginBottom: Preference<Int> = preferenceStore.getInt("leaf_novel_margin_bottom", 3)
 

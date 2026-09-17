@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader
 
+import android.media.AudioManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,6 +46,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.content.getSystemService
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -223,7 +225,7 @@ fun NovelReaderScreen(
             withTimeoutOrNull(SPEECH_PAGE_SETTLE_MS) {
                 snapshotFlow { visiblePercent }.first { it != from }
             }
-            viewModel.restartSpeaking(visiblePercent, state.speechPaused)
+            viewModel.restartSpeaking(visiblePercent, state.speechPaused, webViewController.visibleSpeechAnchor)
         }
     }
 
@@ -285,6 +287,14 @@ fun NovelReaderScreen(
                 if (state.speaking) viewModel.toggleSpeechPlayback() else requestSpeechStart()
             }
             NovelReaderAction.STOP_SPEAKING -> closeSpeechControls()
+            NovelReaderAction.PREVIOUS_SPEECH -> viewModel.seekSpeech(-1)
+            NovelReaderAction.NEXT_SPEECH -> viewModel.seekSpeech(1)
+            NovelReaderAction.VOLUME_UP, NovelReaderAction.VOLUME_DOWN -> context.getSystemService<AudioManager>()
+                ?.adjustStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    if (action == NovelReaderAction.VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+                    AudioManager.FLAG_SHOW_UI,
+                )
             NovelReaderAction.SPEED_READ -> {
                 if (!state.speedReading) {
                     closeSpeechControls()
@@ -387,21 +397,13 @@ fun NovelReaderScreen(
         if (!state.speaking) hideSpeechControls()
     }
 
-    val backAction by viewModel.novelReaderPreferences.keys.getValue(NovelReaderKey.BACK).collectAsState()
-    BackHandler(
-        enabled = state.searchQuery == null &&
-            backAction != NovelReaderAction.NONE && backAction != NovelReaderAction.TEXT_SELECTION,
-    ) {
-        performAction(backAction)
-    }
-
     // Back closes the search rather than the book, which is what the gesture means everywhere else.
     BackHandler(enabled = state.searchQuery != null) {
         viewModel.setSearchQuery(null)
     }
 
     BackHandler(
-        enabled = showSpeechControls && state.searchQuery == null && backAction == NovelReaderAction.NONE,
+        enabled = showSpeechControls && state.searchQuery == null,
     ) {
         closeSpeechControls()
     }
@@ -591,7 +593,7 @@ fun NovelReaderScreen(
                             // otherwise be stuck on a page they cannot scroll, with the checkbox that
                             // would undo it no longer on screen.
                             blockVerticalScroll = paged && disableVerticalScroll,
-                            flingTurnsPage = paged && flingToTurnPage,
+                            flingTurnsPage = paged && flingToTurnPage && !state.speaking,
                             tapImageEnabled = tapImageToOpen,
                             onImageTap = { openImage = it },
                             pinchEnabled = pinchFontSize,
@@ -620,8 +622,8 @@ fun NovelReaderScreen(
                                 val binding = viewModel.novelReaderPreferences.swipes.getValue(swipe)
                                 val horizontal = swipe == NovelReaderSwipe.LEFT_TO_RIGHT ||
                                     swipe == NovelReaderSwipe.RIGHT_TO_LEFT
-                                // Keep the speech shortcut unless the reader assigned this gesture.
-                                if (!binding.isSet() && horizontal && (state.speaking || showSpeechControls)) {
+                                // Speech's stop gesture takes precedence over ordinary swipe bindings.
+                                if (horizontal && state.speaking) {
                                     closeSpeechControls()
                                     true
                                 } else {
@@ -715,8 +717,8 @@ fun NovelReaderScreen(
                 },
                 preferences = viewModel.novelReaderPreferences,
                 onPlayPause = { performAction(NovelReaderAction.TOGGLE_SPEECH) },
-                onPrevious = { viewModel.seekSpeech(-1) },
-                onNext = { viewModel.seekSpeech(1) },
+                onPrevious = { performAction(NovelReaderAction.PREVIOUS_SPEECH) },
+                onNext = { performAction(NovelReaderAction.NEXT_SPEECH) },
                 onPreviousPage = { turnSpeechPage(forward = false) },
                 onNextPage = { turnSpeechPage(forward = true) },
                 onStop = { performAction(NovelReaderAction.STOP_SPEAKING) },
@@ -1062,6 +1064,7 @@ private fun ChapterContent(
                     onChapterChange(index, percent)
                     if (controller.tracksScrollProgress) viewModel.reportProgress(chapterId, percent)
                 },
+                onReadingPosition = viewModel::reportVisiblePosition,
                 seekRequests = seekRequests,
                 assetServer = assetServer,
                 backgroundColor = colors.background,

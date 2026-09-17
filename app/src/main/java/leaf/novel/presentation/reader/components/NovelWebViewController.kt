@@ -20,6 +20,8 @@ import leaf.novel.ui.reader.NovelStatusLine
  */
 @Stable
 class NovelWebViewController {
+    var visibleSpeechAnchor: NovelSpeech.Anchor? by mutableStateOf(null)
+        internal set
 
     // Speech owns the location until deliberate navigation resumes. Resizing the viewport when
     // its panel closes must not replace that location with a different scroll percentage.

@@ -99,13 +99,25 @@ private class NovelWebView(context: Context) : WebView(context) {
     }
 
     /** Measures titled sections through the one script owned by the generated reader document. */
-    fun attachChapterBridge(onPosition: (Long, Int, NovelStatusLine.Screens) -> Unit) {
+    fun attachChapterBridge(
+        onAnchor: (NovelSpeech.Anchor) -> Unit,
+        onPosition: (Long, Int, NovelStatusLine.Screens) -> Unit,
+    ) {
         val bridge = ChapterBridge(this) { message ->
             runCatching {
                 val value = JSONObject(message)
                 if (value.optInt("generation", -1) != chapterLoadGeneration) return@runCatching
                 chapterBridgeReady = true
                 flushChapterCommands()
+                if (value.optString("type") == "anchor") {
+                    onAnchor(
+                        NovelSpeech.Anchor(
+                            value.getString("chapterId").toLong(),
+                            value.getInt("block"),
+                            value.getInt("start"),
+                        ),
+                    )
+                }
                 if (value.optString("type") == "position") {
                     onPosition(
                         value.getString("id").toLong(),
@@ -299,6 +311,7 @@ fun NovelChapterWebView(
     continuous: Boolean = false,
     initialChapterId: Long? = null,
     onChapterProgress: (Long, Int) -> Unit = { _, _ -> },
+    onReadingPosition: (NovelSpeech.Anchor) -> Unit = {},
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
@@ -327,6 +340,7 @@ fun NovelChapterWebView(
     val currentAssetServer by rememberUpdatedState(assetServer)
     val currentOnProgress by rememberUpdatedState(onProgress)
     val currentOnChapterProgress by rememberUpdatedState(onChapterProgress)
+    val currentOnReadingPosition by rememberUpdatedState(onReadingPosition)
     val currentOnTapCell by rememberUpdatedState(onTapCell)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnSwipe by rememberUpdatedState(onSwipe)
@@ -350,7 +364,10 @@ fun NovelChapterWebView(
             NovelWebView(context).apply {
                 onManualNavigation = controller::trackManualProgress
                 configure(backgroundColor)
-                attachChapterBridge { id, percent, screens ->
+                attachChapterBridge(onAnchor = {
+                    controller.visibleSpeechAnchor = it
+                    if (controller.tracksScrollProgress) currentOnReadingPosition(it)
+                }) { id, percent, screens ->
                     if (continuous) {
                         controller.screens = screens
                         currentOnChapterProgress(id, percent)
@@ -797,6 +814,10 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
 
       const report = () => {
         scheduled = false;
+        const anchor = window.rectoLeafSpeech.firstVisible();
+        if (anchor) RectoLeafChapterBridge.postMessage(JSON.stringify({
+          type: 'anchor', generation: rectoLeafGeneration, ...anchor,
+        }));
         const all = chapters();
         if (all.length === 0) return;
         const position = activeIn(all);

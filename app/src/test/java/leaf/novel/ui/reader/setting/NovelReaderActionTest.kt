@@ -6,11 +6,13 @@ import org.junit.jupiter.api.Test
 class NovelReaderActionTest {
 
     @Test
-    fun `only three speech commands are assignable`() {
+    fun `speech commands include three playback actions and section navigation`() {
         NovelReaderAction.assignable.filter { "SPEAK" in it.name || "SPEECH" in it.name } shouldBe listOf(
             NovelReaderAction.START_SPEAKING,
             NovelReaderAction.TOGGLE_SPEECH,
             NovelReaderAction.STOP_SPEAKING,
+            NovelReaderAction.PREVIOUS_SPEECH,
+            NovelReaderAction.NEXT_SPEECH,
         )
     }
 

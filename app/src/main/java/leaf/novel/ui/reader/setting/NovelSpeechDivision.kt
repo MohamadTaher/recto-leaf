@@ -13,4 +13,6 @@ import tachiyomi.i18n.MR
 enum class NovelSpeechDivision(val titleRes: StringResource) {
     PARAGRAPH(MR.strings.leaf_novel_speech_paragraph),
     SENTENCE(MR.strings.leaf_novel_speech_sentence),
+    COMMA(MR.strings.leaf_novel_speech_comma),
+    WORD(MR.strings.leaf_novel_speech_word),
 }

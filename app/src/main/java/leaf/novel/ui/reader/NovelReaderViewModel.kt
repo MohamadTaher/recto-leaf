@@ -429,12 +429,12 @@ class NovelReaderViewModel(
      */
     fun startSpeaking() {
         if (state.value.speaking) return
-        queueSpeech(state.value.currentChapter?.lastPageRead?.toInt() ?: 0)
+        queueSpeech(state.value.currentChapter?.lastPageRead?.toInt() ?: 0, state.value.readingPosition)
     }
 
     /** Rebuilds the queue when its division changes while the control sheet is open. */
-    fun restartSpeaking(percentRead: Int, paused: Boolean) {
-        queueSpeech(percentRead)
+    fun restartSpeaking(percentRead: Int, paused: Boolean, anchor: NovelSpeech.Anchor? = state.value.readingPosition) {
+        queueSpeech(percentRead, anchor)
         if (paused) NovelSpeechSession.speakerOrNull()?.pause()
     }
 
@@ -455,7 +455,7 @@ class NovelReaderViewModel(
         return NovelSpeech.positions(spokenHtml, novelReaderPreferences.speechDivision.get(), chapterId)
     }
 
-    private fun queueSpeech(percentRead: Int) {
+    private fun queueSpeech(percentRead: Int, anchor: NovelSpeech.Anchor?) {
         val html = currentHtml ?: return
         val chapterId = state.value.chapters.getOrNull(state.value.currentIndex)?.id ?: return
         val utterances = utterancesOf(html, chapterId)
@@ -470,7 +470,7 @@ class NovelReaderViewModel(
         val bookmark = state.value.speechPosition.takeIf {
             percentRead == state.value.currentChapter?.lastPageRead?.toInt()
         }
-        val fromIndex = NovelSpeech.resumeIndex(percentRead, utterances, bookmark)
+        val fromIndex = NovelSpeech.resumeIndex(percentRead, utterances, bookmark, anchor)
         NovelSpeechSession.queue.start(mangaId, utterances, state.value.currentIndex)
         mutableState.update {
             it.copy(
@@ -541,6 +541,9 @@ class NovelReaderViewModel(
                         speechIndex = snapshot.index,
                         speechCount = snapshot.count,
                         speechPosition = snapshot.position,
+                        readingPosition = snapshot.position?.let { position ->
+                            NovelSpeech.Anchor(position.chapterId, position.block, position.start)
+                        } ?: it.readingPosition,
                         speechUnavailable = snapshot.unavailable,
                     )
                 }
@@ -632,7 +635,7 @@ class NovelReaderViewModel(
 
     fun seekSpeech(units: Int) {
         if (!ownsSession()) return
-        NovelSpeechSession.speakerOrNull()?.seekBy(units)
+        NovelSpeechSession.seek(units)
     }
 
     /** Applies changed controls without rebuilding or re-fetching the chapter. */
@@ -849,6 +852,12 @@ class NovelReaderViewModel(
         recordProgress(chapterId, percent, fromSpeech = false)
     }
 
+    fun reportVisiblePosition(position: NovelSpeech.Anchor) {
+        mutableState.update {
+            if (it.speaking) it else it.copy(readingPosition = position)
+        }
+    }
+
     private fun recordProgress(chapterId: Long, percent: Int, fromSpeech: Boolean) {
         if (state.value.speaking && !fromSpeech) return
         mutableState.update { it.withProgress(chapterId, percent, fromSpeech) }
@@ -960,6 +969,7 @@ class NovelReaderViewModel(
         val speedReadIndex: Int = 0,
         /** Set once the engine has bound and reported that the phone has no voice at all. */
         val speechUnavailable: Boolean = false,
+        val readingPosition: NovelSpeech.Anchor? = null,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
 

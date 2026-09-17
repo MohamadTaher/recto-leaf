@@ -26,12 +26,19 @@ object NovelSpeech {
     /** A source location stays unambiguous even when another paragraph or chapter says the same thing. */
     data class Position(val chapterId: Long, val block: Int, val start: Int, val text: String)
 
+    /** The top visible character, also used by speech to advance the shared reading location. */
+    data class Anchor(val chapterId: Long, val block: Int, val start: Int)
+
     fun positions(html: String, division: NovelSpeechDivision, chapterId: Long): List<Position> =
         blocks(Jsoup.parse(html)).flatMapIndexed { block, element ->
             val paragraph = element.text().trim()
             val pieces = when (division) {
                 NovelSpeechDivision.PARAGRAPH -> listOf(paragraph)
                 NovelSpeechDivision.SENTENCE -> sentencesIn(paragraph)
+                NovelSpeechDivision.COMMA -> paragraph.split(
+                    Regex("(?<=[,，،])"),
+                ).map(String::trim).filter(String::isNotBlank)
+                NovelSpeechDivision.WORD -> paragraph.split(Regex("\\s+")).filter(String::isNotBlank)
             }
             var cursor = 0
             pieces.map { text ->
@@ -66,7 +73,15 @@ object NovelSpeech {
     }
 
     /** Retain the exact spoken unit across Stop; percentages alone round down into earlier units. */
-    fun resumeIndex(percent: Int, positions: List<Position>, bookmark: Position?): Int {
+    fun resumeIndex(percent: Int, positions: List<Position>, bookmark: Position?, anchor: Anchor? = null): Int {
+        if (anchor != null) {
+            val inBlock = positions.indices.filter {
+                positions[it].chapterId == anchor.chapterId && positions[it].block == anchor.block
+            }
+            if (inBlock.isNotEmpty()) {
+                return inBlock.lastOrNull { positions[it].start <= anchor.start } ?: inBlock.first()
+            }
+        }
         val exact = positions.indexOf(bookmark)
         return if (exact >= 0) exact else indexAt(percent / 100f, positions.map { it.text })
     }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryScrollableTabRow
@@ -70,6 +71,9 @@ import leaf.novel.ui.reader.setting.NovelStatusBarTap
 import leaf.novel.ui.reader.setting.NovelStatusItem
 import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
+import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.ExpandLess
+import mihon.icons.materialsymbols.rounded.ExpandMore
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.i18n.MR
@@ -713,12 +717,15 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_keys)
 
-    NovelReaderKey.entries.forEach { key ->
+    NovelReaderKey.volume.forEach { key ->
         ActionSelectItem(
             label = stringResource(key.titleRes),
             preference = novelReaderPreferences.keys.getValue(key),
         )
     }
+
+    KeyGroup(MR.strings.leaf_novel_keys_media, NovelReaderKey.media, novelReaderPreferences)
+    KeyGroup(MR.strings.leaf_novel_keys_dpad, NovelReaderKey.dpad, novelReaderPreferences)
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_gestures)
 
@@ -754,6 +761,31 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         label = stringResource(MR.strings.leaf_novel_reader_pinch_font_size),
         pref = novelReaderPreferences.pinchFontSize,
     )
+}
+
+@Composable
+private fun KeyGroup(label: StringResource, keys: List<NovelReaderKey>, preferences: NovelReaderPreferences) {
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(
+                horizontal = SettingsItemsPaddings.Horizontal,
+                vertical = SettingsItemsPaddings.Vertical,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(stringResource(label), modifier = Modifier.weight(1f))
+            Icon(
+                imageVector = if (expanded) MaterialSymbols.Rounded.ExpandLess else MaterialSymbols.Rounded.ExpandMore,
+                contentDescription = null,
+            )
+        }
+        if (expanded) {
+            keys.forEach { key ->
+                ActionSelectItem(stringResource(key.titleRes), preferences.keys.getValue(key))
+            }
+        }
+    }
 }
 
 @Composable
