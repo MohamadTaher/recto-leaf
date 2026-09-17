@@ -391,7 +391,7 @@ class NovelReaderPreferences(
         val AUTO_SCROLL_SPEED_RANGE = 1..20
         val SPEECH_RATE_RANGE = 3..25
         val SPEECH_PITCH_RANGE = 5..20
-        val SPEECH_INTERVAL_RANGE = 0..1_000
+        val SPEECH_INTERVAL_RANGE = 0..150
         val SPEECH_STOP_AFTER_RANGE = 0..120
         val SPEED_READ_WPM_RANGE = 100..900
         val SPEED_READ_CHUNK_RANGE = 1..3

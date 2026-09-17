@@ -55,6 +55,7 @@ import leaf.novel.ui.reader.loader.SourceContentProvider
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderTheme
+import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import logcat.LogPriority
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getAndSet
@@ -466,7 +467,6 @@ class NovelReaderViewModel(
         speechExtendJob?.cancel()
         val engine = attachToSession()
 
-        val text = utterances.map { it.text }
         val bookmark = state.value.speechPosition.takeIf {
             percentRead == state.value.currentChapter?.lastPageRead?.toInt()
         }
@@ -482,11 +482,13 @@ class NovelReaderViewModel(
             )
         }
         engine.start(
-            text = text,
+            text = utterances,
             fromIndex = fromIndex,
+            acrossParagraphs = novelReaderPreferences.speechDivision.get() == NovelSpeechDivision.PARAGRAPH,
             rate = novelReaderPreferences.speechRate.get(),
             pitch = novelReaderPreferences.speechPitch.get(),
-            intervalMs = novelReaderPreferences.speechIntervalMs.get(),
+            intervalMs = novelReaderPreferences.speechIntervalMs.get()
+                .coerceIn(NovelReaderPreferences.SPEECH_INTERVAL_RANGE),
             mixAudio = novelReaderPreferences.speechMixAudio.get(),
         )
     }
@@ -613,7 +615,7 @@ class NovelReaderViewModel(
             if (index != queue.chapterIndex + 1) return@launch
 
             queue.extend(more, index)
-            NovelSpeechSession.speakerOrNull()?.extend(more.map { it.text })
+            NovelSpeechSession.speakerOrNull()?.extend(more)
         }
     }
 
@@ -644,7 +646,8 @@ class NovelReaderViewModel(
         NovelSpeechSession.speakerOrNull()?.update(
             rate = novelReaderPreferences.speechRate.get(),
             pitch = novelReaderPreferences.speechPitch.get(),
-            intervalMs = novelReaderPreferences.speechIntervalMs.get(),
+            intervalMs = novelReaderPreferences.speechIntervalMs.get()
+                .coerceIn(NovelReaderPreferences.SPEECH_INTERVAL_RANGE),
             mixAudio = novelReaderPreferences.speechMixAudio.get(),
         )
     }

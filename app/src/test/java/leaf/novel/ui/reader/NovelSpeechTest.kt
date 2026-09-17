@@ -34,6 +34,31 @@ class NovelSpeechTest {
     }
 
     @Test
+    fun `speech groups end with their paragraph and fit the engine`() {
+        val units = NovelSpeech.positions("<p>One two three.</p><p>Four five.</p>", NovelSpeechDivision.WORD, 7)
+        NovelSpeech.groups(units, fromIndex = 1, maxLength = 100, acrossParagraphs = false) shouldBe
+            listOf(1..2, 3..4)
+        NovelSpeech.groups(units, fromIndex = 0, maxLength = 7, acrossParagraphs = false) shouldBe
+            listOf(0..1, 2..2, 3..3, 4..4)
+    }
+
+    @Test
+    fun `paragraph speech groups across paragraphs up to the engine limit`() {
+        val units = NovelSpeech.positions("<p>One.</p><p>Two.</p><p>Three.</p>", NovelSpeechDivision.PARAGRAPH, 7)
+        NovelSpeech.groups(units, fromIndex = 0, maxLength = 100, acrossParagraphs = true) shouldBe listOf(0..2)
+        NovelSpeech.groups(units, fromIndex = 0, maxLength = 9, acrossParagraphs = true) shouldBe
+            listOf(0..1, 2..2)
+    }
+
+    @Test
+    fun `a character offset inside a group names the unit being said`() {
+        val units = NovelSpeech.positions("<p>One two three. Four</p>", NovelSpeechDivision.WORD, 7)
+        // "two three. Four": two at 0, three. at 4, Four at 11.
+        listOf(0, 3, 4, 10, 11, 99).map { NovelSpeech.unitAt(units, 1..3, it) } shouldBe
+            listOf(1, 1, 2, 2, 3, 3)
+    }
+
+    @Test
     fun `visible location selects its containing speech unit instead of a percentage estimate`() {
         val html = "<p>Earlier text.</p><p>First sentence. Second, sentence here.</p><p>Later.</p>"
         val anchor = NovelSpeech.Anchor(7, 1, 26)

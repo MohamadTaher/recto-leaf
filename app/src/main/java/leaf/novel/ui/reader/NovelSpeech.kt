@@ -87,6 +87,48 @@ object NovelSpeech {
     }
 
     /**
+     * Consecutive units from [fromIndex], joined into utterances of at most [maxLength] characters.
+     *
+     * The engine pads every utterance with its own silence, so small utterances stutter. Joined
+     * with a space they are said as the prose they came from. A group ends with its paragraph, which
+     * is where a pause belongs, unless [acrossParagraphs]: when every unit already is a paragraph,
+     * stopping at each one would join nothing.
+     */
+    fun groups(positions: List<Position>, fromIndex: Int, maxLength: Int, acrossParagraphs: Boolean): List<IntRange> {
+        val groups = mutableListOf<IntRange>()
+        var first = fromIndex
+        var length = 0
+        for (index in fromIndex..positions.lastIndex) {
+            val position = positions[index]
+            val previous = positions.getOrNull(index - 1)
+            val newParagraph = previous == null ||
+                previous.chapterId != position.chapterId ||
+                previous.block != position.block
+            if (index > first &&
+                (length + 1 + position.text.length > maxLength || (newParagraph && !acrossParagraphs))
+            ) {
+                groups += first..<index
+                first = index
+                length = position.text.length
+            } else {
+                length += position.text.length + if (index == first) 0 else 1
+            }
+        }
+        if (first <= positions.lastIndex) groups += first..positions.lastIndex
+        return groups
+    }
+
+    /** The unit of [group] that [offset] into its joined text falls in. */
+    fun unitAt(positions: List<Position>, group: IntRange, offset: Int): Int {
+        var end = 0
+        for (index in group) {
+            end += positions[index].text.length + 1
+            if (offset < end) return index
+        }
+        return group.last
+    }
+
+    /**
      * [indexAt]'s inverse: how far through [utterances] the unit at [index] sits, as a percent.
      *
      * What lets speech checkpoint its own position to the same `lastPageRead` field the reader's

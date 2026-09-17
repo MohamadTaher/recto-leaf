@@ -358,7 +358,8 @@ private fun SpeechOptions(
         }
 
         // The settings dialog's own slider rows: a sheet has the width for a label over its track.
-        val interval by preferences.speechIntervalMs.collectAsState()
+        val interval = preferences.speechIntervalMs.collectAsState().value
+            .coerceIn(NovelReaderPreferences.SPEECH_INTERVAL_RANGE)
         SliderItem(
             label = stringResource(MR.strings.leaf_novel_reader_speech_interval),
             value = interval,
