@@ -320,11 +320,11 @@ class NovelReaderPreferences(
      * stored keys are one-based, matching how Moon+ and the settings screen both count them.
      */
     val tapZones: List<Preference<NovelReaderAction>> = List(NovelTapGrid.COUNT) { cell ->
-        preferenceStore.getEnum("leaf_novel_tap_${cell + 1}", defaultTapAction(cell))
+        preferenceStore.getReaderAction("leaf_novel_tap_${cell + 1}", defaultTapAction(cell))
     }
 
     val longTap: Preference<NovelReaderAction> =
-        preferenceStore.getEnum("leaf_novel_long_tap", NovelReaderAction.TEXT_SELECTION)
+        preferenceStore.getReaderAction("leaf_novel_long_tap", NovelReaderAction.TEXT_SELECTION)
 
     /**
      * Reuses the image reader orientation model, but deliberately not its key.
@@ -340,13 +340,22 @@ class NovelReaderPreferences(
     /** One binding per key, defaulted from [NovelReaderKey]. */
     val keys: Map<NovelReaderKey, Preference<NovelReaderAction>> =
         NovelReaderKey.entries.associateWith { key ->
-            preferenceStore.getEnum("leaf_novel_key_${key.name.lowercase()}", key.default)
+            preferenceStore.getReaderAction(
+                "leaf_novel_key_${key.name.lowercase()}",
+                key.default,
+                legacySpeak = when (key) {
+                    NovelReaderKey.HEADSET_PLAY, NovelReaderKey.MEDIA_NEXT, NovelReaderKey.MEDIA_PREVIOUS,
+                    NovelReaderKey.MEDIA_PAUSE, NovelReaderKey.MEDIA_STOP,
+                    -> NovelReaderAction.TOGGLE_SPEECH
+                    else -> NovelReaderAction.START_SPEAKING
+                },
+            )
         }
 
     /** One binding per swipe direction. All start unbound; see [NovelReaderSwipe]. */
     val swipes: Map<NovelReaderSwipe, Preference<NovelReaderAction>> =
         NovelReaderSwipe.entries.associateWith { swipe ->
-            preferenceStore.getEnum("leaf_novel_swipe_${swipe.name.lowercase()}", swipe.default)
+            preferenceStore.getReaderAction("leaf_novel_swipe_${swipe.name.lowercase()}", swipe.default)
         }
 
     /**
@@ -357,13 +366,13 @@ class NovelReaderPreferences(
      * it knows which actions have a glyph.
      */
     val barButtons: List<Preference<NovelReaderAction>> = List(BAR_SLOTS) { slot ->
-        preferenceStore.getEnum("leaf_novel_bar_button_${slot + 1}", defaultBarButton(slot))
+        preferenceStore.getReaderAction("leaf_novel_bar_button_${slot + 1}", defaultBarButton(slot))
     }
 
     /** One binding per section of the mini status bar, tap and long tap. */
     val statusTaps: Map<NovelStatusBarTap, Preference<NovelReaderAction>> =
         NovelStatusBarTap.entries.associateWith { tap ->
-            preferenceStore.getEnum("leaf_novel_status_${tap.name.lowercase()}", tap.default)
+            preferenceStore.getReaderAction("leaf_novel_status_${tap.name.lowercase()}", tap.default)
         }
 
     // endregion
@@ -416,7 +425,19 @@ private fun defaultBarButton(slot: Int): NovelReaderAction = when (slot) {
  */
 private fun defaultTapAction(cell: Int): NovelReaderAction = when (cell) {
     NovelTapGrid.CENTRE -> NovelReaderAction.OPTIONS_MENU
-    NovelTapGrid.TOP_LEFT -> NovelReaderAction.SPEAK
+    NovelTapGrid.TOP_LEFT -> NovelReaderAction.START_SPEAKING
     NovelTapGrid.BOTTOM_LEFT -> NovelReaderAction.DAY_NIGHT_MODE
     else -> NovelReaderAction.NONE
 }
+
+/** Decode old bindings here so restored backups and existing preferences use the same commands. */
+private fun PreferenceStore.getReaderAction(
+    key: String,
+    default: NovelReaderAction,
+    legacySpeak: NovelReaderAction = NovelReaderAction.START_SPEAKING,
+): Preference<NovelReaderAction> = getObjectFromString(
+    key = key,
+    defaultValue = default,
+    serializer = { it.name },
+    deserializer = { NovelReaderAction.fromPreference(it, default, legacySpeak) },
+)

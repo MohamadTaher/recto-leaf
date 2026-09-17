@@ -26,16 +26,20 @@ class NovelReaderKeyDispatcherTest {
 
     @Test
     fun `all keys dispatch each assigned command unchanged`() {
-        val commands = NovelReaderAction.entries - setOf(
+        val commands = NovelReaderAction.assignable - setOf(
             NovelReaderAction.NONE,
             NovelReaderAction.TEXT_SELECTION,
-            NovelReaderAction.SPEAK,
         )
         for (key in NovelReaderKey.entries) {
             for (command in commands) {
                 val actions = mutableListOf<NovelReaderAction>()
                 dispatch(key.keyCode, binding = { command }, perform = actions::add) shouldBe true
-                actions shouldBe listOf(command)
+                val expected = if (key == NovelReaderKey.MEDIA_PAUSE && command == NovelReaderAction.TOGGLE_SPEECH) {
+                    NovelReaderAction.PAUSE_SPEAKING
+                } else {
+                    command
+                }
+                actions shouldBe listOf(expected)
             }
         }
     }
@@ -77,6 +81,22 @@ class NovelReaderKeyDispatcherTest {
         dispatch(KeyEvent.KEYCODE_MEDIA_PLAY, perform = actions::add)
         dispatch(KeyEvent.KEYCODE_MEDIA_STOP, perform = actions::add)
         actions shouldBe listOf(NovelReaderAction.START_SPEAKING, NovelReaderAction.STOP_SPEAKING)
+    }
+
+    @Test
+    fun `earbud next and previous default to starting and stopping speech`() {
+        val actions = mutableListOf<NovelReaderAction>()
+        dispatch(KeyEvent.KEYCODE_MEDIA_NEXT, perform = actions::add)
+        dispatch(KeyEvent.KEYCODE_MEDIA_PREVIOUS, perform = actions::add)
+        actions shouldBe listOf(NovelReaderAction.START_SPEAKING, NovelReaderAction.STOP_SPEAKING)
+    }
+
+    @Test
+    fun `camera and search keys are no longer intercepted`() {
+        for (code in listOf(KeyEvent.KEYCODE_CAMERA, KeyEvent.KEYCODE_SEARCH)) {
+            NovelReaderKey.of(code) shouldBe null
+            dispatch(code) { error("Removed key dispatched") } shouldBe false
+        }
     }
 
     private fun dispatch(

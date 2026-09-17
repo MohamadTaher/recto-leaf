@@ -179,10 +179,15 @@ fun NovelReaderScreen(
         viewModel.setCurrentChapter(index)
     }
 
-    fun closeSpeechControls() {
-        viewModel.stopSpeaking()
+    fun hideSpeechControls() {
         showSpeechControls = false
         showSpeechOptions = false
+        confirmSpeech = false
+    }
+
+    fun closeSpeechControls() {
+        viewModel.stopSpeaking()
+        hideSpeechControls()
     }
 
     // Where the reader currently is, seeded from the stored position and updated as it scrolls.
@@ -194,7 +199,13 @@ fun NovelReaderScreen(
         mutableIntStateOf(chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0)
     }
 
+    fun openSpeechControls() {
+        showSpeechControls = true
+        if (state.menuVisible) viewModel.toggleMenu()
+    }
+
     fun requestSpeechStart() {
+        openSpeechControls()
         if (viewModel.novelReaderPreferences.speechConfirmBeforeSpeak.get()) {
             confirmSpeech = true
         } else {
@@ -263,19 +274,15 @@ fun NovelReaderScreen(
             NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
             NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
             NovelReaderAction.PUBLISHER_FORMATTING -> publisherFormatting = !publisherFormatting
-            NovelReaderAction.SPEAK -> {
-                showSpeechControls = true
-                if (state.menuVisible) viewModel.toggleMenu()
-                if (!state.speaking) requestSpeechStart()
-            }
             NovelReaderAction.START_SPEAKING -> {
-                showSpeechControls = true
+                openSpeechControls()
                 if (!state.speaking) requestSpeechStart() else viewModel.resumeSpeaking()
             }
             NovelReaderAction.PAUSE_SPEAKING -> {
                 viewModel.pauseSpeaking()
             }
             NovelReaderAction.TOGGLE_SPEECH -> {
+                openSpeechControls()
                 if (state.speaking) viewModel.toggleSpeechPlayback(livePercent) else requestSpeechStart()
             }
             NovelReaderAction.STOP_SPEAKING -> closeSpeechControls()
@@ -369,10 +376,15 @@ fun NovelReaderScreen(
 
     LaunchedEffect(state.speechUnavailable) {
         if (state.speechUnavailable) {
-            showSpeechControls = false
-            showSpeechOptions = false
+            hideSpeechControls()
             snackbarHostState.showSnackbar(speechUnavailable)
         }
+    }
+
+    // Notification, headset, timer and on-screen Stop all end the same speech state. Observe that
+    // state instead of depending on the activity being resumed when an external command arrives.
+    LaunchedEffect(state.speaking) {
+        if (!state.speaking) hideSpeechControls()
     }
 
     val backAction by viewModel.novelReaderPreferences.keys.getValue(NovelReaderKey.BACK).collectAsState()
@@ -700,18 +712,12 @@ fun NovelReaderScreen(
                     webViewController.screens.current < webViewController.screens.total
                 },
                 preferences = viewModel.novelReaderPreferences,
-                onPlayPause = {
-                    if (state.speaking) {
-                        viewModel.toggleSpeechPlayback(livePercent)
-                    } else {
-                        requestSpeechStart()
-                    }
-                },
+                onPlayPause = { performAction(NovelReaderAction.TOGGLE_SPEECH) },
                 onPrevious = { viewModel.seekSpeech(-1) },
                 onNext = { viewModel.seekSpeech(1) },
                 onPreviousPage = { turnSpeechPage(forward = false) },
                 onNextPage = { turnSpeechPage(forward = true) },
-                onStop = ::closeSpeechControls,
+                onStop = { performAction(NovelReaderAction.STOP_SPEAKING) },
                 onSettings = { showSpeechOptions = true },
                 onSettingsChanged = viewModel::applySpeechSettings,
                 // Drawn as part of the panel rather than the page, so the two read as one deck.
@@ -1368,7 +1374,7 @@ private fun ColumnScope.AdditionalOptions(
                     ),
                 )
             },
-            onClick = { onSelect(NovelReaderAction.SPEAK) },
+            onClick = { onSelect(NovelReaderAction.START_SPEAKING) },
         )
     }
 

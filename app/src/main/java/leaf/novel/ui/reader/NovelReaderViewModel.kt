@@ -181,6 +181,7 @@ class NovelReaderViewModel(
     }
 
     override fun onCleared() {
+        NovelReaderMediaSession.detachReader()
         // Speech that is still running belongs to NovelSpeechSession now, not to this reader —
         // detach() only tears it down if nothing is left running to fire that later itself.
         NovelSpeechSession.detach()

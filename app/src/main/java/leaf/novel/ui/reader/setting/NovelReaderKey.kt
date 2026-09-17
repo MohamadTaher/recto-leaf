@@ -21,8 +21,6 @@ enum class NovelReaderKey(
     VOLUME_DOWN(KeyEvent.KEYCODE_VOLUME_DOWN, MR.strings.leaf_novel_key_volume_down, NovelReaderAction.NONE),
     BACK(KeyEvent.KEYCODE_BACK, MR.strings.leaf_novel_key_back, NovelReaderAction.NONE),
     MENU(KeyEvent.KEYCODE_MENU, MR.strings.leaf_novel_key_menu, NovelReaderAction.NONE),
-    SEARCH(KeyEvent.KEYCODE_SEARCH, MR.strings.leaf_novel_key_search, NovelReaderAction.SEARCH),
-    CAMERA(KeyEvent.KEYCODE_CAMERA, MR.strings.leaf_novel_key_camera, NovelReaderAction.PAGE_UP),
     DPAD_UP(KeyEvent.KEYCODE_DPAD_UP, MR.strings.leaf_novel_key_dpad_up, NovelReaderAction.NONE),
     DPAD_DOWN(KeyEvent.KEYCODE_DPAD_DOWN, MR.strings.leaf_novel_key_dpad_down, NovelReaderAction.NONE),
     DPAD_LEFT(KeyEvent.KEYCODE_DPAD_LEFT, MR.strings.leaf_novel_key_dpad_left, NovelReaderAction.NONE),
@@ -32,14 +30,14 @@ enum class NovelReaderKey(
         MR.strings.leaf_novel_key_dpad_center,
         NovelReaderAction.OPTIONS_MENU,
     ),
-    HEADSET_PLAY(KeyEvent.KEYCODE_HEADSETHOOK, MR.strings.leaf_novel_key_headset_play, NovelReaderAction.SPEAK),
-    MEDIA_NEXT(KeyEvent.KEYCODE_MEDIA_NEXT, MR.strings.leaf_novel_key_media_next, NovelReaderAction.SPEAK),
+    HEADSET_PLAY(KeyEvent.KEYCODE_HEADSETHOOK, MR.strings.leaf_novel_key_headset_play, NovelReaderAction.TOGGLE_SPEECH),
+    MEDIA_NEXT(KeyEvent.KEYCODE_MEDIA_NEXT, MR.strings.leaf_novel_key_media_next, NovelReaderAction.START_SPEAKING),
     MEDIA_PREVIOUS(
         KeyEvent.KEYCODE_MEDIA_PREVIOUS,
         MR.strings.leaf_novel_key_media_previous,
-        NovelReaderAction.PAGE_UP,
+        NovelReaderAction.STOP_SPEAKING,
     ),
-    MEDIA_PAUSE(KeyEvent.KEYCODE_MEDIA_PAUSE, MR.strings.leaf_novel_key_media_pause, NovelReaderAction.SPEAK),
+    MEDIA_PAUSE(KeyEvent.KEYCODE_MEDIA_PAUSE, MR.strings.leaf_novel_key_media_pause, NovelReaderAction.TOGGLE_SPEECH),
     MEDIA_PLAY(KeyEvent.KEYCODE_MEDIA_PLAY, MR.strings.leaf_novel_key_media_play, NovelReaderAction.START_SPEAKING),
     MEDIA_STOP(KeyEvent.KEYCODE_MEDIA_STOP, MR.strings.leaf_novel_key_media_stop, NovelReaderAction.STOP_SPEAKING),
     ;
@@ -53,13 +51,11 @@ enum class NovelReaderKey(
         }
     }
 
-    /** Old read-aloud bindings must operate playback, rather than just reveal its panel. */
-    fun resolve(action: NovelReaderAction): NovelReaderAction = when {
-        action != NovelReaderAction.SPEAK -> action
-        this == MEDIA_PAUSE -> NovelReaderAction.PAUSE_SPEAKING
-        this == MEDIA_PLAY -> NovelReaderAction.START_SPEAKING
-        this == HEADSET_PLAY || this == MEDIA_NEXT || this == MEDIA_PREVIOUS || this == MEDIA_STOP ->
-            NovelReaderAction.TOGGLE_SPEECH
-        else -> action
-    }
+    /** Respect the direction sent by Bluetooth devices, including Galaxy Buds. */
+    fun resolve(action: NovelReaderAction): NovelReaderAction =
+        if (this == MEDIA_PAUSE && action == NovelReaderAction.TOGGLE_SPEECH) {
+            NovelReaderAction.PAUSE_SPEAKING
+        } else {
+            action
+        }
 }

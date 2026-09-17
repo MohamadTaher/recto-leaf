@@ -93,12 +93,13 @@ class NovelReaderActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        NovelSpeechService.readerAction = viewModel::requestAction
+        if (viewModel.hasValidArgs) {
+            NovelReaderMediaSession.attachReader(this, viewModel.novelReaderPreferences, viewModel::requestAction)
+        }
         viewModel.restartReadTimer()
     }
 
     override fun onPause() {
-        NovelSpeechService.readerAction = null
         viewModel.setAutoScrolling(false)
         viewModel.saveOnPause()
         super.onPause()

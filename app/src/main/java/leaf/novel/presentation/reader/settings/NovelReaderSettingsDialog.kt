@@ -849,7 +849,7 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
         EnumPicker(
             expanded = expanded,
             selected = action,
-            options = NovelReaderAction.entries.filter { it != NovelReaderAction.TEXT_SELECTION },
+            options = NovelReaderAction.assignable.filter { it != NovelReaderAction.TEXT_SELECTION },
             labelOf = { stringResource(it.titleRes) },
             onDismissRequest = { expanded = false },
             onSelect = preference::set,
@@ -903,7 +903,7 @@ private fun ActionSelectItem(
     preference: Preference<NovelReaderAction>,
     allowTextSelection: Boolean = false,
 ) {
-    val options = NovelReaderAction.entries.filter { allowTextSelection || it != NovelReaderAction.TEXT_SELECTION }
+    val options = NovelReaderAction.assignable.filter { allowTextSelection || it != NovelReaderAction.TEXT_SELECTION }
     EnumSelectItem(label, preference, options) { stringResource(it.titleRes) }
 }
 
