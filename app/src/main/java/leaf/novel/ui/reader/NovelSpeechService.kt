@@ -6,16 +6,34 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioAttributes
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.IBinder
+import android.view.KeyEvent
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.notify
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderKey
+import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.i18n.MR
 
 /**
@@ -53,20 +71,60 @@ class NovelSpeechService : Service() {
     private var lastPaused = false
 
     private var mediaSession: MediaSession? = null
+    private var routingAudio: AudioTrack? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val preferences by lazy { NovelReaderPreferences(AndroidPreferenceStore(this)) }
 
     /** Routes a hardware play/pause/stop press to whatever is currently speaking. */
     private val sessionCallback = object : MediaSession.Callback() {
+        override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
+            val event = IntentCompat.getParcelableExtra(mediaButtonIntent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                ?: return super.onMediaButtonEvent(mediaButtonIntent)
+            if (NovelReaderKey.of(event.keyCode) == null) return super.onMediaButtonEvent(mediaButtonIntent)
+            dispatchNovelReaderKey(
+                keyCode = event.keyCode,
+                eventAction = event.action,
+                repeatCount = event.repeatCount,
+                binding = { preferences.keys.getValue(it).get() },
+                perform = ::performAction,
+            )
+            // An explicitly unbound media key must not fall through to the platform's default action.
+            return true
+        }
+
         override fun onPlay() {
-            controls?.play()
+            performKey(NovelReaderKey.MEDIA_PLAY)
         }
 
         override fun onPause() {
-            controls?.pause()
+            performKey(NovelReaderKey.MEDIA_PAUSE)
         }
 
         override fun onStop() {
-            controls?.stop()
-            stopSelf()
+            performKey(NovelReaderKey.MEDIA_STOP)
+        }
+
+        override fun onSkipToNext() {
+            performKey(NovelReaderKey.MEDIA_NEXT)
+        }
+
+        override fun onSkipToPrevious() {
+            performKey(NovelReaderKey.MEDIA_PREVIOUS)
+        }
+    }
+
+    private fun performKey(key: NovelReaderKey) {
+        performAction(key.resolve(preferences.keys.getValue(key).get()))
+    }
+
+    private fun performAction(action: NovelReaderAction) {
+        when (action) {
+            NovelReaderAction.NONE, NovelReaderAction.TEXT_SELECTION -> Unit
+            NovelReaderAction.START_SPEAKING -> controls?.play()
+            NovelReaderAction.PAUSE_SPEAKING -> controls?.pause()
+            NovelReaderAction.TOGGLE_SPEECH -> controls?.togglePlayback()
+            NovelReaderAction.STOP_SPEAKING -> controls?.stop()
+            else -> readerAction?.invoke(action)
         }
     }
 
@@ -84,6 +142,16 @@ class NovelSpeechService : Service() {
             setCallback(sessionCallback)
             isActive = true
         }
+        // The reader's collector disappears when it closes; hardware playback state must not.
+        NovelSpeechSession.speakerOrNull()?.speech
+            ?.filter { it.speaking }
+            ?.map { it.paused }
+            ?.distinctUntilChanged()
+            ?.onEach {
+                if (!it) registerAudioPlayback()
+                update(lastTitle, lastChapter, it)
+            }
+            ?.launchIn(scope)
         ContextCompat.registerReceiver(
             this,
             becomingNoisyReceiver,
@@ -120,11 +188,56 @@ class NovelSpeechService : Service() {
     }
 
     override fun onDestroy() {
+        scope.cancel()
+        routingAudio?.release()
+        routingAudio = null
         instance = null
         controls = null
         unregisterReceiver(becomingNoisyReceiver)
         mediaSession?.release()
         mediaSession = null
+        super.onDestroy()
+    }
+
+    /**
+     * Android sends media keys to an app that has played audio. TTS plays under the engine's UID,
+     * so an active MediaSession alone never qualifies this app. A single 100 ms silent PCM buffer
+     * registers our playback when speech starts or resumes; it does not loop or request focus.
+     */
+    private fun registerAudioPlayback() {
+        routingAudio?.release()
+        routingAudio = null
+        val silence = ByteArray(4800) // 2400 mono PCM16 frames at 24 kHz.
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(24000)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build(),
+            )
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setBufferSizeInBytes(silence.size)
+            .build()
+        routingAudio = track
+        track.write(silence, 0, silence.size)
+        track.notificationMarkerPosition = silence.size / 2
+        track.setPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
+            override fun onMarkerReached(completed: AudioTrack) {
+                if (routingAudio !== completed) return
+                completed.release()
+                routingAudio = null
+            }
+
+            override fun onPeriodicNotification(track: AudioTrack) = Unit
+        })
+        track.play()
     }
 
     /**
@@ -150,10 +263,7 @@ class NovelSpeechService : Service() {
     }
 
     /**
-     * Tells the session what a hardware play/pause key should do next. A single `PLAY_PAUSE` press
-     * — what a headset actually sends — has no direction of its own; [MediaSession.Callback] picks
-     * [sessionCallback]'s `onPlay` or `onPause` for it by comparing against the state set here, so
-     * this has to stay current for the button to toggle the right way.
+     * Keeps system playback controls in sync, including while no reader is attached.
      */
     private fun updatePlaybackState(paused: Boolean) {
         val state = if (paused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING
@@ -163,9 +273,11 @@ class NovelSpeechService : Service() {
                     PlaybackState.ACTION_PLAY or
                         PlaybackState.ACTION_PAUSE or
                         PlaybackState.ACTION_PLAY_PAUSE or
-                        PlaybackState.ACTION_STOP,
+                        PlaybackState.ACTION_STOP or
+                        PlaybackState.ACTION_SKIP_TO_NEXT or
+                        PlaybackState.ACTION_SKIP_TO_PREVIOUS,
                 )
-                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
+                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, if (paused) 0f else 1f)
                 .build(),
         )
     }
@@ -230,6 +342,9 @@ class NovelSpeechService : Service() {
          */
         @Volatile
         var controls: Controls? = null
+
+        /** Only the resumed reader may receive commands that need its screen. */
+        var readerAction: ((NovelReaderAction) -> Unit)? = null
 
         /** The running instance, so a content update can be posted without asking to be started again. */
         @Volatile

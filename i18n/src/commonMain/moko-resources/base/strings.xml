@@ -1122,7 +1122,9 @@
     <string name="leaf_novel_key_dpad_left">D-pad left</string>
     <string name="leaf_novel_key_dpad_right">D-pad right</string>
     <string name="leaf_novel_key_dpad_center">D-pad center</string>
-    <string name="leaf_novel_key_headset_play">Headset play</string>
+    <string name="leaf_novel_key_headset_play">Headset play/pause</string>
+    <string name="leaf_novel_key_media_play">Media play</string>
+    <string name="leaf_novel_key_media_stop">Media stop</string>
     <string name="leaf_novel_key_media_next">Media next</string>
     <string name="leaf_novel_key_media_previous">Media previous</string>
     <string name="leaf_novel_key_media_pause">Media pause</string>
@@ -1140,6 +1142,9 @@
     <string name="leaf_novel_action_auto_scroll">Auto scroll</string>
     <string name="leaf_novel_action_stop_auto_scroll">Stop auto scroll</string>
     <string name="leaf_novel_action_speak">Read aloud</string>
+    <string name="leaf_novel_action_start_speaking">Start read aloud</string>
+    <string name="leaf_novel_action_pause_speaking">Pause read aloud</string>
+    <string name="leaf_novel_action_toggle_speech">Pause/resume read aloud</string>
     <string name="leaf_novel_action_stop_speaking">Stop reading aloud</string>
     <string name="leaf_novel_speech_paragraph">Paragraph</string>
     <string name="leaf_novel_speech_sentence">Sentence</string>
@@ -1164,7 +1169,7 @@
     <string name="leaf_novel_reader_speech_unavailable">No text-to-speech engine is available on this device.</string>
     <string name="leaf_novel_action_speed_read">Speed read</string>
     <string name="leaf_novel_action_stop_speed_read">Stop speed reading</string>
-    <string name="leaf_novel_action_export_settings">Back up reader settings</string>
+    <string name="leaf_novel_action_backup">Backup</string>
     <string name="leaf_novel_action_import_settings">Restore reader settings</string>
     <string name="leaf_novel_reader_settings_saved">Reader settings backed up</string>
     <string name="leaf_novel_reader_settings_restored">Reader settings restored</string>
@@ -1203,7 +1208,6 @@
     <string name="leaf_novel_reader_heading_bar_buttons">Reader bar buttons</string>
     <string name="leaf_novel_reader_bar_button">Button %1$d</string>
     <string name="leaf_novel_reader_heading_typesetting">Typesetting</string>
-    <string name="leaf_novel_reader_heading_settings_backup">Reader settings</string>
     <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
     <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>
     <string name="leaf_novel_reader_heading_replacements">Find and replace</string>
@@ -1255,7 +1259,8 @@
     <string name="leaf_novel_font_sans_serif">Sans-serif</string>
     <string name="leaf_novel_font_serif">Serif</string>
     <string name="leaf_novel_font_monospace">Monospace</string>
-    <string name="leaf_novel_reader_heading_text_styling">Text styling</string>
+    <string name="leaf_novel_font_condensed">Condensed</string>
+    <string name="leaf_novel_font_casual">Casual</string>
     <string name="leaf_novel_reader_bold">Bold</string>
     <string name="leaf_novel_reader_italic">Italic</string>
     <string name="leaf_novel_reader_underline">Underline</string>
@@ -1275,12 +1280,12 @@
     <string name="leaf_novel_reader_margin_bottom">Bottom margin</string>
     <string name="leaf_novel_reader_link_color">Link color</string>
     <string name="leaf_novel_reader_theme">Reader theme</string>
-    <string name="leaf_novel_theme_follow_mihon">Follow Mihon</string>
+    <string name="leaf_novel_theme_white">White</string>
     <string name="leaf_novel_theme_paper">Paper</string>
     <string name="leaf_novel_theme_sepia">Sepia</string>
-    <string name="leaf_novel_theme_grey">Grey</string>
     <string name="leaf_novel_theme_night">Night</string>
-    <string name="leaf_novel_theme_console">Console</string>
+    <string name="leaf_novel_theme_black">Black</string>
+    <string name="leaf_novel_theme_solarized">Solarized</string>
     <string name="leaf_novel_theme_custom_1">Custom 1</string>
     <string name="leaf_novel_theme_custom_2">Custom 2</string>
     <string name="leaf_novel_theme_custom_3">Custom 3</string>

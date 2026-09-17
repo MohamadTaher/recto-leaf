@@ -80,26 +80,16 @@ class NovelReaderPreferences(
     val linkColor: Preference<NovelLinkColor> =
         preferenceStore.getEnum("leaf_novel_link_color", NovelLinkColor.DEFAULT)
 
-    /**
-     * The background and text colour the page is drawn in.
-     *
-     * [NovelReaderTheme.FOLLOW_MIHON] defers to the shared reader theme and derives the text colour
-     * from it, which is what the reader did before this was a setting.
-     */
+    /** The background and text colour the page is drawn in. */
     val theme: Preference<NovelReaderTheme> =
-        preferenceStore.getEnum("leaf_novel_theme", NovelReaderTheme.FOLLOW_MIHON)
+        preferenceStore.getEnum("leaf_novel_theme", NovelReaderTheme.DEFAULT)
 
-    /**
-     * The pair day/night mode flips between.
-     *
-     * Both start at [NovelReaderTheme.FOLLOW_MIHON], where there is nothing to flip — so the action
-     * goes on flipping the shared reader theme between white and black, exactly as it does today.
-     */
+    /** The pair day/night mode flips between. */
     val dayTheme: Preference<NovelReaderTheme> =
-        preferenceStore.getEnum("leaf_novel_day_theme", NovelReaderTheme.FOLLOW_MIHON)
+        preferenceStore.getEnum("leaf_novel_day_theme", NovelReaderTheme.DEFAULT)
 
     val nightTheme: Preference<NovelReaderTheme> =
-        preferenceStore.getEnum("leaf_novel_night_theme", NovelReaderTheme.FOLLOW_MIHON)
+        preferenceStore.getEnum("leaf_novel_night_theme", NovelReaderTheme.NIGHT)
 
     /**
      * The reader's own colours, one entry per [NovelReaderTheme] custom slot.

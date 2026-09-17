@@ -7,8 +7,7 @@ import tachiyomi.i18n.MR
 /**
  * The keys a reader can bind an action to, with what each starts out doing.
  *
- * The defaults are the imported Moon+ configuration, with anything bound to a feature that does not
- * exist yet demoted to [NovelReaderAction.NONE] — the three speech bindings, until there is speech.
+ * Existing constant names are persisted in the preference keys and must remain stable.
  *
  * The image reader has its own volume-key preferences and this deliberately does not read them.
  * Per-key bindings are a superset of that pair, and writing them would change how manga reads.
@@ -41,11 +40,26 @@ enum class NovelReaderKey(
         NovelReaderAction.PAGE_UP,
     ),
     MEDIA_PAUSE(KeyEvent.KEYCODE_MEDIA_PAUSE, MR.strings.leaf_novel_key_media_pause, NovelReaderAction.SPEAK),
+    MEDIA_PLAY(KeyEvent.KEYCODE_MEDIA_PLAY, MR.strings.leaf_novel_key_media_play, NovelReaderAction.START_SPEAKING),
+    MEDIA_STOP(KeyEvent.KEYCODE_MEDIA_STOP, MR.strings.leaf_novel_key_media_stop, NovelReaderAction.STOP_SPEAKING),
     ;
 
     companion object {
         private val byKeyCode = entries.associateBy { it.keyCode }
 
-        fun of(keyCode: Int): NovelReaderKey? = byKeyCode[keyCode]
+        fun of(keyCode: Int): NovelReaderKey? = when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> HEADSET_PLAY
+            else -> byKeyCode[keyCode]
+        }
+    }
+
+    /** Old read-aloud bindings must operate playback, rather than just reveal its panel. */
+    fun resolve(action: NovelReaderAction): NovelReaderAction = when {
+        action != NovelReaderAction.SPEAK -> action
+        this == MEDIA_PAUSE -> NovelReaderAction.PAUSE_SPEAKING
+        this == MEDIA_PLAY -> NovelReaderAction.START_SPEAKING
+        this == HEADSET_PLAY || this == MEDIA_NEXT || this == MEDIA_PREVIOUS || this == MEDIA_STOP ->
+            NovelReaderAction.TOGGLE_SPEECH
+        else -> action
     }
 }

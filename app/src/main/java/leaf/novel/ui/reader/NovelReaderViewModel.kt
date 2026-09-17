@@ -610,6 +610,14 @@ class NovelReaderViewModel(
         }
     }
 
+    fun resumeSpeaking() {
+        if (ownsSession()) NovelSpeechSession.play()
+    }
+
+    fun pauseSpeaking() {
+        if (ownsSession()) NovelSpeechSession.pause()
+    }
+
     fun seekSpeech(units: Int) {
         if (!ownsSession()) return
         NovelSpeechSession.speakerOrNull()?.seekBy(units)
@@ -809,24 +817,10 @@ class NovelReaderViewModel(
         actionRequests.tryEmit(action)
     }
 
-    /**
-     * Flips between the reader's chosen day and night themes.
-     *
-     * While both are still [NovelReaderTheme.FOLLOW_MIHON] there is nothing of the fork's own to
-     * flip, so it falls back to flipping the shared reader theme between its black and white values
-     * — which is all this action ever did, and it keeps the image reader following along. Once a
-     * reader picks a pair, writing the shared key as well would move manga's background for a
-     * setting that no longer decides this one.
-     */
+    /** Flips between the reader's chosen day and night themes. */
     fun toggleDayNightMode() {
         val day = novelReaderPreferences.dayTheme.get()
         val night = novelReaderPreferences.nightTheme.get()
-        if (day == NovelReaderTheme.FOLLOW_MIHON && night == NovelReaderTheme.FOLLOW_MIHON) {
-            readerPreferences.readerTheme.getAndSet {
-                if (it == READER_THEME_WHITE) READER_THEME_BLACK else READER_THEME_WHITE
-            }
-            return
-        }
         novelReaderPreferences.theme.getAndSet { if (it == night) day else night }
     }
 
@@ -972,10 +966,6 @@ class NovelReaderViewModel(
 
         /** How long the reader must sit still before its position is written. */
         private const val PROGRESS_DEBOUNCE_MS = 400L
-
-        // Upstream stores readerTheme as a bare int with no named constants of its own.
-        private const val READER_THEME_WHITE = 0
-        private const val READER_THEME_BLACK = 1
 
         const val EXTRA_MANGA = "manga"
         const val EXTRA_CHAPTER = "chapter"

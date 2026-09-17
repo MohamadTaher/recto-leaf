@@ -52,7 +52,10 @@ import mihon.icons.materialsymbols.roundedfilled.PlayArrow
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.CheckboxItem
+import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.RadioItem
+import tachiyomi.presentation.core.components.SettingsItemsPaddings
+import tachiyomi.presentation.core.components.SliderItem
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
@@ -90,7 +93,10 @@ fun NovelSpeechPanel(
                     .weight(1f)
                     .fillMaxWidth()
                     .then(if (footer == null) Modifier.navigationBarsPadding() else Modifier)
-                    .padding(horizontal = MaterialTheme.padding.medium),
+                    .padding(
+                        horizontal = MaterialTheme.padding.medium,
+                        vertical = MaterialTheme.padding.small,
+                    ),
                 verticalArrangement = Arrangement.SpaceEvenly,
             ) {
                 VolumeSlider()
@@ -109,9 +115,10 @@ fun NovelSpeechPanel(
                     onCommit = onSettingsChanged,
                 )
 
+                // Spread edge to edge, so the outer buttons sit under the slider labels and steppers.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onStop, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
@@ -203,33 +210,19 @@ fun NovelAutoScrollPanel(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
+    ModePanel(
+        title = MR.strings.leaf_novel_action_auto_scroll,
+        stopDescription = MR.strings.leaf_novel_action_stop_auto_scroll,
+        onStop = onStop,
         modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 3.dp,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .navigationBarsPadding()
-                .padding(horizontal = MaterialTheme.padding.medium),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(MR.strings.leaf_novel_action_auto_scroll),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                PreferenceSlider(
-                    label = stringResource(MR.strings.leaf_novel_reader_autoscroll_speed),
-                    preference = preferences.autoScrollSpeed,
-                    range = NovelReaderPreferences.AUTO_SCROLL_SPEED_RANGE,
-                    valueText = { it.toString() },
-                    onCommit = {},
-                )
-            }
-            StopModeButton(MR.strings.leaf_novel_action_stop_auto_scroll, onStop)
-        }
+        PreferenceSlider(
+            label = stringResource(MR.strings.leaf_novel_reader_autoscroll_speed),
+            preference = preferences.autoScrollSpeed,
+            range = NovelReaderPreferences.AUTO_SCROLL_SPEED_RANGE,
+            valueText = { it.toString() },
+            onCommit = {},
+        )
     }
 }
 
@@ -240,52 +233,73 @@ fun NovelSpeedReadPanel(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    ModePanel(
+        title = MR.strings.leaf_novel_action_speed_read,
+        stopDescription = MR.strings.leaf_novel_action_stop_speed_read,
+        onStop = onStop,
+        modifier = modifier,
+    ) {
+        PreferenceSlider(
+            label = stringResource(MR.strings.leaf_novel_reader_speed_read_wpm),
+            preference = preferences.speedReadWpm,
+            range = NovelReaderPreferences.SPEED_READ_WPM_RANGE,
+            step = SPEED_READ_WPM_STEP,
+            valueText = { it.toString() },
+            onCommit = {},
+        )
+        PreferenceSlider(
+            label = stringResource(MR.strings.leaf_novel_reader_speed_read_chunk),
+            preference = preferences.speedReadChunk,
+            range = NovelReaderPreferences.SPEED_READ_CHUNK_RANGE,
+            valueText = { it.toString() },
+            onCommit = {},
+        )
+    }
+}
+
+/**
+ * A title row with its stop button, over the mode's sliders. The button is the steppers' size and
+ * sits at the same edge, so it lines up above the last one.
+ */
+@Composable
+private fun ModePanel(
+    title: StringResource,
+    stopDescription: StringResource,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     Surface(
         modifier = modifier,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 3.dp,
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .navigationBarsPadding()
                 .padding(horizontal = MaterialTheme.padding.medium),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = stringResource(MR.strings.leaf_novel_action_speed_read),
+                    text = stringResource(title),
                     style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
                 )
-                PreferenceSlider(
-                    label = stringResource(MR.strings.leaf_novel_reader_speed_read_wpm),
-                    preference = preferences.speedReadWpm,
-                    range = NovelReaderPreferences.SPEED_READ_WPM_RANGE,
-                    step = SPEED_READ_WPM_STEP,
-                    valueText = { it.toString() },
-                    onCommit = {},
-                )
-                PreferenceSlider(
-                    label = stringResource(MR.strings.leaf_novel_reader_speed_read_chunk),
-                    preference = preferences.speedReadChunk,
-                    range = NovelReaderPreferences.SPEED_READ_CHUNK_RANGE,
-                    valueText = { it.toString() },
-                    onCommit = {},
-                )
+                IconButton(onClick = onStop, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
+                    Icon(
+                        imageVector = MaterialSymbols.Rounded.Close,
+                        contentDescription = stringResource(stopDescription),
+                        modifier = Modifier.size(SPEECH_ICON_SIZE),
+                    )
+                }
             }
-            StopModeButton(MR.strings.leaf_novel_action_stop_speed_read, onStop)
+            content()
         }
-    }
-}
-
-@Composable
-private fun StopModeButton(description: StringResource, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
-        Icon(
-            imageVector = MaterialSymbols.Rounded.Close,
-            contentDescription = stringResource(description),
-            modifier = Modifier.size(SPEECH_ICON_SIZE),
-        )
     }
 }
 
@@ -320,23 +334,16 @@ private fun SpeechOptions(
     Column(
         modifier = Modifier
             .verticalScroll(rememberScrollState())
-            .padding(
-                horizontal = MaterialTheme.padding.medium,
-                vertical = MaterialTheme.padding.small,
-            ),
+            .padding(vertical = MaterialTheme.padding.medium),
     ) {
         Text(
             text = stringResource(MR.strings.leaf_novel_reader_speech_options),
             style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal),
         )
 
         val division by preferences.speechDivision.collectAsState()
-        Text(
-            text = stringResource(MR.strings.leaf_novel_reader_speech_divide_by),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(vertical = MaterialTheme.padding.small),
-        )
+        HeadingItem(MR.strings.leaf_novel_reader_speech_divide_by)
         NovelSpeechDivision.entries.forEach { option ->
             RadioItem(
                 label = stringResource(option.titleRes),
@@ -350,25 +357,34 @@ private fun SpeechOptions(
             )
         }
 
-        PreferenceSlider(
+        // The settings dialog's own slider rows: a sheet has the width for a label over its track.
+        val interval by preferences.speechIntervalMs.collectAsState()
+        SliderItem(
             label = stringResource(MR.strings.leaf_novel_reader_speech_interval),
-            preference = preferences.speechIntervalMs,
-            range = NovelReaderPreferences.SPEECH_INTERVAL_RANGE,
-            valueText = { "$it ms" },
-            onCommit = onSettingsChanged,
-        )
-        PreferenceSlider(
-            label = stringResource(MR.strings.leaf_novel_reader_speech_stop_after),
-            preference = preferences.speechStopAfterMinutes,
-            range = NovelReaderPreferences.SPEECH_STOP_AFTER_RANGE,
-            valueText = {
-                if (it == 0) {
-                    stringResource(MR.strings.leaf_novel_reader_speech_off)
-                } else {
-                    stringResource(MR.strings.leaf_novel_reader_speech_minutes, it)
-                }
+            value = interval,
+            valueString = "$interval ms",
+            valueRange = NovelReaderPreferences.SPEECH_INTERVAL_RANGE,
+            steps = 0,
+            onChange = {
+                preferences.speechIntervalMs.set(it)
+                onSettingsChanged()
             },
-            onCommit = onTimerChanged,
+        )
+        val stopAfter by preferences.speechStopAfterMinutes.collectAsState()
+        SliderItem(
+            label = stringResource(MR.strings.leaf_novel_reader_speech_stop_after),
+            value = stopAfter,
+            valueString = if (stopAfter == 0) {
+                stringResource(MR.strings.leaf_novel_reader_speech_off)
+            } else {
+                stringResource(MR.strings.leaf_novel_reader_speech_minutes, stopAfter)
+            },
+            valueRange = NovelReaderPreferences.SPEECH_STOP_AFTER_RANGE,
+            steps = 0,
+            onChange = {
+                preferences.speechStopAfterMinutes.set(it)
+                onTimerChanged()
+            },
         )
 
         CheckboxItem(
@@ -390,12 +406,15 @@ private fun SpeechOptions(
             text = stringResource(MR.strings.leaf_novel_reader_speech_filters_note),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(vertical = MaterialTheme.padding.medium),
+            modifier = Modifier.padding(
+                horizontal = SettingsItemsPaddings.Horizontal,
+                vertical = SettingsItemsPaddings.Vertical,
+            ),
         )
 
         TextButton(
             onClick = onDismissRequest,
-            modifier = Modifier.align(Alignment.End).padding(horizontal = MaterialTheme.padding.small),
+            modifier = Modifier.align(Alignment.End).padding(horizontal = MaterialTheme.padding.medium),
         ) {
             Text(stringResource(MR.strings.action_ok))
         }
@@ -530,6 +549,7 @@ private fun LabeledSlider(
             },
             modifier = Modifier
                 .weight(1f)
+                .padding(horizontal = MaterialTheme.padding.small)
                 .height(SPEECH_SLIDER_HEIGHT),
         )
         IconButton(
