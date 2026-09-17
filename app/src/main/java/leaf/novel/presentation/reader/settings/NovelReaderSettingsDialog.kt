@@ -11,37 +11,52 @@ import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.DeviceFontFamilyName
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.RadioMenuItem
-import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
-import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import kotlinx.coroutines.launch
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
+import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
@@ -56,6 +71,9 @@ import leaf.novel.ui.reader.setting.NovelStatusBarTap
 import leaf.novel.ui.reader.setting.NovelStatusItem
 import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
+import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.ExpandLess
+import mihon.icons.materialsymbols.rounded.ExpandMore
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.i18n.MR
@@ -64,7 +82,7 @@ import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
 import tachiyomi.presentation.core.components.TextItem
-import tachiyomi.presentation.core.components.material.IconToggleButton
+import tachiyomi.presentation.core.components.material.TabText
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
@@ -83,21 +101,13 @@ enum class NovelReaderSettingsTab {
     ADVANCED,
 }
 
-// Same values and same order as the image reader's general page, so the two dialogs read alike.
-private val themes = listOf(
-    MR.strings.black_background to 1,
-    MR.strings.gray_background to 2,
-    MR.strings.white_background to 0,
-    MR.strings.automatic_background to 3,
-)
-
 /**
- * The reader's settings, grouped the way Moon+ groups them, on the image reader's own
- * [TabbedDialog] and setting items so the two dialogs are the same dialog.
+ * The reader's settings on Mihon's adaptive sheet and shared setting items.
+ * Scrollable tabs keep all four group names readable at larger text sizes.
  *
- * Typography and the control bindings are the reader's own keys; the background colour, brightness,
- * page number, fullscreen and keep-screen-on are all read from and written to [ReaderPreferences],
- * so there is no second settings system. Reading mode and crop borders have no text equivalent
+ * Typography, the theme and the control bindings are the reader's own keys; brightness, fullscreen
+ * and keep-screen-on are all read from and written to [ReaderPreferences], so there is no second
+ * settings system. Reading mode and crop borders have no text equivalent
  * and are not carried over.
  */
 @Composable
@@ -118,32 +128,53 @@ fun NovelReaderSettingsDialog(
     )
     val pagerState = rememberPagerState(initialPage = initialTab.ordinal) { tabTitles.size }
 
+    val scope = rememberCoroutineScope()
     BoxWithConstraints {
-        TabbedDialog(
+        AdaptiveSheet(
             modifier = Modifier.heightIn(max = maxHeight * 0.75f),
             onDismissRequest = onDismissRequest,
-            tabTitles = tabTitles,
-            pagerState = pagerState,
-        ) { page ->
-            Column(
-                modifier = Modifier
-                    .padding(vertical = TabbedDialogPaddings.Vertical)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                when (NovelReaderSettingsTab.entries[page]) {
-                    NovelReaderSettingsTab.VISUAL ->
-                        VisualPage(novelReaderPreferences, readerPreferences, resolvedColors)
-                    NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
-                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(
-                        novelReaderPreferences,
-                        readerPreferences,
-                    )
-                    NovelReaderSettingsTab.ADVANCED -> AdvancedPage(
-                        novelReaderPreferences,
-                        readerPreferences,
-                        onExportSettings,
-                        onImportSettings,
-                    )
+        ) {
+            Column {
+                PrimaryScrollableTabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    edgePadding = 8.dp,
+                ) {
+                    tabTitles.forEachIndexed { index, title ->
+                        Tab(
+                            selected = pagerState.currentPage == index,
+                            onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                            text = { TabText(text = title) },
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.Top,
+                ) { page ->
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = TabbedDialogPaddings.Vertical),
+                    ) {
+                        when (NovelReaderSettingsTab.entries[page]) {
+                            NovelReaderSettingsTab.VISUAL ->
+                                VisualPage(novelReaderPreferences, resolvedColors)
+                            NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
+                            NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(
+                                novelReaderPreferences,
+                                readerPreferences,
+                            )
+                            NovelReaderSettingsTab.ADVANCED -> AdvancedPage(
+                                novelReaderPreferences,
+                                readerPreferences,
+                                onExportSettings,
+                                onImportSettings,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -153,10 +184,9 @@ fun NovelReaderSettingsDialog(
 @Composable
 private fun ColumnScope.VisualPage(
     novelReaderPreferences: NovelReaderPreferences,
-    readerPreferences: ReaderPreferences,
     resolvedColors: NovelReaderColors,
 ) {
-    SectionHeading(MR.strings.leaf_novel_reader_heading_text_styling, showDivider = false)
+    SectionHeading(MR.strings.leaf_novel_reader_font, showDivider = false)
 
     val fontSize by novelReaderPreferences.fontSize.collectAsState()
     SliderItem(
@@ -166,35 +196,47 @@ private fun ColumnScope.VisualPage(
         onChange = { novelReaderPreferences.fontSize.set(it) },
     )
 
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_font),
+        preference = novelReaderPreferences.font,
+        options = NovelReaderFont.entries,
+        labelOf = { stringResource(it.titleRes) },
+    )
+
     val font by novelReaderPreferences.font.collectAsState()
-    ChipSettingRow(stringResource(MR.strings.leaf_novel_reader_font)) {
-        NovelReaderFont.entries.map { candidate ->
-            FilterChip(
-                selected = font == candidate,
-                onClick = { novelReaderPreferences.font.set(candidate) },
-                label = { Text(stringResource(candidate.titleRes)) },
-            )
-        }
-    }
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_bold),
-        pref = novelReaderPreferences.bold,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_italic),
-        pref = novelReaderPreferences.italic,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_underline),
-        pref = novelReaderPreferences.underline,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_shadow),
-        pref = novelReaderPreferences.shadow,
+    val fontFamily = font.fontFamily
+    val bold by novelReaderPreferences.bold.collectAsState()
+    val italic by novelReaderPreferences.italic.collectAsState()
+    val underline by novelReaderPreferences.underline.collectAsState()
+    val shadow by novelReaderPreferences.shadow.collectAsState()
+    // Each label previews its own style, in the chosen font.
+    SettingBoxRow(
+        listOf(
+            SettingBox(
+                label = stringResource(MR.strings.leaf_novel_reader_bold),
+                onClick = { novelReaderPreferences.bold.toggle() },
+                selected = bold,
+                textStyle = TextStyle(fontFamily = fontFamily, fontWeight = FontWeight.Bold),
+            ),
+            SettingBox(
+                label = stringResource(MR.strings.leaf_novel_reader_italic),
+                onClick = { novelReaderPreferences.italic.toggle() },
+                selected = italic,
+                textStyle = TextStyle(fontFamily = fontFamily, fontStyle = FontStyle.Italic),
+            ),
+            SettingBox(
+                label = stringResource(MR.strings.leaf_novel_reader_underline),
+                onClick = { novelReaderPreferences.underline.toggle() },
+                selected = underline,
+                textStyle = TextStyle(fontFamily = fontFamily, textDecoration = TextDecoration.Underline),
+            ),
+            SettingBox(
+                label = stringResource(MR.strings.leaf_novel_reader_shadow),
+                onClick = { novelReaderPreferences.shadow.toggle() },
+                selected = shadow,
+                textStyle = TextStyle(fontFamily = fontFamily, shadow = PREVIEW_SHADOW),
+            ),
+        ),
     )
 
     CheckboxItem(
@@ -218,8 +260,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_paragraph_spacing),
         value = paragraphSpacing,
+        valueString = "${paragraphSpacing * 3 / 2}%",
         valueRange = NovelReaderPreferences.PARAGRAPH_SPACING_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.paragraphSpacing.set(it) },
     )
 
@@ -227,8 +270,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_indent_first_line),
         value = paragraphIndent,
+        valueString = "${paragraphIndent * 3 / 2}%",
         valueRange = NovelReaderPreferences.PARAGRAPH_INDENT_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.paragraphIndent.set(it) },
     )
 
@@ -236,6 +280,7 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_line_spacing),
         value = lineSpacing,
+        valueString = "${(12 + lineSpacing).coerceAtLeast(7) / 10f}×",
         valueRange = NovelReaderPreferences.LINE_SPACING_RANGE,
         onChange = { novelReaderPreferences.lineSpacing.set(it) },
     )
@@ -244,6 +289,7 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_font_spacing),
         value = fontSpacing,
+        valueString = "$fontSpacing%",
         valueRange = NovelReaderPreferences.FONT_SPACING_RANGE,
         onChange = { novelReaderPreferences.fontSpacing.set(it) },
     )
@@ -252,6 +298,7 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_font_scale),
         value = fontScale,
+        valueString = "${100 + fontScale * 2.5f}%",
         valueRange = NovelReaderPreferences.FONT_SCALE_RANGE,
         onChange = { novelReaderPreferences.fontScale.set(it) },
     )
@@ -262,8 +309,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_margin_left),
         value = marginLeft,
+        valueString = "${NovelReaderCss.marginDp(marginLeft)} dp",
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.marginLeft.set(it) },
     )
 
@@ -271,8 +319,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_margin_right),
         value = marginRight,
+        valueString = "${NovelReaderCss.marginDp(marginRight)} dp",
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.marginRight.set(it) },
     )
 
@@ -280,8 +329,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_margin_top),
         value = marginTop,
+        valueString = "${NovelReaderCss.marginDp(marginTop)} dp",
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.marginTop.set(it) },
     )
 
@@ -289,15 +339,20 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_margin_bottom),
         value = marginBottom,
+        valueString = "${NovelReaderCss.marginDp(marginBottom)} dp",
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.marginBottom.set(it) },
     )
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_images)
 
-    val imageSize by novelReaderPreferences.imageSize.collectAsState()
-    ImageSizeRow(imageSize) { novelReaderPreferences.imageSize.set(it) }
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_image_size),
+        preference = novelReaderPreferences.imageSize,
+        options = NovelImageSize.entries,
+        labelOf = { stringResource(it.titleRes) },
+    )
 
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_center_images),
@@ -311,9 +366,6 @@ private fun ColumnScope.VisualPage(
 
     SectionHeading(MR.strings.pref_category_theme)
 
-    // The fork's own theme sets a background and a text colour together, which Mihon's key cannot
-    // model. Follow Mihon defers to the row below, so that row stays where it is rather than being
-    // hidden behind this one — it is what the default choice here means.
     val novelTheme by novelReaderPreferences.theme.collectAsState()
     val themeLabel: @Composable (NovelReaderTheme) -> String = { candidate ->
         val slot = candidate.slot?.let(novelReaderPreferences.customThemes::getOrNull)
@@ -321,21 +373,34 @@ private fun ColumnScope.VisualPage(
         named.ifBlank { stringResource(candidate.titleRes) }
     }
 
-    ChipSettingRow(stringResource(MR.strings.leaf_novel_reader_theme)) {
-        NovelReaderTheme.entries.map { candidate ->
-            FilterChip(
-                selected = novelTheme == candidate,
-                // An empty slot is seeded from what is on screen, so picking one starts from a page
-                // the reader can still read rather than from transparent on transparent.
-                onClick = {
-                    candidate.slot
-                        ?.let(novelReaderPreferences.customThemes::getOrNull)
-                        ?.seedFrom(resolvedColors)
-                    novelReaderPreferences.theme.set(candidate)
-                },
-                label = { Text(themeLabel(candidate)) },
-            )
-        }
+    val customColors = novelReaderPreferences.customThemes.map { custom ->
+        val background by custom.background.collectAsState()
+        val foreground by custom.foreground.collectAsState()
+        if (background == NovelCustomTheme.UNSET) null else NovelReaderColors(background, foreground)
+    }
+    // A light row, a dark row and the reader's own slots, each box drawn in the page it gives.
+    val (presets, slots) = NovelReaderTheme.entries.partition { it.slot == null }
+    val (dark, light) = presets.partition { NovelReaderCss.isDark(it.background!!) }
+    listOf(light, dark, slots).forEach { row ->
+        SettingBoxRow(
+            row.map { candidate ->
+                val preview = candidate.colors(customColors)
+                SettingBox(
+                    label = themeLabel(candidate),
+                    // An empty slot is seeded from what is on screen, so picking one starts from a
+                    // page the reader can still read rather than from transparent on transparent.
+                    onClick = {
+                        candidate.slot
+                            ?.let(novelReaderPreferences.customThemes::getOrNull)
+                            ?.seedFrom(resolvedColors)
+                        novelReaderPreferences.theme.set(candidate)
+                    },
+                    selected = novelTheme == candidate,
+                    containerColor = Color(preview.background),
+                    contentColor = Color(preview.foreground),
+                )
+            },
+        )
     }
 
     // Only for the slot being used, and inline rather than in a sheet of its own: the page behind
@@ -355,8 +420,7 @@ private fun ColumnScope.VisualPage(
         ChannelSliders(custom.foreground)
     }
 
-    // Day/night flips between these two. Left both at Follow Mihon they are the same value and
-    // nothing to flip, which is exactly when the action falls back to Mihon's own key.
+    // Day/night flips between these two.
     EnumSelectItem(
         label = stringResource(MR.strings.leaf_novel_reader_day_theme),
         preference = novelReaderPreferences.dayTheme,
@@ -370,17 +434,6 @@ private fun ColumnScope.VisualPage(
         options = NovelReaderTheme.entries,
         labelOf = themeLabel,
     )
-
-    val readerTheme by readerPreferences.readerTheme.collectAsState()
-    ChipSettingRow(stringResource(MR.strings.pref_reader_theme)) {
-        themes.map { (labelRes, value) ->
-            FilterChip(
-                selected = readerTheme == value,
-                onClick = { readerPreferences.readerTheme.set(value) },
-                label = { Text(stringResource(labelRes)) },
-            )
-        }
-    }
 }
 
 @Composable
@@ -631,40 +684,26 @@ private fun ColumnScope.AdvancedPage(
         pref = novelReaderPreferences.publisherPreview,
     )
 
-    SectionHeading(MR.strings.leaf_novel_reader_heading_settings_backup)
+    SectionHeading(MR.strings.label_backup)
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Max)
-            .padding(horizontal = SettingsItemsPaddings.Horizontal),
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-    ) {
-        OutlinedButton(
-            onClick = onExportSettings,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-        ) {
-            Text(stringResource(MR.strings.leaf_novel_action_export_settings))
-        }
-        OutlinedButton(
-            onClick = onImportSettings,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-        ) {
-            Text(stringResource(MR.strings.leaf_novel_action_import_settings))
-        }
-    }
+    SettingBoxRow(
+        listOf(
+            SettingBox(stringResource(MR.strings.leaf_novel_action_backup), onExportSettings),
+            SettingBox(stringResource(MR.strings.action_restore), onImportSettings),
+        ),
+    )
 }
 
 @Composable
 private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferences) {
-    SectionHeading(MR.strings.rotation_type, showDivider = false)
+    SectionHeading(MR.strings.leaf_novel_reader_heading_screen, showDivider = false)
 
-    val orientation by novelReaderPreferences.orientation.collectAsState()
-    OrientationGrid(selected = orientation) { novelReaderPreferences.orientation.set(it) }
+    EnumSelectItem(
+        label = stringResource(MR.strings.rotation_type),
+        preference = novelReaderPreferences.orientation,
+        options = NovelReaderPreferences.ORIENTATIONS,
+        labelOf = { stringResource(it.stringRes) },
+    )
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_tap_zones)
 
@@ -673,16 +712,20 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
     ActionSelectItem(
         label = stringResource(MR.strings.leaf_novel_reader_long_tap),
         preference = novelReaderPreferences.longTap,
+        allowTextSelection = true,
     )
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_keys)
 
-    NovelReaderKey.entries.forEach { key ->
+    NovelReaderKey.volume.forEach { key ->
         ActionSelectItem(
             label = stringResource(key.titleRes),
             preference = novelReaderPreferences.keys.getValue(key),
         )
     }
+
+    KeyGroup(MR.strings.leaf_novel_keys_media, NovelReaderKey.media, novelReaderPreferences)
+    KeyGroup(MR.strings.leaf_novel_keys_dpad, NovelReaderKey.dpad, novelReaderPreferences)
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_gestures)
 
@@ -718,6 +761,31 @@ private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferenc
         label = stringResource(MR.strings.leaf_novel_reader_pinch_font_size),
         pref = novelReaderPreferences.pinchFontSize,
     )
+}
+
+@Composable
+private fun KeyGroup(label: StringResource, keys: List<NovelReaderKey>, preferences: NovelReaderPreferences) {
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(
+                horizontal = SettingsItemsPaddings.Horizontal,
+                vertical = SettingsItemsPaddings.Vertical,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(stringResource(label), modifier = Modifier.weight(1f))
+            Icon(
+                imageVector = if (expanded) MaterialSymbols.Rounded.ExpandLess else MaterialSymbols.Rounded.ExpandMore,
+                contentDescription = null,
+            )
+        }
+        if (expanded) {
+            keys.forEach { key ->
+                ActionSelectItem(stringResource(key.titleRes), preferences.keys.getValue(key))
+            }
+        }
+    }
 }
 
 @Composable
@@ -757,47 +825,6 @@ private fun ChipSettingRow(label: String, content: @Composable FlowRowScope.() -
     }
 }
 
-@Composable
-private fun ImageSizeRow(selected: NovelImageSize, onSelect: (NovelImageSize) -> Unit) {
-    Column {
-        Text(
-            text = stringResource(MR.strings.leaf_novel_reader_image_size),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(
-                horizontal = SettingsItemsPaddings.Horizontal,
-                vertical = SettingsItemsPaddings.Vertical,
-            ),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Max)
-                .padding(
-                    horizontal = SettingsItemsPaddings.Horizontal,
-                    vertical = SettingsItemsPaddings.Vertical,
-                ),
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-        ) {
-            NovelImageSize.entries.forEach { candidate ->
-                FilterChip(
-                    selected = selected == candidate,
-                    onClick = { onSelect(candidate) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    label = {
-                        Text(
-                            text = stringResource(candidate.titleRes),
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    },
-                )
-            }
-        }
-    }
-}
-
 /**
  * The nine bindings laid out the way they sit on the page, so the setting looks like the thing it
  * controls. Each cell anchors its own picker rather than opening a dialog on top of this one.
@@ -815,13 +842,13 @@ private fun TapZoneGrid(tapZones: List<Preference<NovelReaderAction>>) {
     ) {
         repeat(NovelTapGrid.SIDE) { row ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
             ) {
                 repeat(NovelTapGrid.SIDE) { column ->
                     TapZoneCell(
                         preference = tapZones[row * NovelTapGrid.SIDE + column],
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
             }
@@ -837,7 +864,8 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
     Box(modifier = modifier) {
         OutlinedButton(
             onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().fillMaxHeight().heightIn(min = 72.dp),
+            shape = MaterialTheme.shapes.medium,
             contentPadding = PaddingValues(
                 horizontal = MaterialTheme.padding.extraSmall,
                 vertical = MaterialTheme.padding.small,
@@ -845,7 +873,7 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
         ) {
             Text(
                 text = stringResource(action.titleRes),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 textAlign = TextAlign.Center,
             )
         }
@@ -853,7 +881,7 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
         EnumPicker(
             expanded = expanded,
             selected = action,
-            options = NovelReaderAction.entries,
+            options = NovelReaderAction.assignable.filter { it != NovelReaderAction.TEXT_SELECTION },
             labelOf = { stringResource(it.titleRes) },
             onDismissRequest = { expanded = false },
             onSelect = preference::set,
@@ -902,8 +930,13 @@ private const val OPAQUE = 0xFF shl 24
 
 /** An action binding, which is what most of these rows are. */
 @Composable
-private fun ActionSelectItem(label: String, preference: Preference<NovelReaderAction>) {
-    EnumSelectItem(label, preference, NovelReaderAction.entries) { stringResource(it.titleRes) }
+private fun ActionSelectItem(
+    label: String,
+    preference: Preference<NovelReaderAction>,
+    allowTextSelection: Boolean = false,
+) {
+    val options = NovelReaderAction.assignable.filter { allowTextSelection || it != NovelReaderAction.TEXT_SELECTION }
+    EnumSelectItem(label, preference, options) { stringResource(it.titleRes) }
 }
 
 /**
@@ -983,46 +1016,17 @@ private fun <T : Enum<T>> EnumPicker(
     }
 }
 
-/**
- * The orientations, laid out without a lazy grid.
- *
- * The shared icon grid is a LazyVerticalGrid and this page is already inside a vertical scroll, so
- * a lazy grid here would be measured with an unbounded height and throw. The buttons themselves
- * are still the shared ones, so it reads as the same picker the image reader shows.
- */
-@Composable
-private fun OrientationGrid(selected: ReaderOrientation, onSelect: (ReaderOrientation) -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = SettingsItemsPaddings.Horizontal,
-                vertical = SettingsItemsPaddings.Vertical,
-            ),
-        verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
-    ) {
-        NovelReaderPreferences.ORIENTATIONS.chunked(ORIENTATIONS_PER_ROW).forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-            ) {
-                row.forEach { orientation ->
-                    IconToggleButton(
-                        checked = orientation == selected,
-                        onCheckedChange = { onSelect(orientation) },
-                        imageVector = orientation.icon,
-                        title = stringResource(orientation.stringRes),
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                // Keeps a short final row the same width as a full one.
-                repeat(ORIENTATIONS_PER_ROW - row.size) { Spacer(Modifier.weight(1f)) }
-            }
+private val PREVIEW_SHADOW = Shadow(color = Color.Black.copy(alpha = 0.4f), offset = Offset(2f, 2f), blurRadius = 3f)
+
+/** The same system family the stylesheet names, so the preview is set in what the page will be. */
+private val NovelReaderFont.fontFamily: FontFamily
+    get() = cssFamily
+        ?.let(::DeviceFontFamilyName)
+        ?.let { name ->
+            FontFamily(
+                Font(name),
+                Font(name, weight = FontWeight.Bold),
+                Font(name, style = FontStyle.Italic),
+            )
         }
-    }
-}
-
-private const val ORIENTATIONS_PER_ROW = 3
-
-/** Twenty equal intervals across the 0–200 paragraph and margin controls. */
-private const val STEPPED_SLIDER_STOPS = 19
+        ?: FontFamily.Default

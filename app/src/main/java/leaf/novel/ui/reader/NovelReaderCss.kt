@@ -67,6 +67,106 @@ object NovelReaderCss {
     }
 
     /**
+     * The reader's own rules, on their own.
+     *
+     * Colours are the one setting that changes nothing else about the document, so a theme change
+     * swaps this text into the page that is already open rather than rebuilding and reloading it.
+     * Mihon's reader recolours its container and is done; this is the text equivalent.
+     */
+    fun stylesheet(
+        style: NovelReaderStyle,
+        colors: NovelReaderColors,
+        publisherFormatting: Boolean = false,
+    ): String {
+        if (publisherFormatting) return publisherStylesheet(colors)
+
+        val background = colors.background.toCssColor()
+        val foreground = colors.foreground.toCssColor()
+        val muted = colors.foreground.withAlpha(ACCENT_ALPHA).toCssColor()
+        // A chosen colour is a fixed one; the default keeps following whatever the theme reads as.
+        val link = style.linkColor.argb?.toCssColor() ?: muted
+        val note = style.noteColor.argb?.toCssColor() ?: muted
+        // Asking for the book's fonts means having no opinion of our own, so the declaration is
+        // dropped rather than overridden — and when we do have one it has to beat the book's rules
+        // on `p`, which are more specific than ours on `body`.
+        val fontFamily = style.font.cssFamily
+            ?.takeUnless { style.useBookFonts }
+            ?.let { "font-family: $it !important;" }
+            .orEmpty()
+        // Centring makes an image a block, which would break the line of an inline one — a furigana
+        // glyph, a drop cap, an emoji. So the sizing goes on every image and the centring only on
+        // images that are already the whole of what contains them.
+        val centredImages = if (style.centerImages) CENTRED_IMAGES else ""
+
+        val fontSizePx = scaledFontSizePx(style)
+        val lineHeight = tenths(lineHeightTenths(style))
+        val letterSpacing = hundredths(style.fontSpacing)
+        val paragraphSpacing = scaledEm(style.paragraphSpacing)
+        val firstLineIndent = scaledEm(style.paragraphIndent)
+        val marginLeft = halfPixels(style.marginLeft)
+        val marginRight = halfPixels(style.marginRight)
+
+        return """
+        :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
+        html { -webkit-text-size-adjust: 100%; ${if (style.paged) PAGED_HTML else ""} }
+        ${if (style.paged) pagedBody(style) else ""}
+        body {
+          background: $background !important;
+          color: $foreground !important;
+          font-size: ${fontSizePx}px;
+          $fontFamily
+          font-weight: ${if (style.bold) "bold" else "normal"};
+          font-style: ${if (style.italic) "italic" else "normal"};
+          text-decoration: ${if (style.underline) "underline" else "none"};
+          text-shadow: ${if (style.shadow) TEXT_SHADOW else "none"};
+          -webkit-font-smoothing: ${if (style.antialias) "antialiased" else "auto"};
+          letter-spacing: ${letterSpacing}em;
+          line-height: $lineHeight;
+          margin: 0;
+          box-sizing: border-box;
+          min-height: 100vh;
+          padding: 0 ${marginRight}px 0 ${marginLeft}px !important;
+          text-align: ${if (style.justified) "justify" else "start"};
+          hyphens: ${if (style.hyphenation) "auto" else "manual"};
+          word-break: break-word;
+          overflow-wrap: break-word;
+        }
+        /* Descendants only: including `body` here would beat its own background above. */
+        body * { color: $foreground !important; background-color: transparent !important; }
+        p { margin: 0 0 ${paragraphSpacing}em; text-indent: ${firstLineIndent}em; }
+        h1, h2, h3, h4, h5, h6 { text-align: start; line-height: 1.3; }
+        img, svg, video { ${style.imageSize.css} }
+        $centredImages
+        pre, table { overflow-x: auto; display: block; max-width: 100%; }
+        hr { border: none; border-top: 1px solid $muted; }
+        a { color: $link !important; }
+        aside.${NovelEpubMarkup.NOTE_CLASS} {
+          color: $note !important;
+          font-size: 0.9em;
+          margin: 0 0 ${paragraphSpacing}em;
+          padding-left: 0.9em;
+          border-left: 2px solid $note;
+          text-indent: 0;
+        }
+        .${NovelEpubMarkup.PAGE_CLASS} { color: $muted !important; font-size: 0.7em; vertical-align: super; }
+        .$CHAPTER_TITLE_CLASS {
+          color: $muted !important;
+          font-size: 0.8em;
+          font-weight: normal;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          text-indent: 0;
+          margin: 1.4em 0 1.8em;
+          padding-bottom: 0.6em;
+          border-bottom: 1px solid $muted;
+        }
+        ::selection { background: $SPEECH_HIGHLIGHT; }
+        ::search-text { background: $SPEECH_HIGHLIGHT; }
+        ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
+        """.trimIndent()
+    }
+
+    /**
      * Builds the document the WebView actually loads.
      *
      * The book's own `<head>` styles come first so its structure and emphasis survive; ours comes
@@ -82,33 +182,8 @@ object NovelReaderCss {
     ): String {
         if (publisherFormatting) return publisherDocument(content, colors)
 
-        val background = colors.background.toCssColor()
-        val foreground = colors.foreground.toCssColor()
-        val muted = colors.foreground.withAlpha(ACCENT_ALPHA).toCssColor()
-        // A chosen colour is a fixed one; the default keeps following whatever the theme reads as.
-        val link = style.linkColor.argb?.toCssColor() ?: muted
-        val note = style.noteColor.argb?.toCssColor() ?: muted
-        // Asking for the book's fonts means having no opinion of our own, so the declaration is
-        // dropped rather than overridden — and when we do have one it has to beat the book's rules
-        // on `p`, which are more specific than ours on `body`.
-        val fontFamily = style.font.cssFamily
-            ?.takeUnless { style.useBookFonts }
-            ?.let { "font-family: $it !important;" }
-            .orEmpty()
         val bookHead = if (style.disableBookCss) "" else content.head
-        // Centring makes an image a block, which would break the line of an inline one — a furigana
-        // glyph, a drop cap, an emoji. So the sizing goes on every image and the centring only on
-        // images that are already the whole of what contains them.
-        val centredImages = if (style.centerImages) CENTRED_IMAGES else ""
-
-        val fontSizePx = scaledFontSizePx(style)
-        val lineHeight = tenths(lineHeightTenths(style))
-        val letterSpacing = hundredths(style.fontSpacing)
-        val paragraphSpacing = scaledEm(style.paragraphSpacing)
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
-        val firstLineIndent = scaledEm(style.paragraphIndent)
-        val marginLeft = halfPixels(style.marginLeft)
-        val marginRight = halfPixels(style.marginRight)
         val chapterHtml = content.html
             // First, so a rule matches what the book said rather than what the aids below have
             // since made of it.
@@ -133,63 +208,8 @@ object NovelReaderCss {
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
             $bookHead
-            <style>
-            :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
-            html { -webkit-text-size-adjust: 100%; ${if (style.paged) PAGED_HTML else ""} }
-            ${if (style.paged) pagedBody(style) else ""}
-            body {
-              background: $background !important;
-              color: $foreground !important;
-              font-size: ${fontSizePx}px;
-              $fontFamily
-              font-weight: ${if (style.bold) "bold" else "normal"};
-              font-style: ${if (style.italic) "italic" else "normal"};
-              text-decoration: ${if (style.underline) "underline" else "none"};
-              text-shadow: ${if (style.shadow) TEXT_SHADOW else "none"};
-              -webkit-font-smoothing: ${if (style.antialias) "antialiased" else "auto"};
-              letter-spacing: ${letterSpacing}em;
-              line-height: $lineHeight;
-              margin: 0;
-              box-sizing: border-box;
-              min-height: 100vh;
-              padding: 0 ${marginRight}px 0 ${marginLeft}px !important;
-              text-align: ${if (style.justified) "justify" else "start"};
-              hyphens: ${if (style.hyphenation) "auto" else "manual"};
-              word-break: break-word;
-              overflow-wrap: break-word;
-            }
-            /* Descendants only: including `body` here would beat its own background above. */
-            body * { color: $foreground !important; background-color: transparent !important; }
-            p { margin: 0 0 ${paragraphSpacing}em; text-indent: ${firstLineIndent}em; }
-            h1, h2, h3, h4, h5, h6 { text-align: start; line-height: 1.3; }
-            img, svg, video { ${style.imageSize.css} }
-            $centredImages
-            pre, table { overflow-x: auto; display: block; max-width: 100%; }
-            hr { border: none; border-top: 1px solid $muted; }
-            a { color: $link !important; }
-            aside.${NovelEpubMarkup.NOTE_CLASS} {
-              color: $note !important;
-              font-size: 0.9em;
-              margin: 0 0 ${paragraphSpacing}em;
-              padding-left: 0.9em;
-              border-left: 2px solid $note;
-              text-indent: 0;
-            }
-            .${NovelEpubMarkup.PAGE_CLASS} { color: $muted !important; font-size: 0.7em; vertical-align: super; }
-            .$CHAPTER_TITLE_CLASS {
-              color: $muted !important;
-              font-size: 0.8em;
-              font-weight: normal;
-              letter-spacing: 0.08em;
-              text-transform: uppercase;
-              text-indent: 0;
-              margin: 1.4em 0 1.8em;
-              padding-bottom: 0.6em;
-              border-bottom: 1px solid $muted;
-            }
-            ::selection { background: $SPEECH_HIGHLIGHT; }
-            ::search-text { background: $SPEECH_HIGHLIGHT; }
-            ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
+            <style id="$STYLE_ID">
+            ${stylesheet(style, colors)}
             </style>
             </head>
             <body>
@@ -297,13 +317,8 @@ object NovelReaderCss {
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
             ${content.head}
-            <style>
-            :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
-            html { -webkit-text-size-adjust: 100%; }
-            body { background: ${colors.background.toCssColor()} !important; color: ${colors.foreground.toCssColor()}; }
-            img, svg, video { max-width: 100%; height: auto; }
-            ::selection { background: $SPEECH_HIGHLIGHT; }
-            ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
+            <style id="$STYLE_ID">
+            ${publisherStylesheet(colors)}
             </style>
             </head>
             <body>
@@ -313,10 +328,16 @@ object NovelReaderCss {
         """.trimIndent()
     }
 
-    /** Mirrors how the manga reader picks its own foreground: white on dark, black on light. */
-    @ColorInt
-    fun foregroundFor(@ColorInt backgroundColor: Int): Int =
-        if (isDark(backgroundColor)) READER_TEXT_ON_DARK else READER_TEXT_ON_LIGHT
+    private fun publisherStylesheet(colors: NovelReaderColors): String {
+        return """
+            :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
+            html { -webkit-text-size-adjust: 100%; }
+            body { background: ${colors.background.toCssColor()} !important; color: ${colors.foreground.toCssColor()}; }
+            img, svg, video { max-width: 100%; height: auto; }
+            ::selection { background: $SPEECH_HIGHLIGHT; }
+            ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
+        """.trimIndent()
+    }
 
     /**
      * One line of the page, in CSS pixels — which the viewport meta tag makes equal to dp.
@@ -415,6 +436,9 @@ object NovelReaderCss {
 
     private const val ACCENT_ALPHA = 168
 
+    /** What [stylesheet] is written into, so a theme change can find it in the open document. */
+    const val STYLE_ID = "recto-leaf-style"
+
     private const val BODY_OPEN = "<body>"
     private const val BODY_CLOSE = "</body>"
     private const val CHAPTER_SECTION_CLASS = "leaf-novel-chapter"
@@ -424,10 +448,4 @@ object NovelReaderCss {
 
     private const val SPEECH_HIGHLIGHT = "#5ac8f5"
     private const val DARK_LUMINANCE_THRESHOLD = 128
-
-    @ColorInt
-    private const val READER_TEXT_ON_DARK = 0xFFDEDEDE.toInt()
-
-    @ColorInt
-    private const val READER_TEXT_ON_LIGHT = 0xFF1A1A1A.toInt()
 }

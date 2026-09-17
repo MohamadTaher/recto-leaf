@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.sample
 import leaf.novel.presentation.reader.NovelReaderScreen
 import leaf.novel.ui.reader.setting.NovelReaderAction
-import leaf.novel.ui.reader.setting.NovelReaderKey
 import mihon.app.di.AppGraph
 import mihon.core.metro.metroGraph
 import tachiyomi.core.common.Constants
@@ -94,6 +93,9 @@ class NovelReaderActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (viewModel.hasValidArgs) {
+            NovelReaderMediaSession.attachReader(this, viewModel.novelReaderPreferences, viewModel::requestAction)
+        }
         viewModel.restartReadTimer()
     }
 
@@ -131,14 +133,13 @@ class NovelReaderActivity : BaseActivity() {
         // A reader typing into the search field is not issuing reader commands.
         if (viewModel.state.value.searchQuery != null) return super.dispatchKeyEvent(event)
 
-        val binding = NovelReaderKey.of(event.keyCode)?.let { viewModel.novelReaderPreferences.keys[it] }
-        val action = binding?.get() ?: NovelReaderAction.NONE
-        if (action == NovelReaderAction.NONE) return super.dispatchKeyEvent(event)
-
-        // Both halves of the press are consumed. Letting the release through would reach the
-        // system, so a key bound here would also still do whatever the system does with it.
-        if (event.action == KeyEvent.ACTION_DOWN) viewModel.requestAction(action)
-        return true
+        return dispatchNovelReaderKey(
+            keyCode = event.keyCode,
+            eventAction = event.action,
+            repeatCount = event.repeatCount,
+            binding = { viewModel.novelReaderPreferences.keys.getValue(it).get() },
+            perform = viewModel::requestAction,
+        ) || super.dispatchKeyEvent(event)
     }
 
     /**

@@ -20,6 +20,17 @@ import leaf.novel.ui.reader.NovelStatusLine
  */
 @Stable
 class NovelWebViewController {
+    var visibleSpeechAnchor: NovelSpeech.Anchor? by mutableStateOf(null)
+        internal set
+
+    // Speech owns the location until deliberate navigation resumes. Resizing the viewport when
+    // its panel closes must not replace that location with a different scroll percentage.
+    var tracksScrollProgress: Boolean = true
+        private set
+
+    internal fun trackManualProgress() {
+        tracksScrollProgress = true
+    }
 
     private var webView: WebView? = null
     private var activeQuery: String? = null
@@ -29,6 +40,7 @@ class NovelWebViewController {
     private var chapterPrepender: ((String) -> Unit)? = null
     private var chapterScroller: ((Long, Int) -> Unit)? = null
     private var chapterKeeper: ((List<Long>) -> Unit)? = null
+    private var styleApplier: ((String) -> Unit)? = null
 
     /**
      * Moving by whole screenfuls, which the view supplies because only it knows which axis the
@@ -44,6 +56,7 @@ class NovelWebViewController {
         scrollToChapter: (Long, Int) -> Unit,
         keepChapters: (List<Long>) -> Unit,
         highlightSpeech: (NovelSpeech.Position?) -> Unit,
+        applyStylesheet: (String) -> Unit,
     ) {
         webView = view
         turner = turnPages
@@ -52,6 +65,7 @@ class NovelWebViewController {
         chapterScroller = scrollToChapter
         chapterKeeper = keepChapters
         speechHighlighter = highlightSpeech
+        styleApplier = applyStylesheet
     }
 
     internal fun detach() {
@@ -62,6 +76,7 @@ class NovelWebViewController {
         chapterScroller = null
         chapterKeeper = null
         speechHighlighter = null
+        styleApplier = null
     }
 
     /** Back one page, which in a paged chapter is one column and otherwise one viewport. */
@@ -81,6 +96,7 @@ class NovelWebViewController {
      * keeps being recorded while auto scroll runs.
      */
     fun scrollBy(dy: Int) {
+        trackManualProgress()
         webView?.scrollBy(0, dy)
     }
 
@@ -96,7 +112,13 @@ class NovelWebViewController {
 
     /** Moves to a chapter section already present in the rolling document. */
     fun scrollToChapter(chapterId: Long, percent: Int = 0) {
+        trackManualProgress()
         chapterScroller?.invoke(chapterId, percent)
+    }
+
+    /** Repaints the open document in [css], which is how a theme change avoids a reload. */
+    fun applyStylesheet(css: String) {
+        styleApplier?.invoke(css)
     }
 
     /** Drops every section outside the window the reader is in, on either side of it. */
@@ -134,6 +156,7 @@ class NovelWebViewController {
      * Ordinary search uses the view's find-in-page; speech follows its own source locations.
      */
     fun find(query: String) {
+        trackManualProgress()
         speechHighlight = null
         speechHighlighter?.invoke(null)
         activeQuery = query
@@ -142,6 +165,7 @@ class NovelWebViewController {
 
     /** Steps to the next match, wrapping at the ends. */
     fun findNext(forward: Boolean) {
+        trackManualProgress()
         webView?.findNext(forward)
     }
 
@@ -154,6 +178,7 @@ class NovelWebViewController {
 
     /** Highlights only the chapter and block belonging to the spoken unit. */
     fun highlightSpeech(highlight: NovelSpeech.Position) {
+        tracksScrollProgress = false
         if (speechHighlight == highlight) return
         speechHighlight = highlight
         activeQuery = null

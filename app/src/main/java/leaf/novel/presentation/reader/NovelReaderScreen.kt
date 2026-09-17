@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader
 
+import android.media.AudioManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,22 +32,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.content.getSystemService
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
-import eu.kanade.tachiyomi.util.system.readerBackgroundColor
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -74,6 +77,7 @@ import leaf.novel.ui.reader.NovelTextReplacements
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderColors
+import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderStyle
 import leaf.novel.ui.reader.setting.NovelReaderSwipe
@@ -106,7 +110,6 @@ fun NovelReaderScreen(
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
 
-    val readerTheme by viewModel.readerPreferences.readerTheme.collectAsState()
     val novelTheme by viewModel.novelReaderPreferences.theme.collectAsState()
     val style = novelReaderStyle(
         preferences = viewModel.novelReaderPreferences,
@@ -121,9 +124,7 @@ fun NovelReaderScreen(
         // which is what makes the editor its own preview.
         if (background == NovelCustomTheme.UNSET) null else NovelReaderColors(background, foreground)
     }
-    val colors = remember(readerTheme, novelTheme, customColors) {
-        novelTheme.colors(context.readerBackgroundColor(readerTheme), customColors)
-    }
+    val colors = remember(novelTheme, customColors) { novelTheme.colors(customColors) }
 
     var settingsTab by remember { mutableStateOf<NovelReaderSettingsTab?>(null) }
 
@@ -181,31 +182,40 @@ fun NovelReaderScreen(
         viewModel.setCurrentChapter(index)
     }
 
-    fun closeSpeechControls() {
-        viewModel.stopSpeaking()
+    fun hideSpeechControls() {
         showSpeechControls = false
         showSpeechOptions = false
+        confirmSpeech = false
     }
 
-    // Where the reader currently is, seeded from the stored position and updated as it scrolls.
-    // Changing font size or theme rebuilds the document, and the reload restores from *this* rather
-    // than from the database, so adjusting type size does not throw the reader back to where it was
-    // when the chapter opened. It sits this high up because the chapter slider both displays it and
-    // drives it, and the action dispatcher below starts speed reading from it.
-    var livePercent by remember(chapter?.id) {
+    fun closeSpeechControls() {
+        viewModel.stopSpeaking()
+        hideSpeechControls()
+    }
+
+    // Manual reading and TTS both update the chapter's single tracked position in the ViewModel.
+    val livePercent = chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0
+    // Geometry is only used to seek speech when its explicit page-turn buttons are pressed.
+    var visiblePercent by remember(chapter?.id) {
         mutableIntStateOf(chapter?.lastPageRead?.toInt()?.coerceIn(0, 100) ?: 0)
     }
 
+    fun openSpeechControls() {
+        showSpeechControls = true
+        if (state.menuVisible) viewModel.toggleMenu()
+    }
+
     fun requestSpeechStart() {
+        openSpeechControls()
         if (viewModel.novelReaderPreferences.speechConfirmBeforeSpeak.get()) {
             confirmSpeech = true
         } else {
-            viewModel.startSpeaking(livePercent)
+            viewModel.startSpeaking()
         }
     }
 
     fun turnSpeechPage(forward: Boolean) {
-        val from = livePercent
+        val from = visiblePercent
         if (forward) webViewController.pageDown() else webViewController.pageUp()
         if (!state.speaking) return
         scope.launch {
@@ -213,9 +223,9 @@ fun NovelReaderScreen(
             // rather than from the scroll itself, so the restart waits for the page it turned to
             // instead of speaking the one it left.
             withTimeoutOrNull(SPEECH_PAGE_SETTLE_MS) {
-                snapshotFlow { livePercent }.first { it != from }
+                snapshotFlow { visiblePercent }.first { it != from }
             }
-            viewModel.restartSpeaking(livePercent, state.speechPaused)
+            viewModel.restartSpeaking(visiblePercent, state.speechPaused, webViewController.visibleSpeechAnchor)
         }
     }
 
@@ -232,7 +242,7 @@ fun NovelReaderScreen(
         if (showSpeechControls) {
             showSpeechControls = false
         } else {
-            if (!state.speechPaused) viewModel.toggleSpeechPlayback(livePercent)
+            if (!state.speechPaused) viewModel.toggleSpeechPlayback()
             showSpeechControls = true
         }
         return true
@@ -265,11 +275,26 @@ fun NovelReaderScreen(
             NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
             NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
             NovelReaderAction.PUBLISHER_FORMATTING -> publisherFormatting = !publisherFormatting
-            NovelReaderAction.SPEAK -> {
-                showSpeechControls = true
-                if (state.menuVisible) viewModel.toggleMenu()
-                if (!state.speaking) requestSpeechStart()
+            NovelReaderAction.START_SPEAKING -> {
+                openSpeechControls()
+                if (!state.speaking) requestSpeechStart() else viewModel.resumeSpeaking()
             }
+            NovelReaderAction.PAUSE_SPEAKING -> {
+                viewModel.pauseSpeaking()
+            }
+            NovelReaderAction.TOGGLE_SPEECH -> {
+                openSpeechControls()
+                if (state.speaking) viewModel.toggleSpeechPlayback() else requestSpeechStart()
+            }
+            NovelReaderAction.STOP_SPEAKING -> closeSpeechControls()
+            NovelReaderAction.PREVIOUS_SPEECH -> viewModel.seekSpeech(-1)
+            NovelReaderAction.NEXT_SPEECH -> viewModel.seekSpeech(1)
+            NovelReaderAction.VOLUME_UP, NovelReaderAction.VOLUME_DOWN -> context.getSystemService<AudioManager>()
+                ?.adjustStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    if (action == NovelReaderAction.VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+                    AudioManager.FLAG_SHOW_UI,
+                )
             NovelReaderAction.SPEED_READ -> {
                 if (!state.speedReading) {
                     closeSpeechControls()
@@ -344,8 +369,9 @@ fun NovelReaderScreen(
 
     // Keys are dispatched by the activity, which cannot reach the composition, so they arrive as
     // requests and are performed here alongside the taps.
-    LaunchedEffect(Unit) {
-        viewModel.actions.collect { performAction(it) }
+    val currentAction by rememberUpdatedState<(NovelReaderAction) -> Unit>(::performAction)
+    LaunchedEffect(viewModel) {
+        viewModel.actions.collect { currentAction(it) }
     }
 
     // Both of these hang off the chrome, so when it goes they go with it. An expanded menu left
@@ -360,10 +386,15 @@ fun NovelReaderScreen(
 
     LaunchedEffect(state.speechUnavailable) {
         if (state.speechUnavailable) {
-            showSpeechControls = false
-            showSpeechOptions = false
+            hideSpeechControls()
             snackbarHostState.showSnackbar(speechUnavailable)
         }
+    }
+
+    // Notification, headset, timer and on-screen Stop all end the same speech state. Observe that
+    // state instead of depending on the activity being resumed when an external command arrives.
+    LaunchedEffect(state.speaking) {
+        if (!state.speaking) hideSpeechControls()
     }
 
     // Back closes the search rather than the book, which is what the gesture means everywhere else.
@@ -371,7 +402,9 @@ fun NovelReaderScreen(
         viewModel.setSearchQuery(null)
     }
 
-    BackHandler(enabled = showSpeechControls && state.searchQuery == null) {
+    BackHandler(
+        enabled = showSpeechControls && state.searchQuery == null,
+    ) {
         closeSpeechControls()
     }
 
@@ -498,6 +531,23 @@ fun NovelReaderScreen(
         }
     }
 
+    val statusBar: @Composable (NovelReaderColors) -> Unit = { barColors ->
+        if (chapter != null) {
+            NovelStatusBar(
+                placements = statusPlacements,
+                chapterName = chapter.name,
+                chapterNumber = state.currentIndex + 1,
+                chapterCount = state.chapters.size,
+                chapterPercent = livePercent,
+                screens = webViewController.screens,
+                minutesRemaining = NovelReadingTime.minutesRemaining(state.chapterWords, livePercent),
+                colors = barColors,
+                onTap = { performStatusBarPress(it, longPress = false) },
+                onLongTap = { performStatusBarPress(it, longPress = true) },
+            )
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -531,7 +581,7 @@ fun NovelReaderScreen(
                             style = style,
                             colors = colors,
                             percentRead = livePercent,
-                            onPercentChange = { livePercent = it },
+                            onPercentChange = { visiblePercent = it },
                             seekRequests = seekRequests,
                             controller = webViewController,
                             ignoreEdgeTaps = disableTouchEdge,
@@ -543,7 +593,7 @@ fun NovelReaderScreen(
                             // otherwise be stuck on a page they cannot scroll, with the checkbox that
                             // would undo it no longer on screen.
                             blockVerticalScroll = paged && disableVerticalScroll,
-                            flingTurnsPage = paged && flingToTurnPage,
+                            flingTurnsPage = paged && flingToTurnPage && !state.speaking,
                             tapImageEnabled = tapImageToOpen,
                             onImageTap = { openImage = it },
                             pinchEnabled = pinchFontSize,
@@ -555,28 +605,29 @@ fun NovelReaderScreen(
                                 if (paged) openChapter(state.currentIndex + if (forward) 1 else -1)
                             },
                             onChapterChange = { index, percent ->
-                                if (state.currentIndex != index) {
+                                if (!state.speaking && webViewController.tracksScrollProgress &&
+                                    state.currentIndex != index
+                                ) {
                                     viewModel.setCurrentChapter(index, continuous = true)
                                 }
-                                livePercent = percent
+                                visiblePercent = percent
                             },
                             onTapCell = { cell ->
-                                if (!performSpeechTap()) {
-                                    performAction(viewModel.novelReaderPreferences.tapZones[cell].get())
+                                val binding = viewModel.novelReaderPreferences.tapZones[cell]
+                                if (binding.isSet() || !performSpeechTap()) {
+                                    performAction(binding.get())
                                 }
                             },
                             onSwipe = { swipe ->
+                                val binding = viewModel.novelReaderPreferences.swipes.getValue(swipe)
                                 val horizontal = swipe == NovelReaderSwipe.LEFT_TO_RIGHT ||
                                     swipe == NovelReaderSwipe.RIGHT_TO_LEFT
-                                // Read-aloud claims the sideways swipe outright while it is on:
-                                // it is the one gesture that leaves it, from either state.
-                                if (horizontal && (state.speaking || showSpeechControls)) {
+                                // Speech's stop gesture takes precedence over ordinary swipe bindings.
+                                if (horizontal && state.speaking) {
                                     closeSpeechControls()
                                     true
                                 } else {
-                                    performBinding(
-                                        viewModel.novelReaderPreferences.swipes.getValue(swipe).get(),
-                                    )
+                                    performBinding(binding.get())
                                 }
                             },
                             onLongPress = ::performLongPress,
@@ -600,19 +651,7 @@ fun NovelReaderScreen(
             bottomPanelHeight == 0.dp &&
             chapter != null
         ) {
-            NovelStatusBar(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                placements = statusPlacements,
-                chapterName = chapter.name,
-                chapterNumber = state.currentIndex + 1,
-                chapterCount = state.chapters.size,
-                chapterPercent = livePercent,
-                screens = webViewController.screens,
-                minutesRemaining = NovelReadingTime.minutesRemaining(state.chapterWords, livePercent),
-                colors = colors,
-                onTap = { performStatusBarPress(it, longPress = false) },
-                onLongTap = { performStatusBarPress(it, longPress = true) },
-            )
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) { statusBar(colors) }
         }
 
         ContentOverlay(
@@ -655,6 +694,10 @@ fun NovelReaderScreen(
         }
 
         if (showSpeechControls) {
+            val panelColors = NovelReaderColors(
+                background = MaterialTheme.colorScheme.surfaceContainerHigh.toArgb(),
+                foreground = MaterialTheme.colorScheme.onSurface.toArgb(),
+            )
             NovelSpeechPanel(
                 speaking = state.speaking,
                 paused = state.speechPaused,
@@ -673,20 +716,20 @@ fun NovelReaderScreen(
                     webViewController.screens.current < webViewController.screens.total
                 },
                 preferences = viewModel.novelReaderPreferences,
-                onPlayPause = {
-                    if (state.speaking) {
-                        viewModel.toggleSpeechPlayback(livePercent)
-                    } else {
-                        requestSpeechStart()
-                    }
-                },
-                onPrevious = { viewModel.seekSpeech(-1) },
-                onNext = { viewModel.seekSpeech(1) },
+                onPlayPause = { performAction(NovelReaderAction.TOGGLE_SPEECH) },
+                onPrevious = { performAction(NovelReaderAction.PREVIOUS_SPEECH) },
+                onNext = { performAction(NovelReaderAction.NEXT_SPEECH) },
                 onPreviousPage = { turnSpeechPage(forward = false) },
                 onNextPage = { turnSpeechPage(forward = true) },
-                onStop = ::closeSpeechControls,
+                onStop = { performAction(NovelReaderAction.STOP_SPEAKING) },
                 onSettings = { showSpeechOptions = true },
                 onSettingsChanged = viewModel::applySpeechSettings,
+                // Drawn as part of the panel rather than the page, so the two read as one deck.
+                footer = if (showStatusBar && chapter != null) {
+                    { statusBar(panelColors) }
+                } else {
+                    null
+                },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -821,7 +864,7 @@ fun NovelReaderScreen(
                 TextButton(
                     onClick = {
                         confirmSpeech = false
-                        viewModel.startSpeaking(livePercent)
+                        viewModel.startSpeaking()
                     },
                 ) {
                     Text(stringResource(MR.strings.leaf_novel_action_speak))
@@ -944,7 +987,9 @@ private fun ChapterContent(
             }
             val loadedPages = remember(startIndex) { mutableListOf(firstPage) }
             var activeIndex by remember(startIndex) { mutableIntStateOf(startIndex) }
-            val document = remember(firstPage, style, colors, publisherFormatting, continuous) {
+            // Not keyed on the colours: a theme change is swapped into the open page below,
+            // where rebuilding the document would reload it.
+            val document = remember(firstPage, style, publisherFormatting, continuous) {
                 if (continuous) {
                     NovelReaderCss.continuousDocument(
                         loadedPages.toList(),
@@ -963,10 +1008,17 @@ private fun ChapterContent(
                 }
             }
 
+            // The two colours are all a theme is, and the stylesheet is the only place they live,
+            // so rewriting it repaints the page where a reload would blank it and seek back. This is
+            // the text reader's version of Mihon recolouring its container and being done.
+            LaunchedEffect(colors, style, publisherFormatting) {
+                controller.applyStylesheet(NovelReaderCss.stylesheet(style, colors, publisherFormatting))
+            }
+
             // As soon as the active section changes, the window of loaded chapters moves with it.
             // Both ends change the DOM in place and correct the scroll offset by however far they
             // moved it, so the words on screen stay where they are.
-            LaunchedEffect(activeIndex, continuous, style, colors, publisherFormatting) {
+            LaunchedEffect(activeIndex, continuous, style, publisherFormatting) {
                 if (!continuous) return@LaunchedEffect
                 val chapters = viewModel.state.value.chapters
                 val first = (activeIndex - CHAPTERS_BEHIND).coerceAtLeast(0)
@@ -1010,14 +1062,15 @@ private fun ChapterContent(
                     if (index < 0) return@NovelChapterWebView
                     activeIndex = index
                     onChapterChange(index, percent)
-                    viewModel.reportProgress(chapterId, percent)
+                    if (controller.tracksScrollProgress) viewModel.reportProgress(chapterId, percent)
                 },
+                onReadingPosition = viewModel::reportVisiblePosition,
                 seekRequests = seekRequests,
                 assetServer = assetServer,
                 backgroundColor = colors.background,
                 onProgress = {
                     onPercentChange(it)
-                    viewModel.reportProgress(first.chapter.id, it)
+                    if (controller.tracksScrollProgress) viewModel.reportProgress(first.chapter.id, it)
                 },
                 controller = controller,
                 ignoreEdgeTaps = ignoreEdgeTaps,
@@ -1326,7 +1379,7 @@ private fun ColumnScope.AdditionalOptions(
                     ),
                 )
             },
-            onClick = { onSelect(NovelReaderAction.SPEAK) },
+            onClick = { onSelect(NovelReaderAction.START_SPEAKING) },
         )
     }
 

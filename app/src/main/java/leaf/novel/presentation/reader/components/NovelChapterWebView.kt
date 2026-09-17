@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelSpeech
 import leaf.novel.ui.reader.NovelStatusLine
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
@@ -54,6 +55,12 @@ import kotlin.math.roundToInt
 private class NovelWebView(context: Context) : WebView(context) {
 
     var onScroll: ((offset: Int, range: Int) -> Unit)? = null
+    var onManualNavigation: (() -> Unit)? = null
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_MOVE) onManualNavigation?.invoke()
+        return super.onTouchEvent(event)
+    }
 
     /**
      * Whether the chapter is laid out as a row of pages rather than one long column.
@@ -92,13 +99,25 @@ private class NovelWebView(context: Context) : WebView(context) {
     }
 
     /** Measures titled sections through the one script owned by the generated reader document. */
-    fun attachChapterBridge(onPosition: (Long, Int, NovelStatusLine.Screens) -> Unit) {
+    fun attachChapterBridge(
+        onAnchor: (NovelSpeech.Anchor) -> Unit,
+        onPosition: (Long, Int, NovelStatusLine.Screens) -> Unit,
+    ) {
         val bridge = ChapterBridge(this) { message ->
             runCatching {
                 val value = JSONObject(message)
                 if (value.optInt("generation", -1) != chapterLoadGeneration) return@runCatching
                 chapterBridgeReady = true
                 flushChapterCommands()
+                if (value.optString("type") == "anchor") {
+                    onAnchor(
+                        NovelSpeech.Anchor(
+                            value.getString("chapterId").toLong(),
+                            value.getInt("block"),
+                            value.getInt("start"),
+                        ),
+                    )
+                }
                 if (value.optString("type") == "position") {
                     onPosition(
                         value.getString("id").toLong(),
@@ -114,6 +133,25 @@ private class NovelWebView(context: Context) : WebView(context) {
         }
         chapterBridge = bridge
         addJavascriptInterface(bridge, CHAPTER_INTERFACE)
+    }
+
+    /**
+     * Swaps the reader's own rules into the document that is already open.
+     *
+     * A theme is only ever two colours, and the only place they live is that one stylesheet — so
+     * rewriting its text repaints the page in the frame it arrives. Rebuilding the document
+     * instead would blank the WebView, wait for its height to settle and seek back to the line the
+     * reader never left, which is the delay this removes.
+     *
+     * Not a chapter bridge command: it has to land on a page whose bridge may not have reported in
+     * yet, and there is nothing to queue — a reload already carries the current colours.
+     */
+    fun applyStylesheet(css: String) {
+        evaluateJavascript(
+            "(function(){var s=document.getElementById('${NovelReaderCss.STYLE_ID}');" +
+                "if(s)s.textContent=${JSONObject.quote(css)};})();",
+            null,
+        )
     }
 
     fun appendChapter(section: String) {
@@ -194,6 +232,7 @@ private class NovelWebView(context: Context) : WebView(context) {
      * overlap, so the caller passes zero while paged.
      */
     fun turnPage(pages: Int, overlap: Int, sound: Boolean) {
+        onManualNavigation?.invoke()
         // Columns cannot overlap, so keeping a line only means anything while scrolling.
         val step = (viewportExtent - if (paged) 0 else overlap).coerceAtLeast(1) * pages
         if (paged) scrollBy(step, 0) else scrollBy(0, step)
@@ -272,6 +311,7 @@ fun NovelChapterWebView(
     continuous: Boolean = false,
     initialChapterId: Long? = null,
     onChapterProgress: (Long, Int) -> Unit = { _, _ -> },
+    onReadingPosition: (NovelSpeech.Anchor) -> Unit = {},
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
     onSwipe: (NovelReaderSwipe) -> Boolean,
@@ -300,6 +340,7 @@ fun NovelChapterWebView(
     val currentAssetServer by rememberUpdatedState(assetServer)
     val currentOnProgress by rememberUpdatedState(onProgress)
     val currentOnChapterProgress by rememberUpdatedState(onChapterProgress)
+    val currentOnReadingPosition by rememberUpdatedState(onReadingPosition)
     val currentOnTapCell by rememberUpdatedState(onTapCell)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnSwipe by rememberUpdatedState(onSwipe)
@@ -321,8 +362,12 @@ fun NovelChapterWebView(
         modifier = modifier,
         factory = { context ->
             NovelWebView(context).apply {
+                onManualNavigation = controller::trackManualProgress
                 configure(backgroundColor)
-                attachChapterBridge { id, percent, screens ->
+                attachChapterBridge(onAnchor = {
+                    controller.visibleSpeechAnchor = it
+                    if (controller.tracksScrollProgress) currentOnReadingPosition(it)
+                }) { id, percent, screens ->
                     if (continuous) {
                         controller.screens = screens
                         currentOnChapterProgress(id, percent)
@@ -357,6 +402,7 @@ fun NovelChapterWebView(
                     scrollToChapter = ::scrollToChapter,
                     keepChapters = ::keepChapters,
                     highlightSpeech = ::highlightSpeech,
+                    applyStylesheet = ::applyStylesheet,
                 )
                 setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
                     controller.onFindResult(activeMatchOrdinal, numberOfMatches)
@@ -380,6 +426,7 @@ fun NovelChapterWebView(
             controller.detach()
             view.detachChapterBridge()
             view.onScroll = null
+            view.onManualNavigation = null
             view.stopLoading()
             view.destroy()
         },
@@ -424,6 +471,7 @@ fun NovelChapterWebView(
     LaunchedEffect(webView, seekRequests) {
         val view = webView ?: return@LaunchedEffect
         seekRequests.collect { percent ->
+            controller.trackManualProgress()
             if (view.maxScroll > 0) view.seekTo(percent)
         }
     }
@@ -766,6 +814,10 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
 
       const report = () => {
         scheduled = false;
+        const anchor = window.rectoLeafSpeech.firstVisible();
+        if (anchor) RectoLeafChapterBridge.postMessage(JSON.stringify({
+          type: 'anchor', generation: rectoLeafGeneration, ...anchor,
+        }));
         const all = chapters();
         if (all.length === 0) return;
         const position = activeIn(all);

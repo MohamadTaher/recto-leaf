@@ -49,6 +49,6 @@ include(":source-api")
 include(":source-local")
 include(":telemetry")
 
-// [recto-leaf] Novel extensions. They are separate application modules, not dependencies of :app,
-// so building the app does not build them.
+// [recto-leaf] The novel source contract. Extensions are built outside this repo against it,
+// so nothing here depends on them.
 include(":novel-api")

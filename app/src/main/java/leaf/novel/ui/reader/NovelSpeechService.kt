@@ -2,20 +2,35 @@ package leaf.novel.ui.reader
 
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.notify
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.i18n.MR
 
 /**
- * Keeps read-aloud running whether or not the reader is on screen — including after its task has
- * been swiped away.
+ * Keeps read-aloud running whenever the reader is merely off screen — backgrounded, or closed
+ * outright while its chapter keeps talking — but not once the task itself is swiped out of Recents.
  *
  * Android stops giving a backgrounded process anything to run on, so speech that outlives the
  * screen has to be attached to something the system has been told about. That is all this is: it
@@ -24,10 +39,18 @@ import tachiyomi.i18n.MR
  * with whichever reader happened to start it — a reader being destroyed is not a reason to stop
  * talking partway through a chapter.
  *
+ * A swiped-away task is a reason: [onTaskRemoved] is the one signal telling those two cases apart,
+ * so it is also the one place this stops speech itself rather than just outliving whatever asked it
+ * to. `stopWithTask` stays false so nothing happens without that call actually running.
+ *
  * It is bound to nothing and started with an explicit intent, so it lives exactly as long as speech
- * does. Swiping the task away does not take it with it: `stopWithTask` already defaults to false,
- * and the manifest says so out loud only because a guarantee this change rests on should not be
- * left implicit.
+ * does.
+ *
+ * The [NovelReaderMediaSession] is what a Bluetooth headset's own button, or its in-ear detection taking a bud
+ * out, actually reaches — both arrive as ordinary media-button events, the same as a wired remote,
+ * with no code of this fork's own involved on the device end. [becomingNoisyReceiver] covers the
+ * other half of "a headset stopped being the way this is heard": a disconnect rather than a button,
+ * which is a route change the system announces instead.
  */
 class NovelSpeechService : Service() {
 
@@ -39,18 +62,55 @@ class NovelSpeechService : Service() {
     private var lastChapter = ""
     private var lastPaused = false
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val preferences by lazy { NovelReaderPreferences(AndroidPreferenceStore(this)) }
+
+    private fun performAction(action: NovelReaderAction) {
+        when (action) {
+            NovelReaderAction.NONE, NovelReaderAction.TEXT_SELECTION -> Unit
+            NovelReaderAction.START_SPEAKING -> controls?.play()
+            NovelReaderAction.PAUSE_SPEAKING -> controls?.pause()
+            NovelReaderAction.TOGGLE_SPEECH -> controls?.togglePlayback()
+            NovelReaderAction.STOP_SPEAKING -> controls?.stop()
+            NovelReaderAction.PREVIOUS_SPEECH -> controls?.seek(-1)
+            NovelReaderAction.NEXT_SPEECH -> controls?.seek(1)
+            else -> NovelReaderMediaSession.dispatchReaderAction(action)
+        }
+    }
+
+    /** The output is about to switch to the speaker — a Bluetooth or wired headset disconnecting. */
+    private val becomingNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            controls?.pause()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        NovelReaderMediaSession.attachSpeech(this, preferences, ::performAction)
+        // The reader's collector disappears when it closes; hardware playback state must not.
+        NovelSpeechSession.speakerOrNull()?.speech
+            ?.filter { it.speaking }
+            ?.map { it.paused }
+            ?.distinctUntilChanged()
+            ?.onEach { update(lastTitle, lastChapter, it) }
+            ?.launchIn(scope)
+        ContextCompat.registerReceiver(
+            this,
+            becomingNoisyReceiver,
+            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PLAY_PAUSE -> controls?.togglePlayback()
+            ACTION_PLAY_PAUSE -> performAction(NovelReaderAction.TOGGLE_SPEECH)
             ACTION_STOP -> {
-                controls?.stop()
+                performAction(NovelReaderAction.STOP_SPEAKING)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -60,6 +120,7 @@ class NovelSpeechService : Service() {
             lastTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
             lastChapter = intent.getStringExtra(EXTRA_CHAPTER).orEmpty()
             lastPaused = intent.getBooleanExtra(EXTRA_PAUSED, false)
+            NovelReaderMediaSession.update(lastPaused)
         }
 
         // The one call this makes to the system: every later update goes through update(), which
@@ -71,8 +132,26 @@ class NovelSpeechService : Service() {
     }
 
     override fun onDestroy() {
+        scope.cancel()
         instance = null
         controls = null
+        unregisterReceiver(becomingNoisyReceiver)
+        NovelReaderMediaSession.detachSpeech()
+        super.onDestroy()
+    }
+
+    /**
+     * The task hosting the app was swiped out of Recents. Unlike a reader closing or the app being
+     * backgrounded — both of which leave speech running — nothing can reattach to a task that no
+     * longer exists, so this is where the survive-in-the-background guarantee ends: stop the same
+     * way the notification's own Stop button does, rather than ride out `stopWithTask=false` the way
+     * every other kind of "off screen" is meant to.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        NovelReaderMediaSession.detachReader()
+        controls?.stop()
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
     }
 
     /** Redraws the already-posted notification. Called only while this instance is alive. */
@@ -80,6 +159,7 @@ class NovelSpeechService : Service() {
         lastTitle = title
         lastChapter = chapter
         lastPaused = paused
+        NovelReaderMediaSession.update(paused)
         notify(NOTIFICATION_ID, notification(title, chapter, paused))
     }
 
@@ -114,10 +194,16 @@ class NovelSpeechService : Service() {
         PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** What the notification's buttons do. Implemented by whatever is currently speaking. */
+    /**
+     * What the notification's buttons, and now the hardware ones, do. Implemented by whatever is
+     * currently speaking.
+     */
     interface Controls {
         fun togglePlayback()
+        fun play()
+        fun pause()
         fun stop()
+        fun seek(units: Int)
     }
 
     companion object {

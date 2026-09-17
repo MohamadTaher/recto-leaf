@@ -13,6 +13,68 @@ import org.junit.jupiter.api.Test
 class NovelSpeechTest {
 
     @Test
+    fun `comma division preserves punctuation and source offsets`() {
+        NovelSpeech.positions("<p>One, two，three، four.</p>", NovelSpeechDivision.COMMA, 7) shouldBe listOf(
+            NovelSpeech.Position(7, 0, 0, "One,"),
+            NovelSpeech.Position(7, 0, 5, "two，"),
+            NovelSpeech.Position(7, 0, 9, "three،"),
+            NovelSpeech.Position(7, 0, 16, "four."),
+        )
+    }
+
+    @Test
+    fun `word division preserves repeated words inline markup and punctuation`() {
+        NovelSpeech.positions("<p>Yes <em>yes</em>&nbsp; yes.</p><p>Next!</p>", NovelSpeechDivision.WORD, 7) shouldBe
+            listOf(
+                NovelSpeech.Position(7, 0, 0, "Yes"),
+                NovelSpeech.Position(7, 0, 4, "yes"),
+                NovelSpeech.Position(7, 0, 8, "yes."),
+                NovelSpeech.Position(7, 1, 0, "Next!"),
+            )
+    }
+
+    @Test
+    fun `speech groups end with their paragraph and fit the engine`() {
+        val units = NovelSpeech.positions("<p>One two three.</p><p>Four five.</p>", NovelSpeechDivision.WORD, 7)
+        NovelSpeech.groups(units, fromIndex = 1, maxLength = 100, acrossParagraphs = false) shouldBe
+            listOf(1..2, 3..4)
+        NovelSpeech.groups(units, fromIndex = 0, maxLength = 7, acrossParagraphs = false) shouldBe
+            listOf(0..1, 2..2, 3..3, 4..4)
+    }
+
+    @Test
+    fun `paragraph speech groups across paragraphs up to the engine limit`() {
+        val units = NovelSpeech.positions("<p>One.</p><p>Two.</p><p>Three.</p>", NovelSpeechDivision.PARAGRAPH, 7)
+        NovelSpeech.groups(units, fromIndex = 0, maxLength = 100, acrossParagraphs = true) shouldBe listOf(0..2)
+        NovelSpeech.groups(units, fromIndex = 0, maxLength = 9, acrossParagraphs = true) shouldBe
+            listOf(0..1, 2..2)
+    }
+
+    @Test
+    fun `a character offset inside a group names the unit being said`() {
+        val units = NovelSpeech.positions("<p>One two three. Four</p>", NovelSpeechDivision.WORD, 7)
+        // "two three. Four": two at 0, three. at 4, Four at 11.
+        listOf(0, 3, 4, 10, 11, 99).map { NovelSpeech.unitAt(units, 1..3, it) } shouldBe
+            listOf(1, 1, 2, 2, 3, 3)
+    }
+
+    @Test
+    fun `visible location selects its containing speech unit instead of a percentage estimate`() {
+        val html = "<p>Earlier text.</p><p>First sentence. Second, sentence here.</p><p>Later.</p>"
+        val anchor = NovelSpeech.Anchor(7, 1, 26)
+        val expected = mapOf(
+            NovelSpeechDivision.PARAGRAPH to "First sentence. Second, sentence here.",
+            NovelSpeechDivision.SENTENCE to "Second, sentence here.",
+            NovelSpeechDivision.COMMA to "sentence here.",
+            NovelSpeechDivision.WORD to "sentence",
+        )
+        expected.forEach { (division, text) ->
+            val positions = NovelSpeech.positions(html, division, 7)
+            positions[NovelSpeech.resumeIndex(99, positions, null, anchor)].text shouldBe text
+        }
+    }
+
+    @Test
     fun `says one paragraph at a time by default`() {
         val html = "<p>First one.</p><p>Second one.</p>"
 
@@ -133,6 +195,23 @@ class NovelSpeechTest {
         NovelSpeech.indexAt(-1f, utterances) shouldBe 0
         NovelSpeech.indexAt(2f, utterances) shouldBe 1
         NovelSpeech.indexAt(0.5f, emptyList()) shouldBe 0
+    }
+
+    @Test
+    fun `reports how far a spoken unit sits, weighted the same way indexAt reads it back`() {
+        val utterances = listOf("aaaaaaaaa", "b")
+
+        NovelSpeech.percentAt(0, utterances) shouldBe 0
+        NovelSpeech.percentAt(1, utterances) shouldBe 90
+    }
+
+    @Test
+    fun `clamps a spoken position to the chapter`() {
+        val utterances = listOf("one", "two")
+
+        NovelSpeech.percentAt(-1, utterances) shouldBe 0
+        NovelSpeech.percentAt(5, utterances) shouldBe 50
+        NovelSpeech.percentAt(0, emptyList()) shouldBe 0
     }
 
     // endregion

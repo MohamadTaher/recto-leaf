@@ -4,9 +4,9 @@ import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
+import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderStyle
-import leaf.novel.ui.reader.setting.NovelReaderTheme
 import org.jsoup.Jsoup
 import org.junit.jupiter.api.Test
 
@@ -14,8 +14,11 @@ private const val WHITE = 0xFFFFFFFF.toInt()
 private const val BLACK = 0xFF000000.toInt()
 private const val MIHON_GRAY = 0xFF2B2B2B.toInt()
 
-/** What the screen resolves before calling: Follow Mihon derives the foreground, as it always did. */
-private fun colors(background: Int) = NovelReaderTheme.FOLLOW_MIHON.colors(background)
+/** What the screen resolves before calling: a background and a text colour that reads on it. */
+private fun colors(background: Int) = NovelReaderColors(
+    background = background,
+    foreground = if (NovelReaderCss.isDark(background)) 0xFFDEDEDE.toInt() else 0xFF1A1A1A.toInt(),
+)
 
 private fun style(
     fontSizePx: Int = 18,
@@ -117,14 +120,26 @@ class NovelReaderCssTest {
         NovelReaderCss.isDark(MIHON_GRAY) shouldBe true
     }
 
+    /**
+     * The reader swaps a theme into the open page by rewriting one element's text, so what
+     * [NovelReaderCss.stylesheet] returns has to be exactly what the document was built with.
+     * Were they to drift, a theme change would repaint the page into something it never was.
+     */
     @Test
-    fun `picks a light foreground on a dark background`() {
-        NovelReaderCss.foregroundFor(BLACK) shouldBe 0xFFDEDEDE.toInt()
+    fun `the document carries the stylesheet the reader can swap`() {
+        val document = NovelReaderCss.document(content, style(), colors = colors(BLACK))
+
+        document.contains(NovelReaderCss.stylesheet(style(), colors(BLACK))) shouldBe true
     }
 
+    /** And the only difference two themes make to a document is inside that element. */
     @Test
-    fun `picks a dark foreground on a light background`() {
-        NovelReaderCss.foregroundFor(WHITE) shouldBe 0xFF1A1A1A.toInt()
+    fun `colours change nothing outside the stylesheet`() {
+        val light = NovelReaderCss.document(content, style(), colors = colors(WHITE))
+        val dark = NovelReaderCss.document(content, style(), colors = colors(BLACK))
+
+        light.replace(NovelReaderCss.stylesheet(style(), colors(WHITE)), "") shouldBe
+            dark.replace(NovelReaderCss.stylesheet(style(), colors(BLACK)), "")
     }
 
     /**
