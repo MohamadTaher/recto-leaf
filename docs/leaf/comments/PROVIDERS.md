@@ -86,9 +86,48 @@ shortname, a thread identifier and an API key. The shortname is in the page's em
 is per-application. An extension that goes this way should treat the key as a
 `ConfigurableSource` preference rather than shipping one.
 
-Neither of these has been checked against any site this fork has an extension for — see the
-question about it in `QUESTIONS.md`. Treat the field names above as a starting point to verify, not
-as something already known to work here.
+Neither of these has been checked against any site this fork has an extension for. Treat the field
+names above as a starting point to verify, not as something already known to work here. The sites
+this fork does have extensions for use neither — both serve their own JSON.
+
+## Reading a site's own API
+
+Most novel sites with comments neither embed a third party nor render comments into the HTML: they
+serve them from their own JSON endpoint and draw them in the browser. So `asJsoup()` on the chapter
+page finds an empty container and nothing else.
+
+Two things make that tractable without guessing:
+
+- **The page usually ships its own ids.** A server-rendered app embeds its state in the document —
+  `__NEXT_DATA__` for Next.js, an inline `window.__INITIAL_STATE__` or similar elsewhere. The
+  chapter and novel identifiers the comment endpoint wants are normally in there, which means the
+  extension needs no extra lookup request: it already fetches the chapter page.
+- **The endpoint is in the site's own JavaScript.** Front ends keep a table of API paths, usually
+  with `:placeholder` segments. Finding that table is faster and far more reliable than probing
+  URLs, and it gives the exact parameter names.
+
+### A 200 is not proof of filtering
+
+The hazard worth designing against: an API that ignores query parameters it does not recognise and
+answers with an unfiltered, site-wide list — with a perfectly cheerful `200`. A probe that looks
+like it filtered can in fact be every comment on the site, and the mistake is invisible until a
+reader opens a chapter and sees strangers discussing a different novel.
+
+So:
+
+1. **Prefer a path over a query parameter.** `…/comments/chapter/<id>` cannot silently degrade; a
+   wrong path fails loudly. A filter expressed as `?chapter=<id>` can be dropped in silence.
+2. **Check that the response belongs to what you asked for.** If items carry the entity they belong
+   to, reject any that name something else. This is the check that still works after the site
+   redesigns its API.
+3. **Watch the response shape.** A scoped endpoint and a global feed usually differ structurally —
+   one paginates by cursor, the other reports a grand total. A field that should not be there is a
+   reliable signal you are on the wrong endpoint.
+4. **Sanity-check against a count the page already told you.** If the chapter page says there are
+   thirteen comments and the feed implies thousands, stop.
+
+Throwing here is right. An extension that returns the wrong site's comments is worse than one that
+returns none.
 
 ## Testing one
 
