@@ -2,45 +2,40 @@ package leaf.novel.presentation.reader
 
 import android.content.Context
 import android.media.AudioManager
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.components.AdaptiveSheet
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.Add
 import mihon.icons.materialsymbols.rounded.Close
 import mihon.icons.materialsymbols.rounded.KeyboardArrowLeft
 import mihon.icons.materialsymbols.rounded.KeyboardArrowRight
@@ -53,6 +48,7 @@ import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.RadioItem
+import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
@@ -85,24 +81,42 @@ fun NovelSpeechPanel(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = MaterialTheme.padding.medium),
-            verticalArrangement = Arrangement.SpaceEvenly,
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            VolumeSlider()
-            PreferenceSlider(
-                label = stringResource(MR.strings.leaf_novel_reader_speech_pitch),
-                preference = preferences.speechPitch,
-                range = NovelReaderPreferences.SPEECH_PITCH_RANGE,
-                valueText = { it.toString() },
-                onCommit = onSettingsChanged,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(MR.strings.leaf_novel_action_speak),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    if (speaking && count > 0) {
+                        Text(
+                            text = "${(index + 1).coerceIn(1, count)} / $count",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                IconButton(onClick = onSettings) {
+                    Icon(
+                        imageVector = MaterialSymbols.Rounded.Settings,
+                        contentDescription = stringResource(MR.strings.action_settings),
+                    )
+                }
+                StopModeButton(MR.strings.leaf_novel_action_stop_speaking, onStop)
+            }
             PreferenceSlider(
                 label = stringResource(MR.strings.leaf_novel_reader_speech_rate),
                 preference = preferences.speechRate,
                 range = NovelReaderPreferences.SPEECH_RATE_RANGE,
-                valueText = { it.toString() },
+                valueText = { "${it / 10f}×" },
                 onCommit = onSettingsChanged,
             )
 
@@ -111,13 +125,6 @@ fun NovelSpeechPanel(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onStop, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
-                    Icon(
-                        imageVector = MaterialSymbols.Rounded.Close,
-                        contentDescription = stringResource(MR.strings.leaf_novel_action_stop_speaking),
-                        modifier = Modifier.size(SPEECH_ICON_SIZE),
-                    )
-                }
                 IconButton(
                     onClick = onPreviousPage,
                     enabled = previousPageEnabled,
@@ -140,7 +147,7 @@ fun NovelSpeechPanel(
                         modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
                 }
-                IconButton(onClick = onPlayPause, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
+                FilledIconButton(onClick = onPlayPause, modifier = Modifier.size(56.dp)) {
                     Icon(
                         imageVector = if (speaking && !paused) {
                             MaterialSymbols.RoundedFilled.Pause
@@ -179,13 +186,6 @@ fun NovelSpeechPanel(
                         modifier = Modifier.size(SPEECH_ICON_SIZE),
                     )
                 }
-                IconButton(onClick = onSettings, modifier = Modifier.size(SPEECH_BUTTON_SIZE)) {
-                    Icon(
-                        imageVector = MaterialSymbols.Rounded.Settings,
-                        contentDescription = stringResource(MR.strings.action_settings),
-                        modifier = Modifier.size(SPEECH_ICON_SIZE),
-                    )
-                }
             }
         }
     }
@@ -205,9 +205,10 @@ fun NovelAutoScrollPanel(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = MaterialTheme.padding.medium),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -242,9 +243,10 @@ fun NovelSpeedReadPanel(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = MaterialTheme.padding.medium),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -315,14 +317,12 @@ private fun SpeechOptions(
     Column(
         modifier = Modifier
             .verticalScroll(rememberScrollState())
-            .padding(
-                horizontal = MaterialTheme.padding.medium,
-                vertical = MaterialTheme.padding.small,
-            ),
+            .padding(vertical = MaterialTheme.padding.small),
     ) {
         Text(
             text = stringResource(MR.strings.leaf_novel_reader_speech_options),
             style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal, vertical = 16.dp),
         )
 
         val division by preferences.speechDivision.collectAsState()
@@ -330,7 +330,7 @@ private fun SpeechOptions(
             text = stringResource(MR.strings.leaf_novel_reader_speech_divide_by),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(vertical = MaterialTheme.padding.small),
+            modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal, vertical = 8.dp),
         )
         NovelSpeechDivision.entries.forEach { option ->
             RadioItem(
@@ -345,26 +345,36 @@ private fun SpeechOptions(
             )
         }
 
-        PreferenceSlider(
-            label = stringResource(MR.strings.leaf_novel_reader_speech_interval),
-            preference = preferences.speechIntervalMs,
-            range = NovelReaderPreferences.SPEECH_INTERVAL_RANGE,
-            valueText = { "$it ms" },
-            onCommit = onSettingsChanged,
-        )
-        PreferenceSlider(
-            label = stringResource(MR.strings.leaf_novel_reader_speech_stop_after),
-            preference = preferences.speechStopAfterMinutes,
-            range = NovelReaderPreferences.SPEECH_STOP_AFTER_RANGE,
-            valueText = {
-                if (it == 0) {
-                    stringResource(MR.strings.leaf_novel_reader_speech_off)
-                } else {
-                    stringResource(MR.strings.leaf_novel_reader_speech_minutes, it)
-                }
-            },
-            onCommit = onTimerChanged,
-        )
+        Column(modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal)) {
+            VolumeSlider()
+            PreferenceSlider(
+                label = stringResource(MR.strings.leaf_novel_reader_speech_pitch),
+                preference = preferences.speechPitch,
+                range = NovelReaderPreferences.SPEECH_PITCH_RANGE,
+                valueText = { "${it / 10f}×" },
+                onCommit = onSettingsChanged,
+            )
+            PreferenceSlider(
+                label = stringResource(MR.strings.leaf_novel_reader_speech_interval),
+                preference = preferences.speechIntervalMs,
+                range = NovelReaderPreferences.SPEECH_INTERVAL_RANGE,
+                valueText = { "$it ms" },
+                onCommit = onSettingsChanged,
+            )
+            PreferenceSlider(
+                label = stringResource(MR.strings.leaf_novel_reader_speech_stop_after),
+                preference = preferences.speechStopAfterMinutes,
+                range = NovelReaderPreferences.SPEECH_STOP_AFTER_RANGE,
+                valueText = {
+                    if (it == 0) {
+                        stringResource(MR.strings.leaf_novel_reader_speech_off)
+                    } else {
+                        stringResource(MR.strings.leaf_novel_reader_speech_minutes, it)
+                    }
+                },
+                onCommit = onTimerChanged,
+            )
+        }
 
         CheckboxItem(
             label = stringResource(MR.strings.leaf_novel_reader_speech_confirm),
@@ -385,7 +395,7 @@ private fun SpeechOptions(
             text = stringResource(MR.strings.leaf_novel_reader_speech_filters_note),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(vertical = MaterialTheme.padding.medium),
+            modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal, vertical = 16.dp),
         )
 
         TextButton(
@@ -474,82 +484,52 @@ private fun LabeledSlider(
     onDecrease: () -> Unit,
     onIncrease: () -> Unit,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val colors = SliderDefaults.colors()
-    val sliderState = key(valueRange, steps) {
-        rememberSliderState(
-            value = value,
-            steps = steps,
-            trackRange = valueRange,
-        )
-    }
-        .also { it.value = value }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.width(SPEECH_SLIDER_LABEL_WIDTH),
-        )
-        Text(
-            text = valueText,
-            style = MaterialTheme.typography.labelLarge,
-            textAlign = TextAlign.End,
-            modifier = Modifier.width(SPEECH_SLIDER_VALUE_WIDTH),
-        )
-        Slider(
-            state = sliderState,
-            onValueChange = onValueChange,
-            onValueChangeFinished = onValueChangeFinished,
-            colors = colors,
-            interactionSource = interactionSource,
-            thumb = {
-                SliderDefaults.Thumb(
-                    interactionSource = interactionSource,
-                    colors = colors,
-                    thumbSize = SPEECH_SLIDER_THUMB_SIZE,
-                )
-            },
-            track = { state ->
-                SliderDefaults.Track(
-                    sliderState = state,
-                    modifier = Modifier.height(SPEECH_SLIDER_TRACK_HEIGHT),
-                    colors = colors,
-                    drawStopIndicator = null,
-                    thumbTrackGapSize = 0.dp,
-                    trackInsideCornerSize = 0.dp,
-                )
-            },
-            modifier = Modifier
-                .weight(1f)
-                .height(SPEECH_SLIDER_HEIGHT),
-        )
-        IconButton(
-            onClick = onDecrease,
-            enabled = value > valueRange.start,
-            modifier = Modifier.size(SPEECH_STEP_BUTTON_SIZE),
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = "−", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
-        IconButton(
-            onClick = onIncrease,
-            enabled = value < valueRange.endInclusive,
-            modifier = Modifier.size(SPEECH_STEP_BUTTON_SIZE),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = "+", style = MaterialTheme.typography.titleMedium)
+            IconButton(onClick = onDecrease, enabled = value > valueRange.start) {
+                Text(
+                    text = "−",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.semantics { contentDescription = "$label −" },
+                )
+            }
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                onValueChangeFinished = onValueChangeFinished,
+                valueRange = valueRange,
+                steps = steps,
+                modifier = Modifier.weight(1f).semantics { contentDescription = label },
+            )
+            IconButton(onClick = onIncrease, enabled = value < valueRange.endInclusive) {
+                Icon(
+                    imageVector = MaterialSymbols.Rounded.Add,
+                    contentDescription = "$label +",
+                )
+            }
         }
     }
 }
 
-private val SPEECH_SLIDER_LABEL_WIDTH = 64.dp
-private val SPEECH_SLIDER_VALUE_WIDTH = 32.dp
-private val SPEECH_SLIDER_HEIGHT = 32.dp
-private val SPEECH_SLIDER_TRACK_HEIGHT = 2.dp
-private val SPEECH_SLIDER_THUMB_SIZE = DpSize(14.dp, 14.dp)
-private val SPEECH_STEP_BUTTON_SIZE = 32.dp
-private val SPEECH_BUTTON_SIZE = 32.dp
-private val SPEECH_ICON_SIZE = 20.dp
+private val SPEECH_BUTTON_SIZE = 48.dp
+private val SPEECH_ICON_SIZE = 24.dp
 private const val SPEED_READ_WPM_STEP = 50

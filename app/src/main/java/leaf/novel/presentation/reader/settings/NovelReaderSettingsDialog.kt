@@ -11,36 +11,43 @@ import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.RadioMenuItem
-import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
-import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import kotlinx.coroutines.launch
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelImageSize
@@ -56,6 +63,8 @@ import leaf.novel.ui.reader.setting.NovelStatusBarTap
 import leaf.novel.ui.reader.setting.NovelStatusItem
 import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
+import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.ExpandMore
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.i18n.MR
@@ -64,7 +73,7 @@ import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.SliderItem
 import tachiyomi.presentation.core.components.TextItem
-import tachiyomi.presentation.core.components.material.IconToggleButton
+import tachiyomi.presentation.core.components.material.TabText
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
@@ -92,8 +101,8 @@ private val themes = listOf(
 )
 
 /**
- * The reader's settings, grouped the way Moon+ groups them, on the image reader's own
- * [TabbedDialog] and setting items so the two dialogs are the same dialog.
+ * The reader's settings on Mihon's adaptive sheet and shared setting items.
+ * Scrollable tabs keep all four group names readable at larger text sizes.
  *
  * Typography and the control bindings are the reader's own keys; the background colour, brightness,
  * page number, fullscreen and keep-screen-on are all read from and written to [ReaderPreferences],
@@ -118,32 +127,53 @@ fun NovelReaderSettingsDialog(
     )
     val pagerState = rememberPagerState(initialPage = initialTab.ordinal) { tabTitles.size }
 
+    val scope = rememberCoroutineScope()
     BoxWithConstraints {
-        TabbedDialog(
+        AdaptiveSheet(
             modifier = Modifier.heightIn(max = maxHeight * 0.75f),
             onDismissRequest = onDismissRequest,
-            tabTitles = tabTitles,
-            pagerState = pagerState,
-        ) { page ->
-            Column(
-                modifier = Modifier
-                    .padding(vertical = TabbedDialogPaddings.Vertical)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                when (NovelReaderSettingsTab.entries[page]) {
-                    NovelReaderSettingsTab.VISUAL ->
-                        VisualPage(novelReaderPreferences, readerPreferences, resolvedColors)
-                    NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
-                    NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(
-                        novelReaderPreferences,
-                        readerPreferences,
-                    )
-                    NovelReaderSettingsTab.ADVANCED -> AdvancedPage(
-                        novelReaderPreferences,
-                        readerPreferences,
-                        onExportSettings,
-                        onImportSettings,
-                    )
+        ) {
+            Column {
+                PrimaryScrollableTabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    edgePadding = 8.dp,
+                ) {
+                    tabTitles.forEachIndexed { index, title ->
+                        Tab(
+                            selected = pagerState.currentPage == index,
+                            onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                            text = { TabText(text = title) },
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.Top,
+                ) { page ->
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = TabbedDialogPaddings.Vertical),
+                    ) {
+                        when (NovelReaderSettingsTab.entries[page]) {
+                            NovelReaderSettingsTab.VISUAL ->
+                                VisualPage(novelReaderPreferences, readerPreferences, resolvedColors)
+                            NovelReaderSettingsTab.CONTROL -> ControlPage(novelReaderPreferences)
+                            NovelReaderSettingsTab.MISCELLANEOUS -> MiscellaneousPage(
+                                novelReaderPreferences,
+                                readerPreferences,
+                            )
+                            NovelReaderSettingsTab.ADVANCED -> AdvancedPage(
+                                novelReaderPreferences,
+                                readerPreferences,
+                                onExportSettings,
+                                onImportSettings,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -661,10 +691,14 @@ private fun ColumnScope.AdvancedPage(
 
 @Composable
 private fun ColumnScope.ControlPage(novelReaderPreferences: NovelReaderPreferences) {
-    SectionHeading(MR.strings.rotation_type, showDivider = false)
+    SectionHeading(MR.strings.leaf_novel_reader_heading_screen, showDivider = false)
 
-    val orientation by novelReaderPreferences.orientation.collectAsState()
-    OrientationGrid(selected = orientation) { novelReaderPreferences.orientation.set(it) }
+    EnumSelectItem(
+        label = stringResource(MR.strings.rotation_type),
+        preference = novelReaderPreferences.orientation,
+        options = NovelReaderPreferences.ORIENTATIONS,
+        labelOf = { stringResource(it.stringRes) },
+    )
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_tap_zones)
 
@@ -759,41 +793,13 @@ private fun ChipSettingRow(label: String, content: @Composable FlowRowScope.() -
 
 @Composable
 private fun ImageSizeRow(selected: NovelImageSize, onSelect: (NovelImageSize) -> Unit) {
-    Column {
-        Text(
-            text = stringResource(MR.strings.leaf_novel_reader_image_size),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(
-                horizontal = SettingsItemsPaddings.Horizontal,
-                vertical = SettingsItemsPaddings.Vertical,
-            ),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Max)
-                .padding(
-                    horizontal = SettingsItemsPaddings.Horizontal,
-                    vertical = SettingsItemsPaddings.Vertical,
-                ),
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-        ) {
-            NovelImageSize.entries.forEach { candidate ->
-                FilterChip(
-                    selected = selected == candidate,
-                    onClick = { onSelect(candidate) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    label = {
-                        Text(
-                            text = stringResource(candidate.titleRes),
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    },
-                )
-            }
+    ChipSettingRow(stringResource(MR.strings.leaf_novel_reader_image_size)) {
+        NovelImageSize.entries.forEach { candidate ->
+            FilterChip(
+                selected = selected == candidate,
+                onClick = { onSelect(candidate) },
+                label = { Text(stringResource(candidate.titleRes)) },
+            )
         }
     }
 }
@@ -815,13 +821,13 @@ private fun TapZoneGrid(tapZones: List<Preference<NovelReaderAction>>) {
     ) {
         repeat(NovelTapGrid.SIDE) { row ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
             ) {
                 repeat(NovelTapGrid.SIDE) { column ->
                     TapZoneCell(
                         preference = tapZones[row * NovelTapGrid.SIDE + column],
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
             }
@@ -837,7 +843,8 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
     Box(modifier = modifier) {
         OutlinedButton(
             onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().fillMaxHeight().heightIn(min = 72.dp),
+            shape = MaterialTheme.shapes.medium,
             contentPadding = PaddingValues(
                 horizontal = MaterialTheme.padding.extraSmall,
                 vertical = MaterialTheme.padding.small,
@@ -845,7 +852,7 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
         ) {
             Text(
                 text = stringResource(action.titleRes),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 textAlign = TextAlign.Center,
             )
         }
@@ -931,20 +938,31 @@ private fun <T : Enum<T>> EnumSelectItem(
     Box {
         Row(
             modifier = Modifier
-                .clickable { expanded = true }
+                .clickable(role = Role.Button) { expanded = true }
                 .fillMaxWidth()
+                .heightIn(min = 64.dp)
                 .padding(
                     horizontal = SettingsItemsPaddings.Horizontal,
                     vertical = SettingsItemsPaddings.Vertical,
                 ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
         ) {
-            Text(text = label, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                text = labelOf(selected),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(text = label, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = labelOf(selected),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Icon(
+                imageVector = MaterialSymbols.Rounded.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -969,7 +987,11 @@ private fun <T : Enum<T>> EnumPicker(
     onDismissRequest: () -> Unit,
     onSelect: (T) -> Unit,
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        modifier = Modifier.widthIn(min = 280.dp),
+    ) {
         options.forEach { candidate ->
             RadioMenuItem(
                 text = { Text(labelOf(candidate)) },
@@ -982,47 +1004,6 @@ private fun <T : Enum<T>> EnumPicker(
         }
     }
 }
-
-/**
- * The orientations, laid out without a lazy grid.
- *
- * The shared icon grid is a LazyVerticalGrid and this page is already inside a vertical scroll, so
- * a lazy grid here would be measured with an unbounded height and throw. The buttons themselves
- * are still the shared ones, so it reads as the same picker the image reader shows.
- */
-@Composable
-private fun OrientationGrid(selected: ReaderOrientation, onSelect: (ReaderOrientation) -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = SettingsItemsPaddings.Horizontal,
-                vertical = SettingsItemsPaddings.Vertical,
-            ),
-        verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
-    ) {
-        NovelReaderPreferences.ORIENTATIONS.chunked(ORIENTATIONS_PER_ROW).forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-            ) {
-                row.forEach { orientation ->
-                    IconToggleButton(
-                        checked = orientation == selected,
-                        onCheckedChange = { onSelect(orientation) },
-                        imageVector = orientation.icon,
-                        title = stringResource(orientation.stringRes),
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                // Keeps a short final row the same width as a full one.
-                repeat(ORIENTATIONS_PER_ROW - row.size) { Spacer(Modifier.weight(1f)) }
-            }
-        }
-    }
-}
-
-private const val ORIENTATIONS_PER_ROW = 3
 
 /** Twenty equal intervals across the 0–200 paragraph and margin controls. */
 private const val STEPPED_SLIDER_STOPS = 19

@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,13 +18,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,9 +40,9 @@ import eu.kanade.presentation.reader.components.ChapterNavigatorType
 import leaf.novel.presentation.reader.components.FindMatches
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.ExpandLess
 import mihon.icons.materialsymbols.rounded.ExpandMore
+import mihon.icons.materialsymbols.rounded.MoreVert
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -58,7 +57,7 @@ private val readerBarsFadeAnimationSpec = tween<Float>(150)
  * crop-borders toggle, and always renders [eu.kanade.presentation.reader.appbars.ReaderBottomBar],
  * none of which mean anything to text. Rather than widen an upstream signature (rule 1) this mirrors
  * its structure and reuses the two parts that are genuinely shared — [ReaderTopBar] and
- * [ChapterNavigator] — so both readers animate, colour and lay out identically.
+ * [ChapterNavigator] — so navigation and animations follow the same conventions in both readers.
  */
 @Composable
 fun NovelReaderAppBars(
@@ -87,9 +86,7 @@ fun NovelReaderAppBars(
     onAdditionalOptionsExpandedChange: (Boolean) -> Unit,
     additionalOptions: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit,
 ) {
-    val backgroundColor = MaterialTheme.colorScheme
-        .surfaceColorAtElevation(3.dp)
-        .copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)
+    val backgroundColor = MaterialTheme.colorScheme.surfaceContainer
 
     Column(modifier = Modifier.fillMaxHeight()) {
         AnimatedVisibility(
@@ -146,7 +143,7 @@ fun NovelReaderAppBars(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(backgroundColor)
-                        .padding(horizontal = MaterialTheme.padding.small)
+                        .padding(horizontal = MaterialTheme.padding.small, vertical = 4.dp)
                         .windowInsetsPadding(WindowInsets.navigationBars),
                     buttons = barButtons,
                     onAction = onAction,
@@ -233,13 +230,17 @@ private fun AdditionalOptionsMenu(
         if (showButton) {
             IconButton(onClick = { onExpandedChange(true) }) {
                 Icon(
-                    imageVector = MaterialSymbols.AutoMirroredRounded.Sort,
+                    imageVector = MaterialSymbols.Rounded.MoreVert,
                     contentDescription = stringResource(MR.strings.leaf_novel_reader_additional_options),
                 )
             }
         }
 
-        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { onExpandedChange(false) },
+            modifier = Modifier.widthIn(min = 256.dp),
+        ) {
             content { onExpandedChange(false) }
         }
     }

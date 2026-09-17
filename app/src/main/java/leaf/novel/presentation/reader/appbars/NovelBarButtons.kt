@@ -3,9 +3,9 @@ package leaf.novel.presentation.reader.appbars
 import androidx.compose.ui.graphics.vector.ImageVector
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.FormatListNumbered
 import mihon.icons.materialsymbols.rounded.Info
+import mihon.icons.materialsymbols.rounded.MoreVert
 import mihon.icons.materialsymbols.rounded.Palette
 import mihon.icons.materialsymbols.rounded.ScreenRotation
 import mihon.icons.materialsymbols.rounded.Search
@@ -73,7 +73,7 @@ object NovelBarButtons {
         NovelReaderAction.CONTROL_OPTIONS -> MaterialSymbols.Rounded.ScreenRotation
         NovelReaderAction.MISCELLANEOUS -> MaterialSymbols.Rounded.ViewModule
         NovelReaderAction.ADVANCED_OPTIONS -> MaterialSymbols.Rounded.Settings
-        NovelReaderAction.ADDITIONAL_OPTIONS -> MaterialSymbols.AutoMirroredRounded.Sort
+        NovelReaderAction.ADDITIONAL_OPTIONS -> MaterialSymbols.Rounded.MoreVert
         NovelReaderAction.SHOW_CHAPTERS -> MaterialSymbols.Rounded.FormatListNumbered
         NovelReaderAction.SEARCH -> MaterialSymbols.Rounded.Search
         NovelReaderAction.AUTO_SCROLL -> MaterialSymbols.RoundedFilled.PlayArrow

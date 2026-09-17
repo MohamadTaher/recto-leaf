@@ -2,21 +2,23 @@ package leaf.novel.presentation.reader.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,7 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import leaf.novel.ui.reader.NovelTextReplacements
 import leaf.novel.ui.reader.setting.NovelTextReplacement
@@ -71,6 +72,7 @@ fun ColumnScope.TextReplacements(
         modifier = Modifier
             .clickable { showEditor = true }
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .padding(
                 horizontal = SettingsItemsPaddings.Horizontal,
                 vertical = SettingsItemsPaddings.Vertical,
@@ -115,17 +117,23 @@ fun NovelTextReplacementDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small)) {
-                    FilterChip(
-                        selected = scope == ReplacementScope.NOVEL,
-                        onClick = { scope = ReplacementScope.NOVEL },
-                        label = { Text(stringResource(MR.strings.leaf_novel_reader_replacements_this_novel)) },
-                    )
-                    FilterChip(
-                        selected = scope == ReplacementScope.APP_WIDE,
-                        onClick = { scope = ReplacementScope.APP_WIDE },
-                        label = { Text(stringResource(MR.strings.leaf_novel_reader_replacements_app_wide)) },
-                    )
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    ReplacementScope.entries.forEachIndexed { index, candidate ->
+                        SegmentedButton(
+                            selected = scope == candidate,
+                            onClick = { scope = candidate },
+                            shape = SegmentedButtonDefaults.itemShape(index, ReplacementScope.entries.size),
+                        ) {
+                            Text(
+                                stringResource(
+                                    when (candidate) {
+                                        ReplacementScope.NOVEL -> MR.strings.leaf_novel_reader_replacements_this_novel
+                                        ReplacementScope.APP_WIDE -> MR.strings.leaf_novel_reader_replacements_app_wide
+                                    },
+                                ),
+                            )
+                        }
+                    }
                 }
 
                 rules.forEachIndexed { index, rule ->
@@ -144,15 +152,22 @@ fun NovelTextReplacementDialog(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Text(stringResource(MR.strings.leaf_novel_reader_add_replacement))
+                    Text(
+                        text = stringResource(MR.strings.leaf_novel_reader_add_replacement),
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
                 }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    val encoded = NovelTextReplacements.encode(rules.simplePairs())
-                    if (scope == ReplacementScope.NOVEL) onSaveNovel(encoded) else onSaveAppWide(encoded)
+                    if (novelDraft != rulesDraft(novelRules)) {
+                        onSaveNovel(NovelTextReplacements.encode(novelDraft.simplePairs()))
+                    }
+                    if (appWideDraft != rulesDraft(appWideRules)) {
+                        onSaveAppWide(NovelTextReplacements.encode(appWideDraft.simplePairs()))
+                    }
                     onDismissRequest()
                 },
             ) {
@@ -173,70 +188,31 @@ private fun ReplacementRow(
     onChange: (NovelTextReplacement) -> Unit,
     onDelete: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ReplacementField(
+        OutlinedTextField(
             value = rule.pattern,
             onValueChange = { onChange(rule.copy(pattern = it)) },
-            placeholder = stringResource(MR.strings.leaf_novel_reader_replacement_find),
-            modifier = Modifier.weight(1f),
+            label = { Text(stringResource(MR.strings.leaf_novel_reader_replacement_find)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
         )
-        Text(
-            text = "→",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.secondaryItemAlpha(),
-        )
-        ReplacementField(
+        OutlinedTextField(
             value = rule.replacement,
             onValueChange = { onChange(rule.copy(replacement = it)) },
-            placeholder = stringResource(MR.strings.leaf_novel_reader_replacement_replace),
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            imageVector = MaterialSymbols.Rounded.Delete,
-            contentDescription = stringResource(MR.strings.action_delete),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .size(32.dp)
-                .clickable(onClick = onDelete)
-                .padding(7.dp),
-        )
-    }
-}
-
-@Composable
-private fun ReplacementField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            label = { Text(stringResource(MR.strings.leaf_novel_reader_replacement_replace)) },
             singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            decorationBox = { innerTextField ->
-                Box(contentAlignment = Alignment.CenterStart) {
-                    if (value.isEmpty()) {
-                        Text(
-                            text = placeholder,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    innerTextField()
-                }
-            },
+            modifier = Modifier.fillMaxWidth(),
         )
+        IconButton(onClick = onDelete, modifier = Modifier.align(Alignment.End)) {
+            Icon(
+                imageVector = MaterialSymbols.Rounded.Delete,
+                contentDescription = stringResource(MR.strings.action_delete),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
