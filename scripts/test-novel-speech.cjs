@@ -17,6 +17,24 @@ const script = source.split('internal const val NOVEL_SPEECH_SCRIPT = """')[1].s
       await page.evaluate(`(() => { const rectoLeafChapterId = '20'; ${script} })()`);
     };
     const highlight = position => page.evaluate(position => window.rectoLeafSpeech.highlight(position), position);
+    const firstVisible = () => page.evaluate(() => window.rectoLeafSpeech.firstVisible());
+    await reset(`<style>body { margin: 0; } p { height: 400px; }</style>
+      <section data-leaf-chapter="20"><p data-leaf-speech-block="0">First.</p>
+      <p data-leaf-speech-block="1">Second.</p><p data-leaf-speech-block="2">Third.</p></section>`);
+    assert.deepEqual(await firstVisible(), {chapterId: '20', block: 0, start: 0});
+    await page.evaluate(() => scrollTo(0, 395));
+    assert.deepEqual(await firstVisible(), {chapterId: '20', block: 1, start: 0});
+    await reset(`<style>body { margin: 0; } p { font: 20px/30px monospace; width: 180px; }</style>
+      <section data-leaf-chapter="20"><p data-leaf-speech-block="0">${'word '.repeat(200)}</p></section>`);
+    await page.evaluate(() => scrollTo(0, 95));
+    const inside = await firstVisible();
+    assert.equal(inside.block, 0);
+    assert(inside.start > 0, 'A paragraph continuing above the viewport needs a visible character offset');
+    await reset(`<style>body { margin: 0; height: 600px; column-count: 1; column-gap: 0; column-fill: auto; }
+      p { height: 600px; }</style><p data-leaf-speech-block="0">First.</p>
+      <p data-leaf-speech-block="1">Second.</p><p data-leaf-speech-block="2">Third.</p>`);
+    await page.evaluate(() => scrollTo(800, 0));
+    assert.deepEqual(await firstVisible(), {chapterId: '20', block: 1, start: 0});
     const selected = () => page.evaluate(() => {
       const range = Array.from(CSS.highlights.get('recto-leaf-speech') || [])[0];
       if (!range) return null;
@@ -105,6 +123,7 @@ const script = source.split('internal const val NOVEL_SPEECH_SCRIPT = """')[1].s
       ${script}\n${bridgeScript}
       </script></head><body><section data-leaf-chapter="20"><p data-leaf-speech-block="0">Yes.</p></section></body>`);
     assert(await bridgePage.evaluate(() => messages.some(it => it.type === 'ready')));
+    assert(await bridgePage.evaluate(() => messages.some(it => it.type === 'anchor' && it.chapterId === '20' && it.block === 0)));
     await bridgePage.evaluate(() => {
       const command = value => window.rectoLeafChapters.command(JSON.stringify(value));
       command({ type: 'speech', position: { chapterId: '21', block: 0, start: 0, text: 'Yes.' } });

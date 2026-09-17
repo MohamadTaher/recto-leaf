@@ -339,11 +339,6 @@ object NovelReaderCss {
         """.trimIndent()
     }
 
-    /** Mirrors how the manga reader picks its own foreground: white on dark, black on light. */
-    @ColorInt
-    fun foregroundFor(@ColorInt backgroundColor: Int): Int =
-        if (isDark(backgroundColor)) READER_TEXT_ON_DARK else READER_TEXT_ON_LIGHT
-
     /**
      * One line of the page, in CSS pixels — which the viewport meta tag makes equal to dp.
      *
@@ -453,10 +448,4 @@ object NovelReaderCss {
 
     private const val SPEECH_HIGHLIGHT = "#5ac8f5"
     private const val DARK_LUMINANCE_THRESHOLD = 128
-
-    @ColorInt
-    private const val READER_TEXT_ON_DARK = 0xFFDEDEDE.toInt()
-
-    @ColorInt
-    private const val READER_TEXT_ON_LIGHT = 0xFF1A1A1A.toInt()
 }

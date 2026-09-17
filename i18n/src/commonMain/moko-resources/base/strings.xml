@@ -266,9 +266,11 @@
     <string name="secure_screen_summary">Secure screen hides app contents when switching apps and block screenshots</string>
     <string name="firebase_summary">Sending crash logs and analytics will allow us to identify and fix issues, improve performance, and make future updates more relevant to your needs</string>
 
-    <string name="pref_category_nsfw_content">NSFW (18+) sources</string>
-    <string name="pref_show_nsfw_source">Show in sources and extensions lists</string>
-    <string name="parental_controls_info">This does not prevent unofficial or potentially incorrectly flagged extensions from surfacing NSFW (18+) content within the app.</string>
+    <string name="pref_category_extensions">Extensions</string>
+    <string name="pref_allowed_content_warnings">Allowed content warnings</string>
+    <string name="pref_apply_content_warnings_to_installed">Also apply to installed extensions</string>
+    <string name="pref_apply_content_warnings_to_installed_summary">When off, extensions you already installed keep loading and updating regardless of their warning</string>
+    <string name="content_warnings_info">Installed extensions that aren\'t loaded stay listed without their sources; ones you haven\'t installed are hidden. This does not prevent unofficial or potentially incorrectly flagged extensions from surfacing 18+ content within the app.</string>
 
     <string name="relative_time_today">Today</string>
 
@@ -338,6 +340,15 @@
     <string name="ext_installed">Installed</string>
     <string name="ext_trust">Trust</string>
     <string name="ext_untrusted">Untrusted</string>
+    <string name="ext_filtered">Filtered</string>
+    <string name="ext_not_loaded">Not loaded</string>
+    <string name="ext_not_loaded_dialog">Couldn\'t load</string>
+    <string name="ext_copy_stacktrace">Copy stack trace</string>
+    <string name="ext_filtered_message">This extension\'s content warning isn\'t one you chose to load, so its sources aren\'t available.</string>
+    <string name="ext_unsigned_message">This extension isn\'t signed, so there\'s no signature to check it against.</string>
+    <string name="ext_unsupported_message">This extension was built for a version of the extension library this app version can\'t load. Updating the app or the extension may help.</string>
+    <string name="ext_malformed_message">This extension is missing information the app needs to load it.</string>
+    <string name="ext_load_failed_message">This extension threw an error while loading, so none of its sources are available.</string>
     <string name="ext_uninstall">Uninstall</string>
     <string name="ext_remove">Remove</string>
     <string name="ext_confirm_remove">Remove Extension?</string>
@@ -349,9 +360,12 @@
     <string name="extension_api_error">Failed to fetch available extensions</string>
     <string name="ext_info_version">Version</string>
     <string name="ext_info_language">Language</string>
-    <string name="ext_info_age_rating">Age rating</string>
-    <string name="ext_nsfw_short">18+</string>
-    <string name="ext_nsfw_warning">Sources from this extension may contain NSFW (18+) content</string>
+    <string name="ext_info_warning">Warning</string>
+    <string name="ext_content_warning_safe">Safe</string>
+    <string name="ext_content_warning_mixed">Mixed</string>
+    <string name="ext_content_warning_nsfw">18+</string>
+    <string name="ext_content_warning_mixed_description">Sources from this extension might contain both safe and 18+ content.</string>
+    <string name="ext_content_warning_nsfw_description">Sources from this extension are primarily focused on 18+ content.</string>
     <string name="ext_permission_install_apps_warning">Permissions are needed to install extensions. Tap here to grant.</string>
     <string name="ext_install_service_notif">Installing extension…</string>
     <string name="ext_installer_pref">Installer</string>
@@ -1122,7 +1136,11 @@
     <string name="leaf_novel_key_dpad_left">D-pad left</string>
     <string name="leaf_novel_key_dpad_right">D-pad right</string>
     <string name="leaf_novel_key_dpad_center">D-pad center</string>
-    <string name="leaf_novel_key_headset_play">Headset play</string>
+    <string name="leaf_novel_key_headset_play">Media play/pause</string>
+    <string name="leaf_novel_keys_dpad">D-pad</string>
+    <string name="leaf_novel_keys_media">Media</string>
+    <string name="leaf_novel_key_media_play">Media play</string>
+    <string name="leaf_novel_key_media_stop">Media stop</string>
     <string name="leaf_novel_key_media_next">Media next</string>
     <string name="leaf_novel_key_media_previous">Media previous</string>
     <string name="leaf_novel_key_media_pause">Media pause</string>
@@ -1140,9 +1158,14 @@
     <string name="leaf_novel_action_auto_scroll">Auto scroll</string>
     <string name="leaf_novel_action_stop_auto_scroll">Stop auto scroll</string>
     <string name="leaf_novel_action_speak">Read aloud</string>
+    <string name="leaf_novel_action_start_speaking">Start read aloud</string>
+    <string name="leaf_novel_action_pause_speaking">Pause read aloud</string>
+    <string name="leaf_novel_action_toggle_speech">Pause/resume read aloud</string>
     <string name="leaf_novel_action_stop_speaking">Stop reading aloud</string>
     <string name="leaf_novel_speech_paragraph">Paragraph</string>
     <string name="leaf_novel_speech_sentence">Sentence</string>
+    <string name="leaf_novel_speech_comma">Comma (,)</string>
+    <string name="leaf_novel_speech_word">Word</string>
     <string name="leaf_novel_reader_speech_divide_by">Divide content by</string>
     <string name="leaf_novel_reader_speech_rate">Speed</string>
     <string name="leaf_novel_reader_speech_controls">Read-aloud controls</string>
@@ -1164,7 +1187,7 @@
     <string name="leaf_novel_reader_speech_unavailable">No text-to-speech engine is available on this device.</string>
     <string name="leaf_novel_action_speed_read">Speed read</string>
     <string name="leaf_novel_action_stop_speed_read">Stop speed reading</string>
-    <string name="leaf_novel_action_export_settings">Back up reader settings</string>
+    <string name="leaf_novel_action_backup">Backup</string>
     <string name="leaf_novel_action_import_settings">Restore reader settings</string>
     <string name="leaf_novel_reader_settings_saved">Reader settings backed up</string>
     <string name="leaf_novel_reader_settings_restored">Reader settings restored</string>
@@ -1203,7 +1226,6 @@
     <string name="leaf_novel_reader_heading_bar_buttons">Reader bar buttons</string>
     <string name="leaf_novel_reader_bar_button">Button %1$d</string>
     <string name="leaf_novel_reader_heading_typesetting">Typesetting</string>
-    <string name="leaf_novel_reader_heading_settings_backup">Reader settings</string>
     <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
     <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>
     <string name="leaf_novel_reader_heading_replacements">Find and replace</string>
@@ -1255,7 +1277,8 @@
     <string name="leaf_novel_font_sans_serif">Sans-serif</string>
     <string name="leaf_novel_font_serif">Serif</string>
     <string name="leaf_novel_font_monospace">Monospace</string>
-    <string name="leaf_novel_reader_heading_text_styling">Text styling</string>
+    <string name="leaf_novel_font_condensed">Condensed</string>
+    <string name="leaf_novel_font_casual">Casual</string>
     <string name="leaf_novel_reader_bold">Bold</string>
     <string name="leaf_novel_reader_italic">Italic</string>
     <string name="leaf_novel_reader_underline">Underline</string>
@@ -1275,12 +1298,12 @@
     <string name="leaf_novel_reader_margin_bottom">Bottom margin</string>
     <string name="leaf_novel_reader_link_color">Link color</string>
     <string name="leaf_novel_reader_theme">Reader theme</string>
-    <string name="leaf_novel_theme_follow_mihon">Follow Mihon</string>
+    <string name="leaf_novel_theme_white">White</string>
     <string name="leaf_novel_theme_paper">Paper</string>
     <string name="leaf_novel_theme_sepia">Sepia</string>
-    <string name="leaf_novel_theme_grey">Grey</string>
     <string name="leaf_novel_theme_night">Night</string>
-    <string name="leaf_novel_theme_console">Console</string>
+    <string name="leaf_novel_theme_black">Black</string>
+    <string name="leaf_novel_theme_solarized">Solarized</string>
     <string name="leaf_novel_theme_custom_1">Custom 1</string>
     <string name="leaf_novel_theme_custom_2">Custom 2</string>
     <string name="leaf_novel_theme_custom_3">Custom 3</string>

@@ -110,6 +110,10 @@ object NovelSpeechSession : NovelSpeechService.Controls {
         engine?.stop()
     }
 
+    override fun seek(units: Int) {
+        engine?.seekBy(units)
+    }
+
     /**
      * Watches the engine this object just built, so speech ending has somewhere to be noticed even
      * with no reader attached. [NovelSpeechLifecycle] is what tells "ended" apart from "paused" —
@@ -117,8 +121,8 @@ object NovelSpeechSession : NovelSpeechService.Controls {
      * counts — and [NovelSpeechAttachment.mayResetOn] is what tells "nobody is watching" apart from
      * "a reader is right there and will hide the notification itself" (M4).
      *
-     * Progress is checkpointed here too, for the same reason: a reader normally reports its own
-     * scroll percent, but there is no reader to do that while speech runs unattached, and that is
+     * Progress is checkpointed here too, for the same reason: an attached reader records speech
+     * into its shared reading position, but there is no reader while speech runs unattached, and that is
      * exactly when losing the position matters most — the next thing to see it is this object
      * being torn down, whether by the last utterance ending, the notification's Stop button, or the
      * task being swiped away.

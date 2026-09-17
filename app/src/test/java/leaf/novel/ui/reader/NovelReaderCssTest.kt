@@ -4,9 +4,9 @@ import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
+import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderStyle
-import leaf.novel.ui.reader.setting.NovelReaderTheme
 import org.jsoup.Jsoup
 import org.junit.jupiter.api.Test
 
@@ -14,8 +14,11 @@ private const val WHITE = 0xFFFFFFFF.toInt()
 private const val BLACK = 0xFF000000.toInt()
 private const val MIHON_GRAY = 0xFF2B2B2B.toInt()
 
-/** What the screen resolves before calling: Follow Mihon derives the foreground, as it always did. */
-private fun colors(background: Int) = NovelReaderTheme.FOLLOW_MIHON.colors(background)
+/** What the screen resolves before calling: a background and a text colour that reads on it. */
+private fun colors(background: Int) = NovelReaderColors(
+    background = background,
+    foreground = if (NovelReaderCss.isDark(background)) 0xFFDEDEDE.toInt() else 0xFF1A1A1A.toInt(),
+)
 
 private fun style(
     fontSizePx: Int = 18,
@@ -115,16 +118,6 @@ class NovelReaderCssTest {
     @Test
     fun `treats the reader gray as dark`() {
         NovelReaderCss.isDark(MIHON_GRAY) shouldBe true
-    }
-
-    @Test
-    fun `picks a light foreground on a dark background`() {
-        NovelReaderCss.foregroundFor(BLACK) shouldBe 0xFFDEDEDE.toInt()
-    }
-
-    @Test
-    fun `picks a dark foreground on a light background`() {
-        NovelReaderCss.foregroundFor(WHITE) shouldBe 0xFF1A1A1A.toInt()
     }
 
     /**

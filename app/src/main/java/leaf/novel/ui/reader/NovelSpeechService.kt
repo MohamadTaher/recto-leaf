@@ -7,15 +7,25 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.notify
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import leaf.novel.ui.reader.setting.NovelReaderAction
+import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.i18n.MR
 
 /**
@@ -36,7 +46,7 @@ import tachiyomi.i18n.MR
  * It is bound to nothing and started with an explicit intent, so it lives exactly as long as speech
  * does.
  *
- * The [MediaSession] is what a Bluetooth headset's own button, or its in-ear detection taking a bud
+ * The [NovelReaderMediaSession] is what a Bluetooth headset's own button, or its in-ear detection taking a bud
  * out, actually reaches — both arrive as ordinary media-button events, the same as a wired remote,
  * with no code of this fork's own involved on the device end. [becomingNoisyReceiver] covers the
  * other half of "a headset stopped being the way this is heard": a disconnect rather than a button,
@@ -52,21 +62,19 @@ class NovelSpeechService : Service() {
     private var lastChapter = ""
     private var lastPaused = false
 
-    private var mediaSession: MediaSession? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val preferences by lazy { NovelReaderPreferences(AndroidPreferenceStore(this)) }
 
-    /** Routes a hardware play/pause/stop press to whatever is currently speaking. */
-    private val sessionCallback = object : MediaSession.Callback() {
-        override fun onPlay() {
-            controls?.play()
-        }
-
-        override fun onPause() {
-            controls?.pause()
-        }
-
-        override fun onStop() {
-            controls?.stop()
-            stopSelf()
+    private fun performAction(action: NovelReaderAction) {
+        when (action) {
+            NovelReaderAction.NONE, NovelReaderAction.TEXT_SELECTION -> Unit
+            NovelReaderAction.START_SPEAKING -> controls?.play()
+            NovelReaderAction.PAUSE_SPEAKING -> controls?.pause()
+            NovelReaderAction.TOGGLE_SPEECH -> controls?.togglePlayback()
+            NovelReaderAction.STOP_SPEAKING -> controls?.stop()
+            NovelReaderAction.PREVIOUS_SPEECH -> controls?.seek(-1)
+            NovelReaderAction.NEXT_SPEECH -> controls?.seek(1)
+            else -> NovelReaderMediaSession.dispatchReaderAction(action)
         }
     }
 
@@ -80,10 +88,14 @@ class NovelSpeechService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        mediaSession = MediaSession(this, "NovelSpeech").apply {
-            setCallback(sessionCallback)
-            isActive = true
-        }
+        NovelReaderMediaSession.attachSpeech(this, preferences, ::performAction)
+        // The reader's collector disappears when it closes; hardware playback state must not.
+        NovelSpeechSession.speakerOrNull()?.speech
+            ?.filter { it.speaking }
+            ?.map { it.paused }
+            ?.distinctUntilChanged()
+            ?.onEach { update(lastTitle, lastChapter, it) }
+            ?.launchIn(scope)
         ContextCompat.registerReceiver(
             this,
             becomingNoisyReceiver,
@@ -96,9 +108,9 @@ class NovelSpeechService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PLAY_PAUSE -> controls?.togglePlayback()
+            ACTION_PLAY_PAUSE -> performAction(NovelReaderAction.TOGGLE_SPEECH)
             ACTION_STOP -> {
-                controls?.stop()
+                performAction(NovelReaderAction.STOP_SPEAKING)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -108,7 +120,7 @@ class NovelSpeechService : Service() {
             lastTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
             lastChapter = intent.getStringExtra(EXTRA_CHAPTER).orEmpty()
             lastPaused = intent.getBooleanExtra(EXTRA_PAUSED, false)
-            updatePlaybackState(lastPaused)
+            NovelReaderMediaSession.update(lastPaused)
         }
 
         // The one call this makes to the system: every later update goes through update(), which
@@ -120,11 +132,12 @@ class NovelSpeechService : Service() {
     }
 
     override fun onDestroy() {
+        scope.cancel()
         instance = null
         controls = null
         unregisterReceiver(becomingNoisyReceiver)
-        mediaSession?.release()
-        mediaSession = null
+        NovelReaderMediaSession.detachSpeech()
+        super.onDestroy()
     }
 
     /**
@@ -135,6 +148,7 @@ class NovelSpeechService : Service() {
      * every other kind of "off screen" is meant to.
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
+        NovelReaderMediaSession.detachReader()
         controls?.stop()
         stopSelf()
         super.onTaskRemoved(rootIntent)
@@ -145,29 +159,8 @@ class NovelSpeechService : Service() {
         lastTitle = title
         lastChapter = chapter
         lastPaused = paused
-        updatePlaybackState(paused)
+        NovelReaderMediaSession.update(paused)
         notify(NOTIFICATION_ID, notification(title, chapter, paused))
-    }
-
-    /**
-     * Tells the session what a hardware play/pause key should do next. A single `PLAY_PAUSE` press
-     * — what a headset actually sends — has no direction of its own; [MediaSession.Callback] picks
-     * [sessionCallback]'s `onPlay` or `onPause` for it by comparing against the state set here, so
-     * this has to stay current for the button to toggle the right way.
-     */
-    private fun updatePlaybackState(paused: Boolean) {
-        val state = if (paused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING
-        mediaSession?.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(
-                    PlaybackState.ACTION_PLAY or
-                        PlaybackState.ACTION_PAUSE or
-                        PlaybackState.ACTION_PLAY_PAUSE or
-                        PlaybackState.ACTION_STOP,
-                )
-                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
-                .build(),
-        )
     }
 
     private fun notification(title: String, chapter: String, paused: Boolean) = notificationBuilder(
@@ -210,6 +203,7 @@ class NovelSpeechService : Service() {
         fun play()
         fun pause()
         fun stop()
+        fun seek(units: Int)
     }
 
     companion object {

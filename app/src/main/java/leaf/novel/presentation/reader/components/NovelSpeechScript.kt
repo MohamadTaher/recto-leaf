@@ -29,18 +29,7 @@ internal const val NOVEL_SPEECH_SCRIPT = """
         return best;
       };
 
-      const follow = position => {
-        clear();
-        if (!position) return;
-        const chapters = Array.from(document.querySelectorAll('[data-leaf-chapter]'));
-        const chapter = chapters.length
-          ? chapters.find(it => it.dataset.leafChapter === position.chapterId)
-          : (position.chapterId === rectoLeafChapterId ? document.body : null);
-        // A read-ahead request can arrive before its chapter has been appended. Never search elsewhere.
-        if (!chapter) { pending = position; return; }
-        const block = chapter.querySelector('[data-leaf-speech-block="' + position.block + '"]');
-        if (!block) return;
-
+      const prose = block => {
         // Rebuild jsoup's collapsed prose while retaining the DOM endpoints for every character.
         let text = '';
         const points = [];
@@ -66,6 +55,59 @@ internal const val NOVEL_SPEECH_SCRIPT = """
           }
         };
         visit(block);
+        return {text, points};
+      };
+
+      // Geometry is needed here; Kotlin chooses the containing paragraph, sentence or word.
+      const firstVisible = () => {
+        const visible = rect => rect.width > 0 && rect.height > 0 && rect.bottom > 0 &&
+          rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth;
+        for (const block of document.querySelectorAll('[data-leaf-speech-block]')) {
+          if (getComputedStyle(block).visibility !== 'visible') continue;
+          if (!Array.from(block.getClientRects()).some(visible)) continue;
+          const {points} = prose(block);
+          const chars = points.map((point, start) => ({...point, start}))
+            .filter(point => point.node.nodeType === Node.TEXT_NODE);
+          const range = document.createRange();
+          const rectAt = index => {
+            const point = chars[index];
+            range.setStart(point.node, point.offset);
+            range.setEnd(point.node, point.offset + 1);
+            return range.getBoundingClientRect();
+          };
+          // Characters before the viewport are above it (scrolling) or left of it (columns).
+          let low = 0, high = chars.length;
+          while (low < high) {
+            const mid = (low + high) >>> 1;
+            const rect = rectAt(mid);
+            if (rect.bottom <= 0 || rect.right <= 0) low = mid + 1; else high = mid;
+          }
+          // Collapsed whitespace at a line break can have a zero-width rectangle.
+          for (let index = low; index < chars.length; index++) {
+            const rect = rectAt(index);
+            if (rect.top >= innerHeight || rect.left >= innerWidth) break;
+            if (visible(rect)) return {
+              chapterId: block.closest('[data-leaf-chapter]')?.dataset.leafChapter || rectoLeafChapterId,
+              block: Number(block.dataset.leafSpeechBlock), start: chars[index].start,
+            };
+          }
+        }
+        return null;
+      };
+
+      const follow = position => {
+        clear();
+        if (!position) return;
+        const chapters = Array.from(document.querySelectorAll('[data-leaf-chapter]'));
+        const chapter = chapters.length
+          ? chapters.find(it => it.dataset.leafChapter === position.chapterId)
+          : (position.chapterId === rectoLeafChapterId ? document.body : null);
+        // A read-ahead request can arrive before its chapter has been appended. Never search elsewhere.
+        if (!chapter) { pending = position; return; }
+        const block = chapter.querySelector('[data-leaf-speech-block="' + position.block + '"]');
+        if (!block) return;
+
+        const {text, points} = prose(block);
         // The offset was taken before the reading aids ran, and one of them can put prose in front
         // of it — a printed page number inside the paragraph is the usual case. Naming the chapter
         // and the block has already made the match unambiguous, so the offset is only choosing
@@ -104,6 +146,7 @@ internal const val NOVEL_SPEECH_SCRIPT = """
       };
 
       window.rectoLeafSpeech = {
+        firstVisible,
         highlight: position => { pending = null; follow(position); },
         retry: () => {
           if (!pending) return;

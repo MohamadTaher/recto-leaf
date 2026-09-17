@@ -56,6 +56,7 @@ import leaf.novel.ui.reader.loader.SourceContentProvider
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderTheme
+import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import logcat.LogPriority
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getAndSet
@@ -190,6 +191,7 @@ class NovelReaderViewModel(
     }
 
     override fun onCleared() {
+        NovelReaderMediaSession.detachReader()
         // Speech that is still running belongs to NovelSpeechSession now, not to this reader —
         // detach() only tears it down if nothing is left running to fire that later itself.
         NovelSpeechSession.detach()
@@ -435,19 +437,19 @@ class NovelReaderViewModel(
     private var speechExtendJob: Job? = null
 
     /**
-     * Starts reading the open chapter aloud at [percentRead].
+     * Starts at the same tracked chapter position used by manual reading and speech progress.
      *
      * The utterances are cut afresh each time, so changing how the chapter is divided takes effect
      * on the next start rather than needing the chapter reopened.
      */
-    fun startSpeaking(percentRead: Int) {
+    fun startSpeaking() {
         if (state.value.speaking) return
-        queueSpeech(percentRead)
+        queueSpeech(state.value.currentChapter?.lastPageRead?.toInt() ?: 0, state.value.readingPosition)
     }
 
     /** Rebuilds the queue when its division changes while the control sheet is open. */
-    fun restartSpeaking(percentRead: Int, paused: Boolean) {
-        queueSpeech(percentRead)
+    fun restartSpeaking(percentRead: Int, paused: Boolean, anchor: NovelSpeech.Anchor? = state.value.readingPosition) {
+        queueSpeech(percentRead, anchor)
         if (paused) NovelSpeechSession.speakerOrNull()?.pause()
     }
 
@@ -468,7 +470,7 @@ class NovelReaderViewModel(
         return NovelSpeech.positions(spokenHtml, novelReaderPreferences.speechDivision.get(), chapterId)
     }
 
-    private fun queueSpeech(percentRead: Int) {
+    private fun queueSpeech(percentRead: Int, anchor: NovelSpeech.Anchor?) {
         val html = currentHtml ?: return
         val chapterId = state.value.chapters.getOrNull(state.value.currentIndex)?.id ?: return
         val utterances = utterancesOf(html, chapterId)
@@ -479,8 +481,10 @@ class NovelReaderViewModel(
         speechExtendJob?.cancel()
         val engine = attachToSession()
 
-        val text = utterances.map { it.text }
-        val fromIndex = NovelSpeech.indexAt(percentRead / 100f, text)
+        val bookmark = state.value.speechPosition.takeIf {
+            percentRead == state.value.currentChapter?.lastPageRead?.toInt()
+        }
+        val fromIndex = NovelSpeech.resumeIndex(percentRead, utterances, bookmark, anchor)
         NovelSpeechSession.queue.start(mangaId, utterances, state.value.currentIndex)
         mutableState.update {
             it.copy(
@@ -492,11 +496,13 @@ class NovelReaderViewModel(
             )
         }
         engine.start(
-            text = text,
+            text = utterances,
             fromIndex = fromIndex,
+            acrossParagraphs = novelReaderPreferences.speechDivision.get() == NovelSpeechDivision.PARAGRAPH,
             rate = novelReaderPreferences.speechRate.get(),
             pitch = novelReaderPreferences.speechPitch.get(),
-            intervalMs = novelReaderPreferences.speechIntervalMs.get(),
+            intervalMs = novelReaderPreferences.speechIntervalMs.get()
+                .coerceIn(NovelReaderPreferences.SPEECH_INTERVAL_RANGE),
             mixAudio = novelReaderPreferences.speechMixAudio.get(),
         )
     }
@@ -528,10 +534,18 @@ class NovelReaderViewModel(
         val lifecycle = NovelSpeechLifecycle(initiallySpeaking = engine.speech.value.speaking)
         engine.speech
             .onEach { speech ->
-                when (lifecycle.observe(speech.speaking)) {
+                val transition = lifecycle.observe(speech.speaking)
+                when (transition) {
                     NovelSpeechLifecycle.Transition.STARTED -> scheduleSpeechStop()
                     NovelSpeechLifecycle.Transition.ENDED -> cancelSpeechStop()
                     NovelSpeechLifecycle.Transition.NONE -> Unit
+                }
+                if (speech.speaking || transition == NovelSpeechLifecycle.Transition.ENDED) {
+                    NovelSpeechSession.queue.chapterProgress(speech.index)?.let { (chapterId, percent) ->
+                        val index = state.value.chapters.indexOfFirst { it.id == chapterId }
+                        if (index >= 0) setCurrentChapter(index, continuous = true)
+                        recordProgress(chapterId, percent, fromSpeech = true)
+                    }
                 }
                 if (speech.speaking) extendSpeech(speech.index)
                 holdProcessOpen(speech.speaking, speech.paused)
@@ -543,6 +557,9 @@ class NovelReaderViewModel(
                         speechIndex = snapshot.index,
                         speechCount = snapshot.count,
                         speechPosition = snapshot.position,
+                        readingPosition = snapshot.position?.let { position ->
+                            NovelSpeech.Anchor(position.chapterId, position.block, position.start)
+                        } ?: it.readingPosition,
                         speechUnavailable = snapshot.unavailable,
                     )
                 }
@@ -612,21 +629,29 @@ class NovelReaderViewModel(
             if (index != queue.chapterIndex + 1) return@launch
 
             queue.extend(more, index)
-            NovelSpeechSession.speakerOrNull()?.extend(more.map { it.text })
+            NovelSpeechSession.speakerOrNull()?.extend(more)
         }
     }
 
-    fun toggleSpeechPlayback(percentRead: Int) {
+    fun toggleSpeechPlayback() {
         when {
-            !state.value.speaking -> startSpeaking(percentRead)
+            !state.value.speaking -> startSpeaking()
             state.value.speechPaused -> NovelSpeechSession.speakerOrNull()?.resume()
             else -> NovelSpeechSession.speakerOrNull()?.pause()
         }
     }
 
+    fun resumeSpeaking() {
+        if (ownsSession()) NovelSpeechSession.play()
+    }
+
+    fun pauseSpeaking() {
+        if (ownsSession()) NovelSpeechSession.pause()
+    }
+
     fun seekSpeech(units: Int) {
         if (!ownsSession()) return
-        NovelSpeechSession.speakerOrNull()?.seekBy(units)
+        NovelSpeechSession.seek(units)
     }
 
     /** Applies changed controls without rebuilding or re-fetching the chapter. */
@@ -635,7 +660,8 @@ class NovelReaderViewModel(
         NovelSpeechSession.speakerOrNull()?.update(
             rate = novelReaderPreferences.speechRate.get(),
             pitch = novelReaderPreferences.speechPitch.get(),
-            intervalMs = novelReaderPreferences.speechIntervalMs.get(),
+            intervalMs = novelReaderPreferences.speechIntervalMs.get()
+                .coerceIn(NovelReaderPreferences.SPEECH_INTERVAL_RANGE),
             mixAudio = novelReaderPreferences.speechMixAudio.get(),
         )
     }
@@ -823,24 +849,10 @@ class NovelReaderViewModel(
         actionRequests.tryEmit(action)
     }
 
-    /**
-     * Flips between the reader's chosen day and night themes.
-     *
-     * While both are still [NovelReaderTheme.FOLLOW_MIHON] there is nothing of the fork's own to
-     * flip, so it falls back to flipping the shared reader theme between its black and white values
-     * — which is all this action ever did, and it keeps the image reader following along. Once a
-     * reader picks a pair, writing the shared key as well would move manga's background for a
-     * setting that no longer decides this one.
-     */
+    /** Flips between the reader's chosen day and night themes. */
     fun toggleDayNightMode() {
         val day = novelReaderPreferences.dayTheme.get()
         val night = novelReaderPreferences.nightTheme.get()
-        if (day == NovelReaderTheme.FOLLOW_MIHON && night == NovelReaderTheme.FOLLOW_MIHON) {
-            readerPreferences.readerTheme.getAndSet {
-                if (it == READER_THEME_WHITE) READER_THEME_BLACK else READER_THEME_WHITE
-            }
-            return
-        }
         novelReaderPreferences.theme.getAndSet { if (it == night) day else night }
     }
 
@@ -854,6 +866,18 @@ class NovelReaderViewModel(
 
     /** Records how far through [chapterId] the reader has scrolled, as a percent in 0..100. */
     fun reportProgress(chapterId: Long, percent: Int) {
+        recordProgress(chapterId, percent, fromSpeech = false)
+    }
+
+    fun reportVisiblePosition(position: NovelSpeech.Anchor) {
+        mutableState.update {
+            if (it.speaking) it else it.copy(readingPosition = position)
+        }
+    }
+
+    private fun recordProgress(chapterId: Long, percent: Int, fromSpeech: Boolean) {
+        if (state.value.speaking && !fromSpeech) return
+        mutableState.update { it.withProgress(chapterId, percent, fromSpeech) }
         if (incognitoMode) return
         pendingProgress[chapterId] = percent.coerceIn(0, 100)
         progressTicks.tryEmit(Unit)
@@ -962,8 +986,22 @@ class NovelReaderViewModel(
         val speedReadIndex: Int = 0,
         /** Set once the engine has bound and reported that the phone has no voice at all. */
         val speechUnavailable: Boolean = false,
+        val readingPosition: NovelSpeech.Anchor? = null,
     ) {
         val currentChapter: Chapter? get() = chapters.getOrNull(currentIndex)
+
+        /** Speech owns progress while active; its WebView highlight is only a visual follower. */
+        fun withProgress(chapterId: Long, percent: Int, fromSpeech: Boolean): State {
+            if (speaking && !fromSpeech) return this
+            val index = chapters.indexOfFirst { it.id == chapterId }
+            if (index < 0) return this
+            val position = percent.coerceIn(0, 100).toLong()
+            if (chapters[index].lastPageRead == position) return this
+            return copy(
+                chapters = chapters.toMutableList().apply { this[index] = this[index].copy(lastPageRead = position) },
+                speechPosition = speechPosition.takeIf { fromSpeech },
+            )
+        }
     }
 
     companion object {
@@ -986,10 +1024,6 @@ class NovelReaderViewModel(
 
         /** How long the reader must sit still before its position is written. */
         private const val PROGRESS_DEBOUNCE_MS = 400L
-
-        // Upstream stores readerTheme as a bare int with no named constants of its own.
-        private const val READER_THEME_WHITE = 0
-        private const val READER_THEME_BLACK = 1
 
         const val EXTRA_MANGA = "manga"
         const val EXTRA_CHAPTER = "chapter"

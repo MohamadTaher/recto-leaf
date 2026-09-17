@@ -51,7 +51,7 @@ class AndroidSourceManager(
 
     init {
         scope.launch {
-            extensionManager.installedExtensionsFlow
+            extensionManager.loadedExtensionsFlow
                 .collectLatest { extensions ->
                     val mutableMap = ConcurrentHashMap<Long, Source>(
                         // [recto-leaf] LocalNovelSource added here.

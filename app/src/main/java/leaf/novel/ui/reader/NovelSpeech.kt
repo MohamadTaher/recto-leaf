@@ -26,12 +26,19 @@ object NovelSpeech {
     /** A source location stays unambiguous even when another paragraph or chapter says the same thing. */
     data class Position(val chapterId: Long, val block: Int, val start: Int, val text: String)
 
+    /** The top visible character, also used by speech to advance the shared reading location. */
+    data class Anchor(val chapterId: Long, val block: Int, val start: Int)
+
     fun positions(html: String, division: NovelSpeechDivision, chapterId: Long): List<Position> =
         blocks(Jsoup.parse(html)).flatMapIndexed { block, element ->
             val paragraph = element.text().trim()
             val pieces = when (division) {
                 NovelSpeechDivision.PARAGRAPH -> listOf(paragraph)
                 NovelSpeechDivision.SENTENCE -> sentencesIn(paragraph)
+                NovelSpeechDivision.COMMA -> paragraph.split(
+                    Regex("(?<=[,，،])"),
+                ).map(String::trim).filter(String::isNotBlank)
+                NovelSpeechDivision.WORD -> paragraph.split(Regex("\\s+")).filter(String::isNotBlank)
             }
             var cursor = 0
             pieces.map { text ->
@@ -63,6 +70,62 @@ object NovelSpeech {
             before += utterance.length
         }
         return utterances.lastIndex
+    }
+
+    /** Retain the exact spoken unit across Stop; percentages alone round down into earlier units. */
+    fun resumeIndex(percent: Int, positions: List<Position>, bookmark: Position?, anchor: Anchor? = null): Int {
+        if (anchor != null) {
+            val inBlock = positions.indices.filter {
+                positions[it].chapterId == anchor.chapterId && positions[it].block == anchor.block
+            }
+            if (inBlock.isNotEmpty()) {
+                return inBlock.lastOrNull { positions[it].start <= anchor.start } ?: inBlock.first()
+            }
+        }
+        val exact = positions.indexOf(bookmark)
+        return if (exact >= 0) exact else indexAt(percent / 100f, positions.map { it.text })
+    }
+
+    /**
+     * Consecutive units from [fromIndex], joined into utterances of at most [maxLength] characters.
+     *
+     * The engine pads every utterance with its own silence, so small utterances stutter. Joined
+     * with a space they are said as the prose they came from. A group ends with its paragraph, which
+     * is where a pause belongs, unless [acrossParagraphs]: when every unit already is a paragraph,
+     * stopping at each one would join nothing.
+     */
+    fun groups(positions: List<Position>, fromIndex: Int, maxLength: Int, acrossParagraphs: Boolean): List<IntRange> {
+        val groups = mutableListOf<IntRange>()
+        var first = fromIndex
+        var length = 0
+        for (index in fromIndex..positions.lastIndex) {
+            val position = positions[index]
+            val previous = positions.getOrNull(index - 1)
+            val newParagraph = previous == null ||
+                previous.chapterId != position.chapterId ||
+                previous.block != position.block
+            if (index > first &&
+                (length + 1 + position.text.length > maxLength || (newParagraph && !acrossParagraphs))
+            ) {
+                groups += first..<index
+                first = index
+                length = position.text.length
+            } else {
+                length += position.text.length + if (index == first) 0 else 1
+            }
+        }
+        if (first <= positions.lastIndex) groups += first..positions.lastIndex
+        return groups
+    }
+
+    /** The unit of [group] that [offset] into its joined text falls in. */
+    fun unitAt(positions: List<Position>, group: IntRange, offset: Int): Int {
+        var end = 0
+        for (index in group) {
+            end += positions[index].text.length + 1
+            if (offset < end) return index
+        }
+        return group.last
     }
 
     /**

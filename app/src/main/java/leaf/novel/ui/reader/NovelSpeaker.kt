@@ -21,7 +21,8 @@ class NovelSpeaker(context: Context) {
     val speech: StateFlow<State> = state.asStateFlow()
 
     @Volatile
-    private var utterances: List<String> = emptyList()
+    private var utterances: List<NovelSpeech.Position> = emptyList()
+    private var acrossParagraphs = false
 
     private var configuration = Configuration()
     private var engine: TextToSpeech? = null
@@ -70,8 +71,16 @@ class NovelSpeaker(context: Context) {
             setOnUtteranceProgressListener(
                 object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
-                        val index = positionOf(utteranceId) ?: return
+                        val index = groupOf(utteranceId)?.first ?: return
                         state.update { it.copy(index = index, speaking = true, paused = false) }
+                    }
+
+                    // Follows the unit being said inside a joined group. Engines that do not report
+                    // ranges leave the index at the group's first unit.
+                    override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+                        val group = groupOf(utteranceId) ?: return
+                        val index = NovelSpeech.unitAt(utterances, group, start)
+                        state.update { it.copy(index = index) }
                     }
 
                     override fun onDone(utteranceId: String?) = finishIfLast(utteranceId)
@@ -82,18 +91,22 @@ class NovelSpeaker(context: Context) {
                     override fun onError(utteranceId: String?) = finishIfLast(utteranceId)
 
                     private fun finishIfLast(utteranceId: String?) {
-                        val index = positionOf(utteranceId) ?: return
-                        if (index == utterances.lastIndex) this@NovelSpeaker.stop()
+                        val group = groupOf(utteranceId) ?: return
+                        if (group.last == utterances.lastIndex) this@NovelSpeaker.stop()
                     }
                 },
             )
         }
     }
 
-    /** Starts [text] at [fromIndex], replacing anything already queued. */
+    /**
+     * Starts [text] at [fromIndex], replacing anything already queued. [acrossParagraphs] lets one
+     * utterance span paragraphs, for when each unit is a whole paragraph.
+     */
     fun start(
-        text: List<String>,
+        text: List<NovelSpeech.Position>,
         fromIndex: Int,
+        acrossParagraphs: Boolean,
         rate: Int,
         pitch: Int,
         intervalMs: Int,
@@ -101,12 +114,13 @@ class NovelSpeaker(context: Context) {
     ) {
         if (text.isEmpty()) return
         if (!state.value.initialised) {
-            pending = { start(text, fromIndex, rate, pitch, intervalMs, mixAudio) }
+            pending = { start(text, fromIndex, acrossParagraphs, rate, pitch, intervalMs, mixAudio) }
             return
         }
         if (!state.value.available) return
 
         utterances = text
+        this.acrossParagraphs = acrossParagraphs
         configuration = Configuration(rate, pitch, intervalMs, mixAudio)
         queueFrom(fromIndex)
     }
@@ -121,7 +135,7 @@ class NovelSpeaker(context: Context) {
      * A paused queue has been flushed, so the new units are only recorded; [resume] queues them
      * along with the rest from wherever it left off.
      */
-    fun extend(more: List<String>) {
+    fun extend(more: List<NovelSpeech.Position>) {
         if (more.isEmpty()) return
         val fromIndex = utterances.size
         utterances = utterances + more
@@ -129,16 +143,15 @@ class NovelSpeaker(context: Context) {
         val tts = engine.takeIf { state.value.available } ?: return
 
         val current = run.get()
-        more.forEachIndexed { offset, utterance ->
-            val index = fromIndex + offset
+        groupsFrom(fromIndex).forEach { group ->
             if (configuration.intervalMs > 0) {
                 tts.playSilentUtterance(
                     configuration.intervalMs.toLong(),
                     TextToSpeech.QUEUE_ADD,
-                    "$current$ID_SEPARATOR$SILENCE$index",
+                    "$current$ID_SEPARATOR$SILENCE${group.first}",
                 )
             }
-            tts.speak(utterance, TextToSpeech.QUEUE_ADD, null, "$current$ID_SEPARATOR$index")
+            tts.speak(textOf(group), TextToSpeech.QUEUE_ADD, null, idOf(current, group))
         }
     }
 
@@ -196,17 +209,16 @@ class NovelSpeaker(context: Context) {
         tts.setPitch(configuration.pitch / RATE_SCALE)
 
         var accepted = false
-        utterances.drop(fromIndex).forEachIndexed { offset, utterance ->
-            val index = fromIndex + offset
+        groupsFrom(fromIndex).forEachIndexed { offset, group ->
             val mode = if (offset == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-            if (tts.speak(utterance, mode, null, "$current$ID_SEPARATOR$index") == TextToSpeech.SUCCESS) {
+            if (tts.speak(textOf(group), mode, null, idOf(current, group)) == TextToSpeech.SUCCESS) {
                 accepted = true
             }
-            if (configuration.intervalMs > 0 && index < utterances.lastIndex) {
+            if (configuration.intervalMs > 0 && group.last < utterances.lastIndex) {
                 tts.playSilentUtterance(
                     configuration.intervalMs.toLong(),
                     TextToSpeech.QUEUE_ADD,
-                    "$current$ID_SEPARATOR$SILENCE$index",
+                    "$current$ID_SEPARATOR$SILENCE${group.last}",
                 )
             }
         }
@@ -231,11 +243,21 @@ class NovelSpeaker(context: Context) {
         hasAudioFocus = false
     }
 
-    /** Where an utterance sits, or null if its run has since been replaced. */
-    private fun positionOf(utteranceId: String?): Int? {
-        val parts = utteranceId?.split(ID_SEPARATOR)?.takeIf { it.size == 2 } ?: return null
-        if (parts[0].toIntOrNull() != run.get() || parts[1].startsWith(SILENCE)) return null
-        return parts[1].toIntOrNull()
+    private fun groupsFrom(fromIndex: Int): List<IntRange> =
+        NovelSpeech.groups(utterances, fromIndex, TextToSpeech.getMaxSpeechInputLength(), acrossParagraphs)
+
+    private fun textOf(group: IntRange): String = utterances.slice(group).joinToString(" ") { it.text }
+
+    private fun idOf(run: Int, group: IntRange): String =
+        "$run$ID_SEPARATOR${group.first}$ID_SEPARATOR${group.last}"
+
+    /** The units an utterance says, or null if its run has since been replaced. */
+    private fun groupOf(utteranceId: String?): IntRange? {
+        val parts = utteranceId?.split(ID_SEPARATOR)?.takeIf { it.size == 3 } ?: return null
+        if (parts[0].toIntOrNull() != run.get()) return null
+        val first = parts[1].toIntOrNull() ?: return null
+        val last = parts[2].toIntOrNull() ?: return null
+        return first..last
     }
 
     fun shutdown() {
