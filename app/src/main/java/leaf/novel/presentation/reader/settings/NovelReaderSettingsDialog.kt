@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,14 +17,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryScrollableTabRow
@@ -37,9 +37,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.components.AdaptiveSheet
@@ -47,8 +52,10 @@ import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import eu.kanade.tachiyomi.util.system.readerBackgroundColor
 import kotlinx.coroutines.launch
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
+import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
@@ -63,8 +70,6 @@ import leaf.novel.ui.reader.setting.NovelStatusBarTap
 import leaf.novel.ui.reader.setting.NovelStatusItem
 import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
-import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.rounded.ExpandMore
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.i18n.MR
@@ -202,30 +207,43 @@ private fun ColumnScope.VisualPage(
             FilterChip(
                 selected = font == candidate,
                 onClick = { novelReaderPreferences.font.set(candidate) },
-                label = { Text(stringResource(candidate.titleRes)) },
+                label = { Text(stringResource(candidate.titleRes), fontFamily = candidate.fontFamily) },
             )
         }
     }
 
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_bold),
-        pref = novelReaderPreferences.bold,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_italic),
-        pref = novelReaderPreferences.italic,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_underline),
-        pref = novelReaderPreferences.underline,
-    )
-
-    CheckboxItem(
-        label = stringResource(MR.strings.leaf_novel_reader_shadow),
-        pref = novelReaderPreferences.shadow,
-    )
+    FlowRow(
+        modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val styles = listOf(
+            MR.strings.leaf_novel_reader_bold to novelReaderPreferences.bold,
+            MR.strings.leaf_novel_reader_italic to novelReaderPreferences.italic,
+            MR.strings.leaf_novel_reader_underline to novelReaderPreferences.underline,
+            MR.strings.leaf_novel_reader_shadow to novelReaderPreferences.shadow,
+        )
+        styles.forEach { (label, preference) ->
+            val checked by preference.collectAsState()
+            FilterChip(
+                selected = checked,
+                onClick = { preference.toggle() },
+                label = {
+                    Text(
+                        text = stringResource(label),
+                        fontWeight = if (preference == novelReaderPreferences.bold) FontWeight.Bold else null,
+                        fontStyle = if (preference == novelReaderPreferences.italic) FontStyle.Italic else null,
+                        textDecoration = if (preference ==
+                            novelReaderPreferences.underline
+                        ) {
+                            TextDecoration.Underline
+                        } else {
+                            null
+                        },
+                    )
+                },
+            )
+        }
+    }
 
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_antialias),
@@ -248,8 +266,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_paragraph_spacing),
         value = paragraphSpacing,
+        valueString = "${paragraphSpacing * 3 / 2}%",
         valueRange = NovelReaderPreferences.PARAGRAPH_SPACING_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.paragraphSpacing.set(it) },
     )
 
@@ -257,8 +276,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_indent_first_line),
         value = paragraphIndent,
+        valueString = "${paragraphIndent * 3 / 2}%",
         valueRange = NovelReaderPreferences.PARAGRAPH_INDENT_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.paragraphIndent.set(it) },
     )
 
@@ -266,6 +286,7 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_line_spacing),
         value = lineSpacing,
+        valueString = "${(12 + lineSpacing).coerceAtLeast(7) / 10f}×",
         valueRange = NovelReaderPreferences.LINE_SPACING_RANGE,
         onChange = { novelReaderPreferences.lineSpacing.set(it) },
     )
@@ -274,6 +295,7 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_font_spacing),
         value = fontSpacing,
+        valueString = "$fontSpacing%",
         valueRange = NovelReaderPreferences.FONT_SPACING_RANGE,
         onChange = { novelReaderPreferences.fontSpacing.set(it) },
     )
@@ -282,6 +304,7 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_font_scale),
         value = fontScale,
+        valueString = "${100 + fontScale * 2.5f}%",
         valueRange = NovelReaderPreferences.FONT_SCALE_RANGE,
         onChange = { novelReaderPreferences.fontScale.set(it) },
     )
@@ -292,8 +315,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_margin_left),
         value = marginLeft,
+        valueString = "${NovelReaderCss.marginDp(marginLeft)} dp",
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.marginLeft.set(it) },
     )
 
@@ -301,8 +325,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_margin_right),
         value = marginRight,
+        valueString = "${NovelReaderCss.marginDp(marginRight)} dp",
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.marginRight.set(it) },
     )
 
@@ -310,8 +335,9 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_margin_top),
         value = marginTop,
+        valueString = "${NovelReaderCss.marginDp(marginTop)} dp",
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.marginTop.set(it) },
     )
 
@@ -319,15 +345,20 @@ private fun ColumnScope.VisualPage(
     SliderItem(
         label = stringResource(MR.strings.leaf_novel_reader_margin_bottom),
         value = marginBottom,
+        valueString = "${NovelReaderCss.marginDp(marginBottom)} dp",
         valueRange = NovelReaderPreferences.MARGIN_RANGE,
-        steps = STEPPED_SLIDER_STOPS,
+        steps = 0,
         onChange = { novelReaderPreferences.marginBottom.set(it) },
     )
 
     SectionHeading(MR.strings.leaf_novel_reader_heading_images)
 
-    val imageSize by novelReaderPreferences.imageSize.collectAsState()
-    ImageSizeRow(imageSize) { novelReaderPreferences.imageSize.set(it) }
+    EnumSelectItem(
+        label = stringResource(MR.strings.leaf_novel_reader_image_size),
+        preference = novelReaderPreferences.imageSize,
+        options = NovelImageSize.entries,
+        labelOf = { stringResource(it.titleRes) },
+    )
 
     CheckboxItem(
         label = stringResource(MR.strings.leaf_novel_reader_center_images),
@@ -351,6 +382,13 @@ private fun ColumnScope.VisualPage(
         named.ifBlank { stringResource(candidate.titleRes) }
     }
 
+    val readerTheme by readerPreferences.readerTheme.collectAsState()
+    val mihonBackground = LocalContext.current.readerBackgroundColor(readerTheme)
+    val customColors = novelReaderPreferences.customThemes.map { custom ->
+        val background by custom.background.collectAsState()
+        val foreground by custom.foreground.collectAsState()
+        if (background == NovelCustomTheme.UNSET) null else NovelReaderColors(background, foreground)
+    }
     ChipSettingRow(stringResource(MR.strings.leaf_novel_reader_theme)) {
         NovelReaderTheme.entries.map { candidate ->
             FilterChip(
@@ -364,6 +402,23 @@ private fun ColumnScope.VisualPage(
                     novelReaderPreferences.theme.set(candidate)
                 },
                 label = { Text(themeLabel(candidate)) },
+                leadingIcon = {
+                    val preview = candidate.colors(mihonBackground, customColors)
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .background(Color(preview.background)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "Aa",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(preview.foreground),
+                            fontFamily = font.fontFamily,
+                        )
+                    }
+                },
             )
         }
     }
@@ -401,14 +456,15 @@ private fun ColumnScope.VisualPage(
         labelOf = themeLabel,
     )
 
-    val readerTheme by readerPreferences.readerTheme.collectAsState()
-    ChipSettingRow(stringResource(MR.strings.pref_reader_theme)) {
-        themes.map { (labelRes, value) ->
-            FilterChip(
-                selected = readerTheme == value,
-                onClick = { readerPreferences.readerTheme.set(value) },
-                label = { Text(stringResource(labelRes)) },
-            )
+    if (novelTheme == NovelReaderTheme.FOLLOW_MIHON) {
+        ChipSettingRow(stringResource(MR.strings.pref_reader_theme)) {
+            themes.map { (labelRes, value) ->
+                FilterChip(
+                    selected = readerTheme == value,
+                    onClick = { readerPreferences.readerTheme.set(value) },
+                    label = { Text(stringResource(labelRes)) },
+                )
+            }
         }
     }
 }
@@ -791,19 +847,6 @@ private fun ChipSettingRow(label: String, content: @Composable FlowRowScope.() -
     }
 }
 
-@Composable
-private fun ImageSizeRow(selected: NovelImageSize, onSelect: (NovelImageSize) -> Unit) {
-    ChipSettingRow(stringResource(MR.strings.leaf_novel_reader_image_size)) {
-        NovelImageSize.entries.forEach { candidate ->
-            FilterChip(
-                selected = selected == candidate,
-                onClick = { onSelect(candidate) },
-                label = { Text(stringResource(candidate.titleRes)) },
-            )
-        }
-    }
-}
-
 /**
  * The nine bindings laid out the way they sit on the page, so the setting looks like the thing it
  * controls. Each cell anchors its own picker rather than opening a dialog on top of this one.
@@ -938,31 +981,20 @@ private fun <T : Enum<T>> EnumSelectItem(
     Box {
         Row(
             modifier = Modifier
-                .clickable(role = Role.Button) { expanded = true }
+                .clickable { expanded = true }
                 .fillMaxWidth()
-                .heightIn(min = 64.dp)
                 .padding(
                     horizontal = SettingsItemsPaddings.Horizontal,
                     vertical = SettingsItemsPaddings.Vertical,
                 ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(text = label, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    text = labelOf(selected),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Icon(
-                imageVector = MaterialSymbols.Rounded.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(text = label, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = labelOf(selected),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
 
@@ -987,11 +1019,7 @@ private fun <T : Enum<T>> EnumPicker(
     onDismissRequest: () -> Unit,
     onSelect: (T) -> Unit,
 ) {
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismissRequest,
-        modifier = Modifier.widthIn(min = 280.dp),
-    ) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismissRequest) {
         options.forEach { candidate ->
             RadioMenuItem(
                 text = { Text(labelOf(candidate)) },
@@ -1005,5 +1033,10 @@ private fun <T : Enum<T>> EnumPicker(
     }
 }
 
-/** Twenty equal intervals across the 0–200 paragraph and margin controls. */
-private const val STEPPED_SLIDER_STOPS = 19
+private val NovelReaderFont.fontFamily: FontFamily
+    get() = when (this) {
+        NovelReaderFont.SYSTEM -> FontFamily.Default
+        NovelReaderFont.SANS_SERIF -> FontFamily.SansSerif
+        NovelReaderFont.SERIF -> FontFamily.Serif
+        NovelReaderFont.MONOSPACE -> FontFamily.Monospace
+    }

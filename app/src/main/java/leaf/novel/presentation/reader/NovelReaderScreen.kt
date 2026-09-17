@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -38,8 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -389,20 +386,16 @@ fun NovelReaderScreen(
     val readingRuler by viewModel.novelReaderPreferences.readingRuler.collectAsState()
     val publisherPreview by viewModel.novelReaderPreferences.publisherPreview.collectAsState()
     val showStatusBar by viewModel.novelReaderPreferences.showStatusBar.collectAsState()
-    val panelDensity = LocalDensity.current
-    val maximumPanelHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
-    var measuredPanelHeight by remember(showSpeechControls, state.speedReading, state.autoScrolling) {
-        mutableStateOf(0.dp)
+    val speechPanelHeight = (
+        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
+            SPEECH_PANEL_HEIGHT_FRACTION
+        ).dp.coerceIn(MIN_SPEECH_PANEL_HEIGHT, MAX_SPEECH_PANEL_HEIGHT)
+    val bottomPanelHeight = when {
+        showSpeechControls -> speechPanelHeight
+        state.speedReading -> SPEED_READ_PANEL_HEIGHT
+        state.autoScrolling -> AUTO_SCROLL_PANEL_HEIGHT
+        else -> 0.dp
     }
-    val bottomPanelHeight = if (showSpeechControls || state.speedReading || state.autoScrolling) {
-        measuredPanelHeight
-    } else {
-        0.dp
-    }
-    val panelModifier = Modifier
-        .fillMaxWidth()
-        .heightIn(max = maximumPanelHeight)
-        .onSizeChanged { measuredPanelHeight = with(panelDensity) { it.height.toDp() } }
     val statusPlacements = viewModel.novelReaderPreferences.statusSlots
         .mapValues { (_, preference) -> preference.collectAsState().value }
     val disableTouchEdge by viewModel.novelReaderPreferences.disableTouchEdge.collectAsState()
@@ -502,6 +495,23 @@ fun NovelReaderScreen(
             } else {
                 seekRequests.tryEmit(percent)
             }
+        }
+    }
+
+    val statusBar: @Composable () -> Unit = {
+        if (chapter != null) {
+            NovelStatusBar(
+                placements = statusPlacements,
+                chapterName = chapter.name,
+                chapterNumber = state.currentIndex + 1,
+                chapterCount = state.chapters.size,
+                chapterPercent = livePercent,
+                screens = webViewController.screens,
+                minutesRemaining = NovelReadingTime.minutesRemaining(state.chapterWords, livePercent),
+                colors = colors,
+                onTap = { performStatusBarPress(it, longPress = false) },
+                onLongTap = { performStatusBarPress(it, longPress = true) },
+            )
         }
     }
 
@@ -607,19 +617,7 @@ fun NovelReaderScreen(
             bottomPanelHeight == 0.dp &&
             chapter != null
         ) {
-            NovelStatusBar(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                placements = statusPlacements,
-                chapterName = chapter.name,
-                chapterNumber = state.currentIndex + 1,
-                chapterCount = state.chapters.size,
-                chapterPercent = livePercent,
-                screens = webViewController.screens,
-                minutesRemaining = NovelReadingTime.minutesRemaining(state.chapterWords, livePercent),
-                colors = colors,
-                onTap = { performStatusBarPress(it, longPress = false) },
-                onLongTap = { performStatusBarPress(it, longPress = true) },
-            )
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) { statusBar() }
         }
 
         ContentOverlay(
@@ -694,7 +692,11 @@ fun NovelReaderScreen(
                 onStop = ::closeSpeechControls,
                 onSettings = { showSpeechOptions = true },
                 onSettingsChanged = viewModel::applySpeechSettings,
-                modifier = panelModifier.align(Alignment.BottomCenter),
+                footer = statusBar.takeIf { showStatusBar && chapter != null },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(speechPanelHeight),
             )
         }
 
@@ -702,7 +704,10 @@ fun NovelReaderScreen(
             NovelAutoScrollPanel(
                 preferences = viewModel.novelReaderPreferences,
                 onStop = { viewModel.setAutoScrolling(false) },
-                modifier = panelModifier.align(Alignment.BottomCenter),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(AUTO_SCROLL_PANEL_HEIGHT),
             )
         }
 
@@ -710,7 +715,10 @@ fun NovelReaderScreen(
             NovelSpeedReadPanel(
                 preferences = viewModel.novelReaderPreferences,
                 onStop = viewModel::stopSpeedReading,
-                modifier = panelModifier.align(Alignment.BottomCenter),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(SPEED_READ_PANEL_HEIGHT),
             )
         }
 
@@ -1233,6 +1241,13 @@ private const val AUTO_SCROLL_TICK_MS = 16L
 
 /** Six pixels a second per speed step, so the default of 5 is roughly a line a second. */
 private const val AUTO_SCROLL_PX_PER_STEP = 6
+
+/** The supplied Moon+ panel occupies just under a quarter of its portrait screen. */
+private const val SPEECH_PANEL_HEIGHT_FRACTION = 0.225f
+private val MIN_SPEECH_PANEL_HEIGHT = 176.dp
+private val MAX_SPEECH_PANEL_HEIGHT = 240.dp
+private val AUTO_SCROLL_PANEL_HEIGHT = 112.dp
+private val SPEED_READ_PANEL_HEIGHT = 176.dp
 
 /** Tall enough to sit under a line of text at any size the reader offers. */
 private val READING_RULER_HEIGHT = 28.dp
