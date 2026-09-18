@@ -89,7 +89,7 @@ fun NovelCommentsSheet(
 
     // Focusing re-roots the list, so it has to start at the top rather than wherever the previous
     // thread happened to be scrolled to.
-    LaunchedEffect(state.focus, state.scope, state.sortKey) {
+    LaunchedEffect(state.focus, state.sortKey, state.localSort) {
         listState.scrollToItem(0)
     }
 
@@ -98,7 +98,6 @@ fun NovelCommentsSheet(
             NovelCommentsHeader(
                 state = state,
                 onRefresh = comments::reload,
-                onSetScope = comments::setScope,
                 onSetSort = comments::setSort,
                 onSetLocalSort = comments::setLocalSort,
                 onCollapseAll = comments::collapseAll,
@@ -189,7 +188,11 @@ fun NovelCommentsSheet(
                             }
                         }
 
-                        if (state.hasMore) {
+                        // No button while the rest is on its way — the next page is already
+                        // being fetched, and a button that says "load more" over a fetch that is
+                        // running is one the reader can only get wrong. It appears only where the
+                        // fetch stopped short: at the page cap, or on a failure part way down.
+                        if (state.loadingMore || state.hasMore) {
                             item(key = "more") {
                                 ThreadAction(
                                     label = stringResource(MR.strings.leaf_novel_comments_load_more),
@@ -222,7 +225,6 @@ fun NovelCommentsSheet(
 private fun NovelCommentsHeader(
     state: NovelCommentsState,
     onRefresh: () -> Unit,
-    onSetScope: (NovelCommentScope) -> Unit,
     onSetSort: (NovelCommentSort) -> Unit,
     onSetLocalSort: (NovelCommentLocalSort) -> Unit,
     onCollapseAll: () -> Unit,
@@ -230,7 +232,7 @@ private fun NovelCommentsHeader(
     onClearFocus: () -> Unit,
     onNextComment: () -> Unit,
 ) {
-    val capabilities = state.capabilities ?: return
+    if (state.capabilities == null) return
     var menuExpanded by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.padding(horizontal = MaterialTheme.padding.medium)) {
@@ -294,31 +296,9 @@ private fun NovelCommentsHeader(
             }
         }
 
-        // Only where the site has both. One chip that cannot be turned off is not a choice.
-        if (capabilities.scopes.size > 1) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall)) {
-                NovelCommentScope.entries
-                    .filter { it in capabilities.scopes }
-                    .forEach { scope ->
-                        FilterChip(
-                            selected = state.scope == scope,
-                            onClick = { onSetScope(scope) },
-                            label = {
-                                Text(
-                                    stringResource(
-                                        if (scope == NovelCommentScope.CHAPTER) {
-                                            MR.strings.leaf_novel_comments_scope_chapter
-                                        } else {
-                                            MR.strings.leaf_novel_comments_scope_novel
-                                        },
-                                    ),
-                                )
-                            },
-                        )
-                    }
-            }
-        }
-
+        // The site's own orders where it has any, because it ranks from data it does not
+        // necessarily send; the reader's own three only where it has none. See
+        // [NovelCommentsState.localSort].
         FlowRow(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall)) {
             if (state.sorts.isNotEmpty()) {
                 state.sorts.forEach { sort ->
@@ -340,8 +320,8 @@ private fun NovelCommentsHeader(
             }
         }
 
-        // Said out loud, because a local sort over a paginated site orders the page rather than the
-        // thread and a reader who is not told will read it as the site's own answer.
+        // Said out loud, because a local order over a thread that stopped short covers what was
+        // fetched rather than what exists, and a reader who is not told will read it as the whole.
         if (state.sorts.isEmpty() && state.hasMore) {
             Text(
                 text = stringResource(MR.strings.leaf_novel_comments_sort_local),
@@ -449,6 +429,13 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
 private fun NovelCommentComposer(state: NovelCommentsState, comments: NovelComments) {
     var draft by remember(state.replyingTo?.id) { mutableStateOf("") }
 
+    // Emptied by a post that landed, never by one that was merely sent. A site can refuse a comment
+    // for a dozen reasons, and losing what someone wrote to any of them is the one outcome a
+    // composer must not have.
+    LaunchedEffect(state.posted) {
+        if (state.posted > 0) draft = ""
+    }
+
     Column(modifier = Modifier.padding(MaterialTheme.padding.medium)) {
         state.replyingTo?.let { parent ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -491,10 +478,7 @@ private fun NovelCommentComposer(state: NovelCommentsState, comments: NovelComme
             }
 
             TextButton(
-                onClick = {
-                    comments.post(draft)
-                    draft = ""
-                },
+                onClick = { comments.post(draft) },
                 enabled = draft.isNotBlank() && !state.posting,
             ) {
                 Text(stringResource(MR.strings.leaf_novel_comments_post))

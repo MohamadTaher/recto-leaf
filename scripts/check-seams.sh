@@ -31,6 +31,7 @@ app/src/main/java/eu/kanade/tachiyomi/ui/library/LibraryViewModel.kt
 app/src/main/java/eu/kanade/tachiyomi/ui/library/LibraryTab.kt
 app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaViewModel.kt
 app/src/main/java/eu/kanade/presentation/manga/MangaScreen.kt
+app/src/main/java/eu/kanade/presentation/manga/components/MangaInfoHeader.kt
 app/src/main/java/eu/kanade/tachiyomi/data/download/Downloader.kt
 app/src/main/java/mihon/app/di/AppGraph.kt
 app/src/main/AndroidManifest.xml

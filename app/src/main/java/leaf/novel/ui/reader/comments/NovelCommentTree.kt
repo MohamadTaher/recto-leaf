@@ -45,7 +45,9 @@ object NovelCommentTree {
         // A source that repeats an id would otherwise produce two rows with the same Compose key.
         val unique = comments.distinctBy { it.id }
         val byId = unique.associateBy { it.id }
-        if (unique.none { it.parentId != null && byId.containsKey(it.parentId) }) return unique
+        // [dedupe] rather than the list itself: a nested source can repeat an id inside a reply
+        // chain, where distinctBy — which only ever sees the top level — cannot reach it.
+        if (unique.none { it.parentId != null && byId.containsKey(it.parentId) }) return dedupe(unique)
 
         val children = unique
             .filter { it.parentId != null && byId.containsKey(it.parentId) && it.parentId != it.id }
@@ -60,15 +62,20 @@ object NovelCommentTree {
                 .orEmpty()
                 .filterNot { it.id in seen }
                 .map { attach(it, seen + it.id) }
-            return when {
-                nested.isEmpty() -> comment
-                // A source that both nested and flattened the same replies would double them.
-                comment.replies.isNotEmpty() -> comment
-                else -> comment.copy(
-                    replies = nested,
-                    replyCount = maxOf(comment.replyCount, nested.size),
-                )
-            }
+            if (nested.isEmpty()) return comment
+
+            // A source that both nested and flattened the same reply would double it, so the flat
+            // copies of replies already attached are dropped — and only those. Dropping the whole
+            // batch would lose the replies the site sent only the flat way, which is a comment
+            // disappearing rather than a comment drawn twice.
+            val known = comment.replies.mapTo(mutableSetOf()) { it.id }
+            val added = nested.filterNot { it.id in known }
+            if (added.isEmpty()) return comment
+
+            return comment.copy(
+                replies = comment.replies + added,
+                replyCount = maxOf(comment.replyCount, comment.replies.size + added.size),
+            )
         }
 
         val forest = unique
@@ -83,7 +90,31 @@ object NovelCommentTree {
             if (comment.id !in attached) forest += attach(comment, setOf(comment.id))
         }
 
-        return forest
+        return dedupe(forest)
+    }
+
+    /**
+     * [addition] appended to [roots] with everything already in them left out.
+     *
+     * The page a site returns is not always disjoint from the one before it — a comment posted
+     * between the two requests shifts the rest along, and a comment that arrived as a reply on the
+     * first page can come back as a root on the second. Appending both copies would draw the
+     * comment twice under one row key, so the later copy is dropped and the one already on screen,
+     * with whatever replies have since been fetched under it, is the one that stays.
+     */
+    fun merge(roots: List<NovelComment>, addition: List<NovelComment>): List<NovelComment> =
+        roots + dedupe(addition, ids(roots))
+
+    /** Every id in the forest, replies included. */
+    fun ids(roots: List<NovelComment>): Set<String> {
+        val ids = mutableSetOf<String>()
+        val stack = ArrayDeque(roots)
+        while (stack.isNotEmpty()) {
+            val comment = stack.removeLast()
+            ids += comment.id
+            stack.addAll(comment.replies)
+        }
+        return ids
     }
 
     /**
@@ -224,20 +255,31 @@ object NovelCommentTree {
         }
     }
 
-    /** Appends a lazily fetched page of replies to the comment that asked for them. */
+    /**
+     * Appends a lazily fetched page of replies to the comment that asked for them.
+     *
+     * @param complete when the site has no more to give, which settles [NovelComment.replyCount] at
+     * what actually arrived. Without that a site whose count includes replies it will not serve —
+     * deleted ones, usually — leaves a "show three more replies" row that can never be satisfied,
+     * and every tap on it is another request for the same page.
+     */
     fun addReplies(
         roots: List<NovelComment>,
         parentId: String,
         replies: List<NovelComment>,
+        complete: Boolean = false,
     ): List<NovelComment> = roots.map {
         when {
             it.id == parentId -> {
                 val known = it.replies.mapTo(mutableSetOf()) { reply -> reply.id }
                 val merged = it.replies + replies.filterNot { reply -> reply.id in known }
-                it.copy(replies = merged, replyCount = maxOf(it.replyCount, merged.size))
+                it.copy(
+                    replies = merged,
+                    replyCount = if (complete) merged.size else maxOf(it.replyCount, merged.size),
+                )
             }
             it.replies.isEmpty() -> it
-            else -> it.copy(replies = addReplies(it.replies, parentId, replies))
+            else -> it.copy(replies = addReplies(it.replies, parentId, replies, complete))
         }
     }
 
@@ -255,6 +297,44 @@ object NovelCommentTree {
         }
         return walk(roots, emptyList()).orEmpty()
     }
+
+    /**
+     * The forest with every repeated id removed, wherever in it the repeat sits.
+     *
+     * Looked for iteratively and rebuilt only when something is found: a repeat is rare, a thread
+     * can be as deep as the site allowed, and a walk that finds nothing must not be the thing that
+     * overflows the stack.
+     */
+    private fun dedupe(roots: List<NovelComment>, known: Set<String> = emptySet()): List<NovelComment> {
+        val seen = known.toMutableSet()
+        var repeated = false
+        val stack = ArrayDeque(roots)
+        while (stack.isNotEmpty()) {
+            val comment = stack.removeLast()
+            if (!seen.add(comment.id)) {
+                repeated = true
+                break
+            }
+            stack.addAll(comment.replies)
+        }
+        return if (repeated) prune(roots, known.toMutableSet()) else roots
+    }
+
+    /**
+     * [roots] without the comments in [seen], which it fills as it goes.
+     *
+     * A whole subtree goes rather than just its head: a duplicate is the same comment arriving
+     * twice, so its replies are the replies already under the copy that is kept, and promoting them
+     * would strand a reply at the top level with nothing above it.
+     */
+    private fun prune(roots: List<NovelComment>, seen: MutableSet<String>): List<NovelComment> =
+        roots.mapNotNull { comment ->
+            when {
+                !seen.add(comment.id) -> null
+                comment.replies.isEmpty() -> comment
+                else -> comment.copy(replies = prune(comment.replies, seen))
+            }
+        }
 
     private fun countDescendants(comment: NovelComment): Int {
         var total = 0

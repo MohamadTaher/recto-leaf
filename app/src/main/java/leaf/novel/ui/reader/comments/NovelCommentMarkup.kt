@@ -23,9 +23,6 @@ import org.jsoup.nodes.TextNode
  */
 object NovelCommentMarkup {
 
-    /** Beyond this a comment is quoting an essay; the sheet clips it and offers the rest. */
-    const val COLLAPSE_AFTER_LINES = 10
-
     /** Prefix for a list item. The sheet has no list layout, and a bullet reads the same. */
     private const val BULLET = "• "
 

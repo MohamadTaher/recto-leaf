@@ -46,6 +46,7 @@ import leaf.novel.data.imports.NovelImporter
 import leaf.novel.library.NovelLibraryPreferences
 import leaf.novel.ui.reader.NovelReaderActivity
 import leaf.novel.ui.reader.NovelReaderRouter
+import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import mihon.core.metro.IsDebugBuild
 import mihon.domain.extension.interactor.GetExtensionStoreCountAsFlow
 import nl.adaptivity.xmlutil.serialization.XML
@@ -131,10 +132,11 @@ interface AppGraph : ViewModelGraph {
 
     val getExtensionStoreCountAsFlow: GetExtensionStoreCountAsFlow
 
-    // [recto-leaf] Reached from Compose: the browse screen's import action and the
-    // library's content-type selector.
+    // [recto-leaf] Reached from Compose: the browse screen's import action, the
+    // library's content-type selector, and the novel screen's comments button.
     val novelImporter: NovelImporter
     val novelLibraryPreferences: NovelLibraryPreferences
+    val novelReaderPreferences: NovelReaderPreferences
     val novelReaderRouter: NovelReaderRouter
 
     // [recto-leaf] Reached from NovelSpeechSession, which writes chapter progress at process

@@ -4,7 +4,6 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
-import leaf.novel.api.NovelCommentScope
 import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
@@ -259,10 +258,6 @@ class NovelReaderPreferences(
     val commentsEnabled: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_comments_enabled", true)
 
-    /** Which comments to open on, where the source serves both. */
-    val commentsScope: Preference<NovelCommentScope> =
-        preferenceStore.getEnum("leaf_novel_comments_scope", NovelCommentScope.CHAPTER)
-
     /**
      * The last order chosen, as the source's own key.
      *
@@ -279,11 +274,12 @@ class NovelReaderPreferences(
         preferenceStore.getEnum("leaf_novel_comments_local_sort", NovelCommentLocalSort.TOP)
 
     /**
-     * Whether opening the sheet fetches, or waits to be asked.
+     * Whether comments are fetched ahead, or wait to be asked for.
      *
-     * On by default, because a sheet that opens on a button labelled "comments" and then shows a
-     * second button labelled "load comments" is a joke at the reader's expense. Off is for metered
-     * connections and rate-limited sites.
+     * On by default: a chapter's comments start as the chapter opens and the chapters either side
+     * are fetched behind them, so the sheet is full the moment it is opened. Off is for metered
+     * connections and rate-limited sites — nothing is then fetched until the sheet opens, and a
+     * thread that has not been asked for offers a button rather than fetching itself.
      */
     val commentsAutoLoad: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_comments_auto_load", true)
@@ -424,9 +420,10 @@ class NovelReaderPreferences(
     /**
      * Which action each slot of the bottom bar carries, in order.
      *
-     * The defaults are the four buttons the bar has always had, so a reader who never opens the
-     * setting keeps the bar they know. Resolving the slots into a bar is presentation's job — only
-     * it knows which actions have a glyph.
+     * The defaults are the four buttons the bar has always had, plus comments in the fifth slot and
+     * the overflow menu pushed into the sixth, which was empty — so a reader who never opens the
+     * setting keeps every button they know. Resolving the slots into a bar is presentation's job —
+     * only it knows which actions have a glyph, and which of them this novel's source can serve.
      */
     val barButtons: List<Preference<NovelReaderAction>> = List(BAR_SLOTS) { slot ->
         preferenceStore.getReaderAction("leaf_novel_bar_button_${slot + 1}", defaultBarButton(slot))

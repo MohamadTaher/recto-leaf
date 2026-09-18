@@ -55,7 +55,6 @@ import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.launch
-import leaf.novel.api.NovelCommentScope
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.comments.NovelCommentLocalSort
@@ -495,21 +494,6 @@ private fun ColumnScope.MiscellaneousPage(
     // the same rule the status bar rows follow above.
     val commentsEnabled by novelReaderPreferences.commentsEnabled.collectAsState()
     if (commentsEnabled) {
-        EnumSelectItem(
-            label = stringResource(MR.strings.leaf_novel_comments_setting_scope),
-            preference = novelReaderPreferences.commentsScope,
-            options = NovelCommentScope.entries,
-            labelOf = {
-                stringResource(
-                    if (it == NovelCommentScope.CHAPTER) {
-                        MR.strings.leaf_novel_comments_scope_chapter
-                    } else {
-                        MR.strings.leaf_novel_comments_scope_novel
-                    },
-                )
-            },
-        )
-
         EnumSelectItem(
             label = stringResource(MR.strings.action_sort),
             preference = novelReaderPreferences.commentsLocalSort,

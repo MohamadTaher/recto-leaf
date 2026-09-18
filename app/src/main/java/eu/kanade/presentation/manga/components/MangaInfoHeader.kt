@@ -76,6 +76,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.daysUntil
+import leaf.novel.presentation.reader.comments.NovelCommentGlyphs
 import mihon.app.di.appGraph
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.AttachMoney
@@ -182,6 +183,9 @@ fun MangaActionRow(
     onTrackingClicked: () -> Unit,
     onEditIntervalClicked: (() -> Unit)?,
     onEditCategory: (() -> Unit)?,
+    // [recto-leaf] the novel's own comments; null on anything that does not serve them, which is
+    // every manga source and most novel ones. See leaf.novel.presentation.manga.
+    onNovelCommentsClicked: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val defaultActionButtonColor = MaterialTheme.colorScheme.onSurface.copy(alpha = DISABLED_ALPHA)
@@ -239,6 +243,15 @@ fun MangaActionRow(
                 color = defaultActionButtonColor,
                 onClick = onWebViewClicked,
                 onLongClick = onWebViewLongClicked,
+            )
+        }
+        // [recto-leaf] last, so that the row upstream draws is the row upstream drew.
+        if (onNovelCommentsClicked != null) {
+            MangaActionButton(
+                title = stringResource(MR.strings.leaf_novel_comments_novel),
+                icon = NovelCommentGlyphs.Comments,
+                color = defaultActionButtonColor,
+                onClick = onNovelCommentsClicked,
             )
         }
     }
@@ -729,6 +742,9 @@ private fun RowScope.MangaActionButton(
         onClick = onClick,
         modifier = Modifier.weight(1f),
         onLongClick = onLongClick,
+        // [recto-leaf] the row carries a fifth button on a novel that has comments, and at a fifth
+        // of a phone's width the default padding is what breaks "Tracking" across two lines.
+        contentPadding = PaddingValues(vertical = 8.dp),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(

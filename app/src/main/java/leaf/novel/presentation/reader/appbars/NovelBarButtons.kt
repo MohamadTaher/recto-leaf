@@ -48,11 +48,11 @@ object NovelBarButtons {
     /**
      * The bar out of the box: the four settings tabs, comments, and the overflow menu last.
      *
-     * Comments takes the sixth slot, which was empty, so nothing a reader already had moves. It
-     * comes before the overflow rather than after it because an overflow menu belongs at the end of
-     * a bar, and it is on the bar by default because a comments button nobody can find is a comments
-     * button nobody uses. It draws nothing on a source that has no comments — see
-     * [leaf.novel.ui.reader.comments.NovelComments.supported].
+     * Comments takes the fifth slot and pushes the overflow into the sixth, which was empty, so a
+     * default bar gains a button rather than losing one. It comes before the overflow rather than
+     * after it because an overflow menu belongs at the end of a bar, and it is on the bar by default
+     * because a comments button nobody can find is a comments button nobody uses. It draws nothing
+     * on a source that has no comments — see [resolve]'s `unavailable`.
      */
     val DEFAULT = listOf(
         NovelReaderAction.VISUAL_OPTIONS,
@@ -73,12 +73,20 @@ object NovelBarButtons {
      * bar and nothing else has to be enforced while editing. An empty result falls back to
      * [DEFAULT] rather than leaving a bar with nothing on it — a reader who has cleared every slot
      * has not asked for the chrome to disappear, and there would be no way back if they had.
+     *
+     * @param unavailable actions this novel cannot carry out — comments on a source that has none.
+     * They are taken out here rather than by the caller so that the fallback drops them too: a
+     * reader whose one chosen button was comments would otherwise be left with a bar of nothing,
+     * which is the very state [DEFAULT] exists to prevent.
      */
-    fun resolve(chosen: List<NovelReaderAction>): List<NovelReaderAction> =
-        chosen.filter { it != NovelReaderAction.NONE }
+    fun resolve(
+        chosen: List<NovelReaderAction>,
+        unavailable: Set<NovelReaderAction> = emptySet(),
+    ): List<NovelReaderAction> =
+        chosen.filter { it != NovelReaderAction.NONE && it !in unavailable }
             .distinct()
             .take(SLOTS)
-            .ifEmpty { DEFAULT }
+            .ifEmpty { DEFAULT.filterNot { it in unavailable } }
 
     /** The glyph for a candidate. Null for anything that is not one. */
     fun iconFor(action: NovelReaderAction): ImageVector? = when (action) {

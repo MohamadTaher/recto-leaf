@@ -90,6 +90,50 @@ class NovelCommentTreeTest {
         NovelCommentTree.count(NovelCommentTree.build(flat)) shouldBe 2
     }
 
+    /**
+     * A source that nests some replies and flattens others contradicts itself, and the reply it
+     * sent only the flat way is still a comment somebody wrote.
+     */
+    @Test
+    fun `keeps a flat reply whose parent already carries nested ones`() {
+        val mixed = listOf(
+            comment("1", replies = listOf(comment("1a", parentId = "1"))),
+            comment("1b", parentId = "1"),
+        )
+
+        val roots = NovelCommentTree.build(mixed)
+
+        roots.map { it.id } shouldBe listOf("1")
+        roots[0].replies.map { it.id } shouldBe listOf("1a", "1b")
+    }
+
+    /** The same reply sent both ways is one comment, and must not become two rows. */
+    @Test
+    fun `does not double a reply that arrived nested and flat`() {
+        val mixed = listOf(
+            comment("1", replies = listOf(comment("1a", parentId = "1"))),
+            comment("1a", parentId = "1"),
+        )
+
+        val roots = NovelCommentTree.build(mixed)
+
+        roots[0].replies.map { it.id } shouldBe listOf("1a")
+        NovelCommentTree.count(roots) shouldBe 2
+    }
+
+    /** `distinctBy` only ever sees the top level, and a repeat can be buried anywhere. */
+    @Test
+    fun `drops a repeated id nested inside a reply chain`() {
+        val nested = listOf(
+            comment("1", replies = listOf(comment("dupe"))),
+            comment("2", replies = listOf(comment("dupe"))),
+        )
+
+        val roots = NovelCommentTree.build(nested)
+
+        NovelCommentTree.flatten(roots).map { it.key } shouldBe listOf("1", "dupe", "2")
+    }
+
     // endregion
 
     // region sorting
@@ -251,6 +295,20 @@ class NovelCommentTreeTest {
         updated[0].replies.map { it.id } shouldBe listOf("1a", "1b")
     }
 
+    /**
+     * A site whose reply count includes replies it will not serve — deleted ones, usually — would
+     * otherwise leave a row offering them that every tap asks for again.
+     */
+    @Test
+    fun `settles the reply count once the site says there is no more`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a")), replyCount = 9))
+
+        val updated = NovelCommentTree.addReplies(roots, "1", listOf(comment("1b")), complete = true)
+
+        updated[0].replies.map { it.id } shouldBe listOf("1a", "1b")
+        updated[0].replyCount shouldBe 2
+    }
+
     @Test
     fun `counts every comment in the forest`() {
         val roots = listOf(
@@ -259,6 +317,28 @@ class NovelCommentTreeTest {
         )
 
         NovelCommentTree.count(roots) shouldBe 5
+    }
+
+    /**
+     * A second page overlaps the first as soon as somebody posts between the two requests, and a
+     * comment can come back as a root having arrived as a reply. Both copies would be two rows
+     * under one key.
+     */
+    @Test
+    fun `merges a later page without repeating what is already in the thread`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a", parentId = "1"))))
+
+        val merged = NovelCommentTree.merge(roots, listOf(comment("1a", parentId = "1"), comment("2")))
+
+        merged.map { it.id } shouldBe listOf("1", "2")
+        NovelCommentTree.flatten(merged).map { it.key } shouldBe listOf("1", "1a", "2")
+    }
+
+    @Test
+    fun `knows every id in the forest, replies included`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a"))), comment("2"))
+
+        NovelCommentTree.ids(roots) shouldBe setOf("1", "1a", "2")
     }
 
     @Test

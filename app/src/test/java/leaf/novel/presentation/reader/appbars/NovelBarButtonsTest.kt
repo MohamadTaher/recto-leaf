@@ -63,6 +63,33 @@ class NovelBarButtonsTest {
         NovelBarButtons.resolve(emptyList()) shouldBe NovelBarButtons.DEFAULT
     }
 
+    /**
+     * A button this novel cannot carry out is not a choice the reader made, so it must not be the
+     * thing that empties their bar and takes the settings away with it.
+     */
+    @Test
+    fun `falls back to the default bar rather than leaving only an unavailable button`() {
+        val chosen = listOf(NovelReaderAction.COMMENTS) +
+            List(NovelBarButtons.SLOTS - 1) { NovelReaderAction.NONE }
+
+        val bar = NovelBarButtons.resolve(chosen, unavailable = setOf(NovelReaderAction.COMMENTS))
+
+        bar shouldBe NovelBarButtons.DEFAULT - NovelReaderAction.COMMENTS
+        bar.isEmpty() shouldBe false
+    }
+
+    @Test
+    fun `leaves out an unavailable button the reader chose alongside others`() {
+        val chosen = listOf(
+            NovelReaderAction.SEARCH,
+            NovelReaderAction.COMMENTS,
+            NovelReaderAction.ADDITIONAL_OPTIONS,
+        )
+
+        NovelBarButtons.resolve(chosen, unavailable = setOf(NovelReaderAction.COMMENTS)) shouldBe
+            listOf(NovelReaderAction.SEARCH, NovelReaderAction.ADDITIONAL_OPTIONS)
+    }
+
     @Test
     fun `never puts more on the bar than it has room for`() {
         val chosen = NovelBarButtons.CANDIDATES - NovelReaderAction.NONE

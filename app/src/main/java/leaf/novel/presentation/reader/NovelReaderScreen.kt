@@ -252,6 +252,18 @@ fun NovelReaderScreen(
         return true
     }
 
+    // Whether this novel's source serves comments, and whether the reader wants them offered.
+    // Collected as the one flag rather than as the whole comment state: the sheet's own
+    // recompositions have no business reaching the chapter behind it. Read before the dispatcher
+    // below, which is the thing that has to honour it.
+    val commentsAllowed by viewModel.novelReaderPreferences.commentsEnabled.collectAsState()
+    val commentsSupported by remember(viewModel) {
+        viewModel.comments.state
+            .map { it.capabilities != null }
+            .distinctUntilChanged()
+    }.collectAsState(initial = false)
+    val commentsOffered = commentsAllowed && commentsSupported
+
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
         when (action) {
@@ -269,7 +281,11 @@ fun NovelReaderScreen(
             }
             NovelReaderAction.READING_RULER -> viewModel.novelReaderPreferences.readingRuler.toggle()
             NovelReaderAction.SHOW_CHAPTERS -> showChapters = true
-            NovelReaderAction.COMMENTS -> {
+            // Gated here and not only where the button is drawn: the same action is also a tap
+            // zone, a key, a swipe and a status-bar binding, and a sheet whose source serves no
+            // comments draws nothing at all — leaving the reader with a tap that did nothing
+            // visible and a flag that nothing would ever put back.
+            NovelReaderAction.COMMENTS -> if (commentsOffered) {
                 viewModel.comments.open()
                 showComments = true
             }
@@ -443,23 +459,13 @@ fun NovelReaderScreen(
     val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
     val tapImageToOpen by viewModel.novelReaderPreferences.tapImageToOpen.collectAsState()
 
-    // Whether this novel's source serves comments, and whether the reader wants them offered.
-    // Collected as the one flag rather than as the whole comment state: the sheet's own
-    // recompositions have no business reaching the chapter behind it.
-    val commentsAllowed by viewModel.novelReaderPreferences.commentsEnabled.collectAsState()
-    val commentsSupported by remember(viewModel) {
-        viewModel.comments.state
-            .map { it.capabilities != null }
-            .distinctUntilChanged()
-    }.collectAsState(initial = false)
-    val commentsOffered = commentsAllowed && commentsSupported
-
     // Whichever buttons the reader has put on the bottom bar, resolved from their slots. A comments
     // button is dropped rather than disabled on a source that has none: the bar has six slots and
     // one that does nothing on this novel is worth more as the button beside it.
     val barButtons = NovelBarButtons.resolve(
-        viewModel.novelReaderPreferences.barButtons.map { it.collectAsState().value },
-    ).filterNot { it == NovelReaderAction.COMMENTS && !commentsOffered }
+        chosen = viewModel.novelReaderPreferences.barButtons.map { it.collectAsState().value },
+        unavailable = if (commentsOffered) emptySet() else setOf(NovelReaderAction.COMMENTS),
+    )
 
     // The paging settings stage 17 stored and left inert. The three that only mean anything to a
     // paged layout are gated on it below; keeping a line and the page-turn sound apply to page up

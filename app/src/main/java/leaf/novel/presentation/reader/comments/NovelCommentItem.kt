@@ -215,10 +215,16 @@ private fun Byline(
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
     ) {
         if (showAvatar) {
-            if (comment.avatarUrl != null) {
+            // A site hands out avatar URLs that 404 — for a deleted account, usually — and a failed
+            // load draws nothing while still taking its width, which leaves the byline indented past
+            // its own comment and reads as a broken thread rail. A URL that does not resolve is the
+            // same thing as no URL, so it gets the same silhouette.
+            var failed by remember(comment.avatarUrl) { mutableStateOf(false) }
+            if (comment.avatarUrl != null && !failed) {
                 AsyncImage(
                     model = comment.avatarUrl,
                     contentDescription = null,
+                    onError = { failed = true },
                     modifier = Modifier
                         .size(AVATAR_SIZE)
                         .clip(CircleShape),
@@ -315,9 +321,12 @@ private fun Votes(
             }
         }
 
-        if (capabilities.scored) {
+        // Null is the site having no score for this comment, which is not the same as a score of
+        // zero — and drawing one as the other invents a number the site never gave.
+        val score = comment.score
+        if (capabilities.scored && score != null) {
             Text(
-                text = (comment.score ?: 0).toString(),
+                text = score.toString(),
                 style = MaterialTheme.typography.labelMedium,
                 color = when (voted) {
                     NovelCommentVote.UP -> active

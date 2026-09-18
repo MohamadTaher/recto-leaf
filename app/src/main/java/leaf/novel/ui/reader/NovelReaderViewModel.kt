@@ -151,7 +151,8 @@ class NovelReaderViewModel(
      * The discussion under whatever chapter is open, for a source that serves one.
      *
      * Not part of [State]: nothing about a comment changes how the chapter is drawn, and folding a
-     * reply has no business recomposing the reader. It fetches nothing until the sheet is opened.
+     * reply has no business recomposing the reader. The chapter's own comments only — the novel's
+     * belong to the screen that describes the novel, not to a tab over the chapter being read.
      */
     val comments = NovelComments(viewModelScope, novelReaderPreferences)
 
@@ -309,6 +310,20 @@ class NovelReaderViewModel(
             .drop(index.coerceAtLeast(0))
             .take(PRELOAD_CHAPTER_COUNT + 1)
             .forEach(::chapterLoad)
+        preloadComments(index)
+    }
+
+    /**
+     * Starts the comments on the chapters either side of the open one.
+     *
+     * Either side rather than the same three-chapter lookahead the text gets: comments are one
+     * request per page at a site that may be rate limiting, where a chapter's text is one request
+     * at a host that expects to serve it. The open chapter's own are already started by
+     * [NovelComments.setChapter].
+     */
+    private fun preloadComments(index: Int) {
+        val chapters = state.value.chapters
+        comments.prefetch(listOfNotNull(chapters.getOrNull(index - 1), chapters.getOrNull(index + 1)))
     }
 
     /** Keeps one chapter behind and the same three-chapter lookahead in the in-memory cache. */
@@ -318,6 +333,7 @@ class NovelReaderViewModel(
             .take(PRELOAD_CHAPTER_COUNT + 2)
             .mapTo(mutableSetOf()) { it.id }
         chapterLoads.keys.filterNot(keep::contains).forEach(chapterLoads::remove)
+        comments.trim(keep)
     }
 
     /** A fetched chapter paired back to the row whose title and progress identify it. */
