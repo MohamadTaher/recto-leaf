@@ -18,9 +18,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentDraft
+import leaf.novel.api.NovelCommentFeed
+import leaf.novel.api.NovelCommentFeedSource
 import leaf.novel.api.NovelCommentPage
 import leaf.novel.api.NovelCommentPositiveVote
 import leaf.novel.api.NovelCommentRequest
+import leaf.novel.api.NovelCommentScope
+import leaf.novel.api.NovelCommentSort
 import leaf.novel.api.NovelCommentSource
 import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
@@ -38,6 +42,112 @@ import java.util.concurrent.CopyOnWriteArrayList
  * call that is already on its way out — which is exactly what a virtual clock skips.
  */
 class NovelCommentsTest {
+
+    @Test
+    fun `pending replies stay with their feed and cannot be fetched twice after switching tabs`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL), lazyReplies = true)
+        val discussion = NovelCommentFeed("comments", "Comments", capabilities)
+        val reviews = NovelCommentFeed("reviews", "Reviews", capabilities)
+        val response = CompletableDeferred<NovelCommentPage>()
+        val parent = comment("same-id", replyCount = 1)
+        val source = FakeCommentSource { error("A declared feed must be supplied") }
+        source.commentFeeds = listOf(discussion, reviews)
+        source.feedResponse = { request, feed ->
+            if (request.parent == null) {
+                NovelCommentPage(listOf(parent.copy(body = feed.key)))
+            } else {
+                response.await()
+            }
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
+            comments.bind(source, Manga.create())
+            comments.open()
+            waitFor("discussion") { comments.state.value.loaded }
+            comments.loadReplies(parent)
+            waitFor("reply request") { source.feedRequests.any { it.second.parent != null } }
+            comments.setFeed(reviews)
+            waitFor("reviews") { comments.state.value.roots.singleOrNull()?.body == "reviews" }
+            comments.state.value.loadingReplies shouldBe emptySet()
+            comments.setFeed(discussion)
+            waitFor("pending discussion reply") { "same-id" in comments.state.value.loadingReplies }
+            comments.loadReplies(parent)
+            delay(SETTLE_MS)
+            source.feedRequests.count { it.second.parent != null } shouldBe 1
+            comments.setFeed(reviews)
+            waitFor("reviews again") { comments.state.value.roots.singleOrNull()?.body == "reviews" }
+            response.complete(NovelCommentPage(listOf(comment("reply"))))
+            delay(SETTLE_MS)
+            comments.state.value.roots.single().replies shouldBe emptyList()
+            comments.setFeed(discussion)
+            waitFor("cached reply") { comments.state.value.roots.singleOrNull()?.replies?.size == 1 }
+            comments.state.value.loadingReplies shouldBe emptySet()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `reviews and comments keep independent paging and cached results`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(
+            scopes = setOf(NovelCommentScope.NOVEL),
+            sorts = listOf(NovelCommentSort("newest", "Newest")),
+        )
+        val discussion = NovelCommentFeed("comments", "Comments", capabilities)
+        val reviews = NovelCommentFeed("reviews", "Reviews", capabilities)
+        val source = FakeCommentSource { error("A declared feed must be supplied") }
+        source.commentFeeds = listOf(discussion, reviews)
+        source.feedResponse = { request, feed ->
+            NovelCommentPage(
+                comments = listOf(comment(if (request.page == 1) "same-id" else "page-2").copy(body = feed.key)),
+                hasNextPage = feed == discussion && request.page == 1,
+            )
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
+            comments.bind(source, Manga.create())
+            comments.open()
+            waitFor("discussion first page") { comments.state.value.loaded }
+            comments.setFeed(reviews)
+            waitFor("review feed") { comments.state.value.roots.firstOrNull()?.body == "reviews" }
+            waitFor("discussion second page") {
+                source.feedRequests.any { (feed, request) -> feed == "comments" && request.page == 2 }
+            }
+            comments.state.value.roots.single().body shouldBe "reviews"
+            comments.setFeed(discussion)
+            waitFor("cached discussion") { comments.state.value.roots.size == 2 }
+            comments.state.value.roots.map { it.body } shouldBe listOf("comments", "comments")
+            source.feedRequests.size shouldBe 3
+            comments.setFeed(reviews)
+            waitFor("cached reviews") { comments.state.value.roots.singleOrNull()?.body == "reviews" }
+            source.feedRequests.size shouldBe 3
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `novel reviews are not offered on chapters`() {
+        val source = FakeCommentSource { NovelCommentPage(emptyList()) }
+        source.commentFeeds = listOf(
+            NovelCommentFeed("comments", "Comments", NovelCommentCapabilities()),
+            NovelCommentFeed(
+                "reviews",
+                "Reviews",
+                NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL)),
+            ),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences())
+            comments.bind(source, Manga.create())
+            comments.state.value.feeds.map { it.key } shouldBe listOf("comments")
+        } finally {
+            scope.cancel()
+        }
+    }
 
     @Test
     fun `keeps drafts and reply targets when the sheet closes`() = runBlocking<Unit> {
@@ -383,7 +493,18 @@ class NovelCommentsTest {
 private class FakeCommentSource(
     override val commentCapabilities: NovelCommentCapabilities = NovelCommentCapabilities(),
     private val respond: suspend (NovelCommentRequest) -> NovelCommentPage,
-) : NovelCommentSource {
+) : NovelCommentFeedSource {
+
+    override var commentFeeds: List<NovelCommentFeed> = emptyList()
+    val feedRequests = CopyOnWriteArrayList<Pair<String, NovelCommentRequest>>()
+    var feedResponse: suspend (NovelCommentRequest, NovelCommentFeed) -> NovelCommentPage = { request, _ ->
+        respond(request)
+    }
+
+    override suspend fun getComments(request: NovelCommentRequest, feed: NovelCommentFeed): NovelCommentPage {
+        feedRequests += feed.key to request
+        return feedResponse(request, feed)
+    }
 
     val votes = CopyOnWriteArrayList<NovelCommentVote>()
     val posts = CopyOnWriteArrayList<NovelCommentDraft>()

@@ -29,8 +29,11 @@ import androidx.compose.ui.unit.dp
  */
 object NovelCommentGlyphs {
 
-    val Star: ImageVector by lazy {
-        glyph("CommentStar") {
+    val Star: ImageVector by lazy { star(false) }
+    val FilledStar: ImageVector by lazy { star(true) }
+
+    private fun star(filled: Boolean): ImageVector =
+        glyph("CommentStar", filled) {
             moveTo(12f, 3f)
             lineTo(14.8f, 8.7f)
             lineTo(21f, 9.6f)
@@ -43,7 +46,6 @@ object NovelCommentGlyphs {
             lineTo(9.2f, 8.7f)
             close()
         }
-    }
 
     val Like: ImageVector by lazy {
         glyph("CommentLike") {
@@ -130,7 +132,7 @@ object NovelCommentGlyphs {
     }
 
     /** One stroked path on the 24dp grid, which is all either glyph is. */
-    private fun glyph(name: String, pathBuilder: PathBuilder.() -> Unit): ImageVector =
+    private fun glyph(name: String, filled: Boolean = false, pathBuilder: PathBuilder.() -> Unit): ImageVector =
         ImageVector.Builder(
             name = name,
             defaultWidth = 24.dp,
@@ -139,6 +141,7 @@ object NovelCommentGlyphs {
             viewportHeight = 24f,
         ).apply {
             path(
+                fill = if (filled) SolidColor(Color.Black) else null,
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = STROKE,
                 strokeLineCap = StrokeCap.Round,

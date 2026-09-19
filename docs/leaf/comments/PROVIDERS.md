@@ -132,19 +132,25 @@ returns none.
 ## Ratings and reactions
 
 Implement `NovelCommentFeedbackSource` alongside `NovelCommentSource` to supply a review's
-`NovelCommentRating`, the site's positive vote style (`UPVOTE`, `LIKE`, `HEART`, or `STAR`), and
-additional `NovelCommentReaction` labels, emoji, counts and selected states. Return these from the
+`NovelCommentRating`, separate `likes` and `dislikes` totals, and additional
+`NovelCommentReaction` labels, emoji, counts and selected states. Return these from the
 cached response in `getCommentFeedback`; it is called during rendering and must not fetch.
 
 Ratings are separate from a comment's net score. Reaction totals are read-only metadata, with
 additional site actions accessible through the comment's permalink. Only the existing `voting`
 capability enables vote buttons, and `downvotes` controls whether a negative vote is offered.
-Unknown counts stay null; never substitute zero for a count the site does not provide.
+Unknown counts stay null; never substitute zero for a count the site does not provide or derive
+two counts from a net total. The UI uses the same thumbs for likes/dislikes and up/down votes.
 
 This optional interface leaves the original API constructors and copy methods unchanged, so
 installed extension APKs remain compatible. The app also recognizes the leading
 `<b>★ 4.5 / 5.0</b><br>` review header emitted by older extensions and renders it as a rating.
 Other comment text is retained as written.
+
+Sources with distinct discussions and reviews can also implement `NovelCommentFeedSource`.
+Each `NovelCommentFeed` declares its own label and capabilities, including scope and sort options.
+The app presents tabs when more than one feed applies, and keeps their pagination, replies and
+cached results separate. The original `getComments(request)` remains the single-feed fallback.
 
 ## Testing one
 
@@ -154,5 +160,5 @@ worth checking by hand, once, on a real chapter:
 1. A chapter with no comments shows the empty message, not a spinner and not an error.
 2. A chapter with one page shows no "load more".
 3. A reply three deep is indented three rails.
-4. Whatever the site calls its default sort is the chip that starts selected.
-5. Turning the source's `scored` off makes the numbers disappear rather than showing zeros.
+4. Whatever the site calls its default sort is selected in the sort menu.
+5. Unknown counts remain absent, while real zeros remain visible beside the appropriate thumb.

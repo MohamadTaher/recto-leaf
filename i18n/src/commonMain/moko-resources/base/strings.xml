@@ -1353,10 +1353,12 @@
     <string name="leaf_novel_comments_upvote">Upvote</string>
     <string name="leaf_novel_comments_downvote">Downvote</string>
     <string name="leaf_novel_comments_like">Like</string>
+    <string name="leaf_novel_comments_dislike">Dislike</string>
+    <string name="leaf_novel_comments_read_more">Read more</string>
+    <string name="leaf_novel_comments_sort_by">Sort: %1$s</string>
     <string name="leaf_novel_comments_heart">Heart</string>
     <string name="leaf_novel_comments_star">Star</string>
     <string name="leaf_novel_comments_rating">Rated %1$s / %2$s</string>
-    <string name="leaf_novel_comments_score">Score %1$d</string>
     <string name="leaf_novel_comments_likes">Likes %1$d</string>
     <string name="leaf_novel_comments_hearts">Hearts %1$d</string>
     <string name="leaf_novel_comments_stars">Stars %1$d</string>

@@ -15,8 +15,11 @@ import kotlinx.coroutines.launch
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentDraft
+import leaf.novel.api.NovelCommentFeed
+import leaf.novel.api.NovelCommentFeedSource
 import leaf.novel.api.NovelCommentFeedback
 import leaf.novel.api.NovelCommentFeedbackSource
+import leaf.novel.api.NovelCommentPage
 import leaf.novel.api.NovelCommentPositiveVote
 import leaf.novel.api.NovelCommentRequest
 import leaf.novel.api.NovelCommentScope
@@ -89,16 +92,6 @@ class NovelComments(
     private val drains = mutableMapOf<Key, Drain>()
 
     /**
-     * How far each comment's replies have been read, for a site that serves them separately.
-     *
-     * Per comment rather than one pair for the thread: two comments can each have their own replies
-     * half fetched, and asking for page one every time — which is what this replaces — meant the
-     * second tap on "show more replies" refetched exactly what the first had already brought back.
-     */
-    private val replyPages = mutableMapOf<String, Int>()
-    private val replyCursors = mutableMapOf<String, String?>()
-
-    /**
      * Whether this novel has the comments this instance is for.
      *
      * Read by whoever draws the button, to decide whether the button exists. A button that opens a
@@ -130,10 +123,15 @@ class NovelComments(
         this.manga = manga
 
         val capabilities = this.source?.commentCapabilities
-        val sorts = capabilities?.sorts.orEmpty()
+        val feeds = (source as? NovelCommentFeedSource)?.commentFeeds.orEmpty()
+            .filter { commentScope in it.capabilities.scopes }
+        val feed = feeds.firstOrNull()
+        val sorts = (feed?.capabilities ?: capabilities)?.sorts.orEmpty()
         mutableState.update {
             it.copy(
-                capabilities = capabilities,
+                capabilities = feed?.capabilities ?: capabilities,
+                feeds = feeds,
+                feed = feed,
                 sorts = sorts,
                 // A key stored from another site means nothing here, so it is kept only when this
                 // one offers it; otherwise the source's own first order wins.
@@ -201,8 +199,6 @@ class NovelComments(
     fun reload() {
         if (state.value.posting || state.value.voting.isNotEmpty()) return
         drains.remove(key(chapter))?.job?.cancel()
-        replyPages.clear()
-        replyCursors.clear()
         loadJob?.cancel()
         mutableState.update { it.reset().copy(replyingTo = it.replyingTo) }
         show()
@@ -222,7 +218,9 @@ class NovelComments(
 
         mutableState.update { it.copy(error = null) }
         current.pages.update { it.copy(done = false, hasMore = false, failure = null) }
-        drains[key(chapter)] = Drain(current.pages, scope.launch { fill(source, target, current.pages) })
+        val feed = state.value.feed
+        val order = sort()
+        current.job = scope.launch { fill(source, target, current.pages, feed, order) }
     }
 
     /**
@@ -235,25 +233,28 @@ class NovelComments(
         val source = source ?: return
         val target = target(chapter) ?: return
         val drain = drains[key(chapter)] ?: return
-        if (comment.id in state.value.loadingReplies) return
-        val next = replyPages.getOrElse(comment.id) { 0 } + 1
+        if (comment.id in drain.pages.value.loadingReplies) return
+        val next = drain.replyPages.getOrElse(comment.id) { 0 } + 1
+        val feed = state.value.feed
+        val order = sort()
 
-        mutableState.update { it.copy(loadingReplies = it.loadingReplies + comment.id) }
+        drain.pages.update { it.copy(loadingReplies = it.loadingReplies + comment.id) }
+        mutableState.update { it.copy(loadingReplies = it.loadingReplies + comment.id).withRoots(it.roots) }
         scope.launch {
             val request = NovelCommentRequest(
                 target = target,
-                sort = sort(),
+                sort = order,
                 page = next,
-                cursor = replyCursors[comment.id],
+                cursor = drain.replyCursors[comment.id],
                 parent = comment,
             )
-            attempt { source.getComments(request) }
+            attempt { fetch(source, request, feed) }
                 .onSuccess { result ->
-                    replyPages[comment.id] = next
-                    replyCursors[comment.id] = result.nextCursor
+                    drain.replyPages[comment.id] = next
+                    drain.replyCursors[comment.id] = result.nextCursor
                     // A page that brought nothing new is the end of the replies whatever the site
                     // says about there being more, or the row would offer them again for ever.
-                    val known = NovelCommentTree.find(state.value.roots, comment.id)
+                    val known = NovelCommentTree.find(NovelCommentTree.build(drain.pages.value.comments), comment.id)
                         ?.replies
                         ?.mapTo(mutableSetOf()) { reply -> reply.id }
                         .orEmpty()
@@ -261,21 +262,28 @@ class NovelComments(
                     val attach = { roots: List<NovelComment> ->
                         NovelCommentTree.addReplies(roots, comment.id, result.comments, complete)
                     }
-                    drain.pages.update { it.copy(comments = attach(it.comments)) }
+                    drain.pages.update {
+                        it.copy(comments = attach(it.comments), loadingReplies = it.loadingReplies - comment.id)
+                    }
                     // The spinner going out and the replies arriving are one update, not two.
                     // Two leaves a window where the row that asked for them is unchanged and no
                     // longer loading, and a reader who tapped it again in that window would be
                     // right to.
-                    mutableState.update {
-                        it.copy(loadingReplies = it.loadingReplies - comment.id).withRoots(attach(it.roots))
+                    if (drains[key(chapter)] === drain) {
+                        mutableState.update {
+                            it.copy(loadingReplies = it.loadingReplies - comment.id).withRoots(attach(it.roots))
+                        }
                     }
                 }
                 .onFailure { failure ->
                     logcat(LogPriority.WARN, failure) { "Could not load replies to ${comment.id}" }
-                    mutableState.update {
-                        it.withFailure(failure)
-                            .copy(loadingReplies = it.loadingReplies - comment.id)
-                            .withRoots(it.roots)
+                    drain.pages.update { it.copy(loadingReplies = it.loadingReplies - comment.id) }
+                    if (drains[key(chapter)] === drain) {
+                        mutableState.update {
+                            it.withFailure(failure)
+                                .copy(loadingReplies = it.loadingReplies - comment.id)
+                                .withRoots(it.roots)
+                        }
                     }
                 }
         }
@@ -294,6 +302,21 @@ class NovelComments(
         preferences.commentsSort.set(sort.key)
         loadJob?.cancel()
         mutableState.update { it.reset().copy(sortKey = sort.key, replyingTo = it.replyingTo) }
+        show()
+    }
+
+    fun setFeed(feed: NovelCommentFeed) {
+        if (feed !in state.value.feeds || feed == state.value.feed) return
+        if (state.value.posting || state.value.voting.isNotEmpty() || state.value.draft.isNotBlank()) return
+        loadJob?.cancel()
+        mutableState.update {
+            it.reset().copy(
+                feed = feed,
+                capabilities = feed.capabilities,
+                sorts = feed.capabilities.sorts,
+                sortKey = feed.capabilities.sorts.firstOrNull()?.key,
+            )
+        }
         show()
     }
 
@@ -459,7 +482,14 @@ class NovelComments(
         drains[key(chapter)]?.let { return it }
 
         val pages = MutableStateFlow(NovelCommentThread())
-        return Drain(pages, scope.launch { fill(source, target, pages) }).also { drains[key(chapter)] = it }
+        val feed = state.value.feed
+        val order = sort()
+        return Drain(
+            pages,
+            scope.launch {
+                fill(source, target, pages, feed, order)
+            },
+        ).also { drains[key(chapter)] = it }
     }
 
     /**
@@ -477,19 +507,21 @@ class NovelComments(
         source: NovelCommentSource,
         target: NovelCommentTarget,
         pages: MutableStateFlow<NovelCommentThread>,
+        feed: NovelCommentFeed?,
+        order: NovelCommentSort,
     ) {
-        val paginated = state.value.capabilities?.paginated != false
+        val paginated = (feed?.capabilities ?: source.commentCapabilities).paginated
         val stopAfter = pages.value.nextPage + PAGE_LIMIT - 1
 
         while (true) {
             val thread = pages.value
             val request = NovelCommentRequest(
                 target = target,
-                sort = sort(),
+                sort = order,
                 page = thread.nextPage,
                 cursor = thread.nextCursor,
             )
-            val page = attempt { source.getComments(request) }.getOrElse { failure ->
+            val page = attempt { fetch(source, request, feed) }.getOrElse { failure ->
                 logcat(LogPriority.WARN, failure) { "Could not load comments for ${manga?.title}" }
                 pages.update { it.copy(done = true, hasMore = it.loaded, failure = failure) }
                 return
@@ -551,8 +583,18 @@ class NovelComments(
             ?: NovelCommentSort(key = "", label = "")
     }
 
+    private suspend fun fetch(
+        source: NovelCommentSource,
+        request: NovelCommentRequest,
+        feed: NovelCommentFeed?,
+    ): NovelCommentPage = if (source is NovelCommentFeedSource && feed != null) {
+        source.getComments(request, feed)
+    } else {
+        source.getComments(request)
+    }
+
     /** One thread is one chapter's comments in one of the site's orders. */
-    private fun key(chapter: Chapter?) = Key(chapter?.id, sort().key)
+    private fun key(chapter: Chapter?) = Key(chapter?.id, sort().key, state.value.feed?.key)
 
     /** What to ask about, or null when there is nothing to ask about yet. */
     private fun target(chapter: Chapter?): NovelCommentTarget? {
@@ -564,9 +606,12 @@ class NovelComments(
     }
 
     /** One thread being filled: what has arrived so far, and the coroutine filling it. */
-    private class Drain(val pages: MutableStateFlow<NovelCommentThread>, val job: Job)
+    private class Drain(val pages: MutableStateFlow<NovelCommentThread>, var job: Job) {
+        val replyPages = mutableMapOf<String, Int>()
+        val replyCursors = mutableMapOf<String, String?>()
+    }
 
-    private data class Key(val chapterId: Long?, val sort: String)
+    private data class Key(val chapterId: Long?, val sort: String, val feed: String?)
 
     private companion object {
         /** How many pages one fetch will ask for before it stops and offers the rest as a button. */

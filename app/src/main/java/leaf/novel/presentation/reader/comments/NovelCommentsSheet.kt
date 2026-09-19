@@ -3,7 +3,6 @@ package leaf.novel.presentation.reader.comments
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,12 +19,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SecondaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.DropdownMenu
 import kotlinx.coroutines.launch
+import leaf.novel.api.NovelCommentFeed
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.api.NovelCommentSort
 import leaf.novel.ui.reader.comments.NovelCommentLocalSort
@@ -55,6 +56,7 @@ import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Close
 import mihon.icons.materialsymbols.rounded.ExpandLess
+import mihon.icons.materialsymbols.rounded.ExpandMore
 import mihon.icons.materialsymbols.rounded.MoreVert
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
@@ -92,7 +94,7 @@ fun NovelCommentsSheet(
 
     // Focusing re-roots the list, so it has to start at the top rather than wherever the previous
     // thread happened to be scrolled to.
-    LaunchedEffect(state.focus, state.sortKey, state.localSort) {
+    LaunchedEffect(state.focus, state.sortKey, state.localSort, state.feed?.key) {
         listState.scrollToItem(0)
     }
 
@@ -102,6 +104,7 @@ fun NovelCommentsSheet(
                 state = state,
                 onRefresh = comments::reload,
                 onSetSort = comments::setSort,
+                onSetFeed = comments::setFeed,
                 onSetLocalSort = comments::setLocalSort,
                 onCollapseAll = comments::collapseAll,
                 onExpandAll = comments::expandAll,
@@ -233,6 +236,7 @@ private fun NovelCommentsHeader(
     state: NovelCommentsState,
     onRefresh: () -> Unit,
     onSetSort: (NovelCommentSort) -> Unit,
+    onSetFeed: (NovelCommentFeed) -> Unit,
     onSetLocalSort: (NovelCommentLocalSort) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
@@ -242,6 +246,7 @@ private fun NovelCommentsHeader(
 ) {
     if (state.capabilities == null) return
     var menuExpanded by remember { mutableStateOf(false) }
+    var sortExpanded by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.padding(horizontal = MaterialTheme.padding.medium)) {
         Row(
@@ -253,7 +258,7 @@ private fun NovelCommentsHeader(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(MR.strings.leaf_novel_comments),
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                 )
                 if (state.loaded) {
                     Text(
@@ -326,31 +331,51 @@ private fun NovelCommentsHeader(
             )
         }
 
-        // The site's own orders where it has any, because it ranks from data it does not
-        // necessarily send; the reader's own three only where it has none. See
-        // [NovelCommentsState.localSort].
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall)) {
-            if (state.sorts.isNotEmpty()) {
-                state.sorts.forEach { sort ->
-                    FilterChip(
-                        selected = state.sortKey == sort.key ||
-                            (state.sortKey == null && sort == state.sorts.first()),
-                        onClick = { onSetSort(sort) },
-                        enabled = !state.posting && state.voting.isEmpty(),
-                        label = { Text(sort.label) },
-                    )
-                }
-            } else {
-                NovelCommentLocalSort.entries.forEach { sort ->
-                    FilterChip(
-                        selected = state.localSort == sort,
-                        onClick = { onSetLocalSort(sort) },
-                        label = { Text(stringResource(sort.titleRes)) },
+        if (state.feeds.size > 1) {
+            SecondaryTabRow(selectedTabIndex = state.feeds.indexOf(state.feed).coerceAtLeast(0)) {
+                state.feeds.forEach { feed ->
+                    Tab(
+                        selected = state.feed == feed,
+                        enabled = !state.posting && state.voting.isEmpty() && state.draft.isBlank(),
+                        onClick = { onSetFeed(feed) },
+                        text = { Text(feed.label) },
                     )
                 }
             }
         }
-
+        val selectedSort = state.sorts.firstOrNull { it.key == state.sortKey }?.label
+            ?: state.sorts.firstOrNull()?.label
+            ?: stringResource(state.localSort.titleRes)
+        Box {
+            TextButton(onClick = { sortExpanded = true }, enabled = !state.posting && state.voting.isEmpty()) {
+                Text(stringResource(MR.strings.leaf_novel_comments_sort_by, selectedSort))
+                Spacer(Modifier.width(4.dp))
+                Icon(MaterialSymbols.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
+            }
+            DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                if (state.sorts.isNotEmpty()) {
+                    state.sorts.forEach { sort ->
+                        DropdownMenuItem(
+                            text = { Text(sort.label) },
+                            onClick = {
+                                sortExpanded = false
+                                onSetSort(sort)
+                            },
+                        )
+                    }
+                } else {
+                    NovelCommentLocalSort.entries.forEach { sort ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(sort.titleRes)) },
+                            onClick = {
+                                sortExpanded = false
+                                onSetLocalSort(sort)
+                            },
+                        )
+                    }
+                }
+            }
+        }
         // Said out loud, because a local order over a thread that stopped short covers what was
         // fetched rather than what exists, and a reader who is not told will read it as the whole.
         if (state.sorts.isEmpty() && (state.hasMore || state.loadingMore)) {

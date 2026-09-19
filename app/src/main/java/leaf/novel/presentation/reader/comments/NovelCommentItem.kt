@@ -19,8 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,31 +56,17 @@ import eu.kanade.tachiyomi.util.system.copyToClipboard
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentFeedback
-import leaf.novel.api.NovelCommentPositiveVote
 import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.comments.NovelCommentMarkup
 import leaf.novel.ui.reader.comments.NovelCommentReview
 import leaf.novel.ui.reader.comments.NovelCommentSpan
 import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.rounded.ArrowDownward
-import mihon.icons.materialsymbols.rounded.ArrowUpward
-import mihon.icons.materialsymbols.rounded.ExpandLess
 import mihon.icons.materialsymbols.rounded.ExpandMore
-import mihon.icons.materialsymbols.rounded.Favorite
 import mihon.icons.materialsymbols.rounded.MoreVert
-import mihon.icons.materialsymbols.rounded.Person
 import tachiyomi.i18n.MR
-import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
-import tachiyomi.presentation.core.util.secondaryItemAlpha
 
-/**
- * One comment: its rails, its byline, its text and whatever the site lets you do to it.
- *
- * Everything below the byline is conditional on a capability, so a site with no scores draws no
- * arrows and a site with no replies draws no reply button. The alternative — drawing them greyed
- * out — tells the reader the site has a feature it does not have.
- */
+/** Avatar gutter, compact byline, readable body and a consistent reaction row. */
 @Composable
 fun NovelCommentItem(
     comment: NovelComment,
@@ -104,372 +89,226 @@ fun NovelCommentItem(
     val review = remember(comment.body) { NovelCommentReview.parse(comment.body) }
     val spans = remember(review.body, comment.permalink) { NovelCommentMarkup.parse(review.body, comment.permalink) }
     val hasSpoilers = remember(spans) { spans.any { it.spoiler } }
-    // Per comment and not remembered across a reload: a thread that refreshes should not silently
-    // uncover what the reader covered back up.
     var revealed by remember(comment.id) { mutableStateOf(false) }
+    var expanded by rememberSaveable(comment.id, comment.body) { mutableStateOf(false) }
+    var overflows by remember(comment.body) { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
-
     val hidden = (spoilerGuard || hasSpoilers) && !revealed
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(end = MaterialTheme.padding.small, bottom = MaterialTheme.padding.small),
+    Row(
+        modifier = modifier.fillMaxWidth().padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Byline(
-            comment = comment,
-            collapsed = collapsed,
-            hiddenCount = hiddenCount,
-            showAvatar = showAvatar && capabilities.avatars,
-            onClick = onToggleCollapsed,
-        )
-
-        if (collapsed) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            return@Column
-        }
-
-        Spacer(Modifier.height(MaterialTheme.padding.extraSmall))
-        if (!comment.deleted && !hidden) {
-            val rating = feedback.rating ?: review.rating
-            if (rating != null && rating.value.isFinite() && rating.maximum.isFinite() &&
-                rating.maximum > 0 && rating.value in 0.0..rating.maximum
-            ) {
-                Row(
-                    modifier = Modifier.padding(bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+        if (showAvatar && capabilities.avatars && !comment.deleted) CommentAvatar(comment)
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = if (comment.deleted) {
+                                stringResource(MR.strings.leaf_novel_comments_deleted)
+                            } else {
+                                comment.author
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (comment.byUploader) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                        if (comment.postedAt > 0) {
+                            Text(
+                                text = relativeTimeSpanString(comment.postedAt),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (comment.byUploader) Badge(stringResource(MR.strings.leaf_novel_comments_uploader))
+                        if (comment.pinned) Badge(stringResource(MR.strings.leaf_novel_comments_pinned))
+                        comment.badge?.takeIf { it.isNotBlank() }?.let { Badge(it) }
+                        comment.chapterLabel?.takeIf { it.isNotBlank() }?.let { Badge(it) }
+                    }
+                }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            MaterialSymbols.Rounded.MoreVert,
+                            stringResource(MR.strings.action_menu_overflow_description),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(
+                                        if (collapsed) {
+                                            MR.strings.leaf_novel_comments_expand
+                                        } else {
+                                            MR.strings.leaf_novel_comments_collapse
+                                        },
+                                    ),
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onToggleCollapsed()
+                            },
+                        )
+                        if (comment.replies.isNotEmpty() || comment.replyCount > 0) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(MR.strings.leaf_novel_comments_focus)) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onFocus()
+                                },
+                            )
+                        }
+                        if (!comment.deleted) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(MR.strings.action_copy_to_clipboard)) },
+                                onClick = {
+                                    menuExpanded = false
+                                    context.copyToClipboard(comment.author, NovelCommentMarkup.plainText(comment.body))
+                                },
+                            )
+                        }
+                        comment.permalink?.let { url ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(MR.strings.action_open_in_browser)) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onOpenLink(url)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            if (collapsed) {
+                TextButton(onClick = onToggleCollapsed) {
+                    Icon(MaterialSymbols.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
+                    Text(
+                        stringResource(MR.strings.leaf_novel_comments_expand) +
+                            if (hiddenCount > 0) " · $hiddenCount" else "",
+                    )
+                }
+                return@Column
+            }
+            if (!comment.deleted && !hidden) {
+                (feedback.rating ?: review.rating)?.let { NovelCommentRatingRow(it) }
+            }
+            when {
+                comment.deleted -> Unit
+                hidden -> Text(
+                    text = stringResource(MR.strings.leaf_novel_comments_spoiler),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .clickable(role = Role.Button, onClick = { revealed = true }).padding(12.dp),
+                )
+                else -> {
+                    Text(
+                        text = spans.toAnnotatedString(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = if (expanded) Int.MAX_VALUE else 6,
+                        overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
+                    )
+                    if (expanded || overflows) {
+                        Text(
+                            text = stringResource(
+                                if (expanded) {
+                                    MR.strings.manga_info_collapse
+                                } else {
+                                    MR.strings.leaf_novel_comments_read_more
+                                },
+                            ),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.heightIn(min = 40.dp)
+                                .clickable(role = Role.Button, onClick = { expanded = !expanded })
+                                .padding(vertical = 10.dp),
+                        )
+                    }
+                }
+            }
+            if (!comment.deleted) {
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Icon(NovelCommentGlyphs.Star, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(
-                        text = stringResource(
-                            MR.strings.leaf_novel_comments_rating,
-                            rating.value.toString().removeSuffix(".0"),
-                            rating.maximum.toString().removeSuffix(".0"),
-                        ),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                }
-            }
-        }
-        when {
-            comment.deleted -> Text(
-                text = stringResource(MR.strings.leaf_novel_comments_deleted),
-                style = MaterialTheme.typography.bodyMedium,
-                fontStyle = FontStyle.Italic,
-                modifier = Modifier.secondaryItemAlpha(),
-            )
-            hidden -> SpoilerCurtain(onReveal = { revealed = true })
-            else -> Text(
-                text = spans.toAnnotatedString(
-                    linkColor = MaterialTheme.colorScheme.primary,
-                    quoteColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-
-        if (!comment.deleted && feedback.reactions.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                feedback.reactions.forEach { reaction ->
-                    Text(
-                        text = listOfNotNull(
-                            reaction.emoji,
-                            reaction.label,
-                            reaction.count?.toString(),
-                            if (reaction.selected) {
-                                stringResource(
-                                    MR.strings.leaf_novel_comments_your_reaction,
-                                )
-                            } else {
-                                null
-                            },
-                        ).joinToString(" "),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (reaction.selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
-            }
-        }
-
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (!comment.deleted && (capabilities.scored || capabilities.voting)) {
-                Votes(
-                    comment = comment,
-                    capabilities = capabilities,
-                    feedback = feedback,
-                    voting = voting,
-                    onVote = onVote,
-                )
-            }
-
-            if (canReply) {
-                TextButton(onClick = onReply) {
-                    Text(stringResource(MR.strings.leaf_novel_comments_reply))
-                }
-            }
-
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        imageVector = MaterialSymbols.Rounded.MoreVert,
-                        contentDescription = stringResource(MR.strings.action_menu_overflow_description),
-                        modifier = Modifier.size(COMPACT_ICON),
-                    )
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    // Only worth offering where there is something under it to focus on.
-                    if (comment.replies.isNotEmpty() || comment.replyCount > 0) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(MR.strings.leaf_novel_comments_focus)) },
-                            onClick = {
-                                menuExpanded = false
-                                onFocus()
-                            },
-                        )
+                    NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
+                    if (canReply) {
+                        TextButton(onClick = onReply) { Text(stringResource(MR.strings.leaf_novel_comments_reply)) }
                     }
-                    DropdownMenuItem(
-                        text = { Text(stringResource(MR.strings.action_copy_to_clipboard)) },
-                        onClick = {
-                            menuExpanded = false
-                            val text = NovelCommentMarkup.plainText(comment.body)
-                            context.copyToClipboard(comment.author, text)
-                        },
-                    )
-                    comment.permalink?.let { url ->
-                        DropdownMenuItem(
-                            text = { Text(stringResource(MR.strings.action_open_in_browser)) },
-                            onClick = {
-                                menuExpanded = false
-                                onOpenLink(url)
-                            },
-                        )
+                }
+                if (feedback.reactions.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        feedback.reactions.forEach { reaction ->
+                            Badge(
+                                listOfNotNull(
+                                    reaction.emoji,
+                                    reaction.label,
+                                    reaction.count?.toString(),
+                                    if (reaction.selected) {
+                                        stringResource(MR.strings.leaf_novel_comments_your_reaction)
+                                    } else {
+                                        null
+                                    },
+                                ).joinToString(" "),
+                            )
+                        }
                     }
                 }
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
-/**
- * Who said it and when, plus the two flags that change how it is read.
- *
- * The byline is a wide collapse target with a visible chevron. Metadata wraps below the name.
- */
 @Composable
-private fun Byline(
-    comment: NovelComment,
-    collapsed: Boolean,
-    hiddenCount: Int,
-    showAvatar: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                role = Role.Button,
-                onClickLabel = stringResource(
-                    if (collapsed) MR.strings.leaf_novel_comments_expand else MR.strings.leaf_novel_comments_collapse,
-                ),
-                onClick = onClick,
-            )
-            .heightIn(min = 48.dp)
-            .padding(vertical = MaterialTheme.padding.extraSmall),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
-    ) {
-        if (showAvatar) {
-            // A site hands out avatar URLs that 404 — for a deleted account, usually — and a failed
-            // load draws nothing while still taking its width, which leaves the byline indented past
-            // its own comment and reads as a broken thread rail. A URL that does not resolve is the
-            // same thing as no URL, so it gets the same silhouette.
-            var failed by remember(comment.avatarUrl) { mutableStateOf(false) }
-            if (comment.avatarUrl != null && !failed) {
-                AsyncImage(
-                    model = comment.avatarUrl,
-                    contentDescription = null,
-                    onError = { failed = true },
-                    modifier = Modifier
-                        .size(AVATAR_SIZE)
-                        .clip(CircleShape),
-                )
-            } else {
-                Icon(
-                    imageVector = MaterialSymbols.Rounded.Person,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(AVATAR_SIZE)
-                        .secondaryItemAlpha(),
-                )
-            }
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = if (comment.deleted) stringResource(MR.strings.leaf_novel_comments_deleted) else comment.author,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (comment.byUploader) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (comment.byUploader) Chip(stringResource(MR.strings.leaf_novel_comments_uploader))
-                comment.badge?.takeIf { it.isNotBlank() }?.let { Chip(it) }
-                if (comment.pinned) Chip(stringResource(MR.strings.leaf_novel_comments_pinned))
-                if (comment.postedAt > 0L) {
-                    Text(
-                        text = relativeTimeSpanString(comment.postedAt),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                comment.chapterLabel?.takeIf { it.isNotBlank() }?.let {
-                    Text(text = it, style = MaterialTheme.typography.labelSmall)
-                }
-                if (collapsed && hiddenCount > 0) {
-                    Chip(stringResource(MR.strings.leaf_novel_comments_hidden, hiddenCount))
-                }
-            }
-        }
-        Icon(
-            imageVector = if (collapsed) MaterialSymbols.Rounded.ExpandMore else MaterialSymbols.Rounded.ExpandLess,
+private fun CommentAvatar(comment: NovelComment) {
+    var failed by remember(comment.avatarUrl) { mutableStateOf(false) }
+    if (comment.avatarUrl != null && !failed) {
+        AsyncImage(
+            model = comment.avatarUrl,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
+            onError = { failed = true },
+            modifier = Modifier.size(32.dp).clip(CircleShape),
         )
-    }
-}
-
-/** Votes retain the site's meaning, including when only a read-only total is available. */
-@Composable
-private fun Votes(
-    comment: NovelComment,
-    capabilities: NovelCommentCapabilities,
-    feedback: NovelCommentFeedback,
-    voting: Boolean,
-    onVote: (NovelCommentVote) -> Unit,
-) {
-    val kind = feedback.positiveVote
-    val icon = when (kind) {
-        NovelCommentPositiveVote.UPVOTE -> MaterialSymbols.Rounded.ArrowUpward
-        NovelCommentPositiveVote.LIKE -> NovelCommentGlyphs.Like
-        NovelCommentPositiveVote.HEART -> MaterialSymbols.Rounded.Favorite
-        NovelCommentPositiveVote.STAR -> NovelCommentGlyphs.Star
-    }
-    val label = stringResource(
-        when (kind) {
-            NovelCommentPositiveVote.UPVOTE -> MR.strings.leaf_novel_comments_upvote
-            NovelCommentPositiveVote.LIKE -> MR.strings.leaf_novel_comments_like
-            NovelCommentPositiveVote.HEART -> MR.strings.leaf_novel_comments_heart
-            NovelCommentPositiveVote.STAR -> MR.strings.leaf_novel_comments_star
-        },
-    )
-    val score = comment.score.takeIf { capabilities.scored }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        if (capabilities.voting) {
-            FilterChip(
-                selected = comment.vote == NovelCommentVote.UP,
-                onClick = { onVote(NovelCommentVote.UP) },
-                enabled = !voting,
-                label = { Text(if (!capabilities.downvotes && score != null) "$label $score" else label) },
-                leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(COMPACT_ICON)) },
-            )
-            if (capabilities.downvotes) {
-                score?.let {
-                    Text(
-                        text = it.toString(),
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(horizontal = 4.dp),
-                    )
-                }
-                FilterChip(
-                    selected = comment.vote == NovelCommentVote.DOWN,
-                    onClick = { onVote(NovelCommentVote.DOWN) },
-                    enabled = !voting,
-                    label = { Text(stringResource(MR.strings.leaf_novel_comments_downvote)) },
-                    leadingIcon = {
-                        Icon(
-                            MaterialSymbols.Rounded.ArrowDownward,
-                            contentDescription = null,
-                            modifier = Modifier.size(COMPACT_ICON),
-                        )
-                    },
-                )
-            }
-        } else if (score != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(COMPACT_ICON))
+    } else {
+        Box(
+            modifier = Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
-                text = stringResource(
-                    when {
-                        capabilities.downvotes || kind == NovelCommentPositiveVote.UPVOTE ->
-                            MR.strings.leaf_novel_comments_score
-                        kind == NovelCommentPositiveVote.HEART -> MR.strings.leaf_novel_comments_hearts
-                        kind == NovelCommentPositiveVote.STAR -> MR.strings.leaf_novel_comments_stars
-                        else -> MR.strings.leaf_novel_comments_likes
-                    },
-                    score,
-                ),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 16.dp),
+                comment.author.take(1).uppercase(),
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                style = MaterialTheme.typography.labelLarge,
             )
         }
     }
 }
 
-/** What stands in for a hidden comment. Deliberately the size of a line, not of the comment. */
 @Composable
-private fun SpoilerCurtain(onReveal: () -> Unit) {
+private fun Badge(label: String) {
     Text(
-        text = stringResource(MR.strings.leaf_novel_comments_spoiler),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(SPOILER_CORNER))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onReveal)
-            .padding(MaterialTheme.padding.small),
-    )
-}
-
-/** A small flat label. Material has no chip this size and a `Chip` here would be a button. */
-@Composable
-private fun Chip(label: String) {
-    Text(
-        text = label,
+        label,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSecondaryContainer,
-        modifier = Modifier
-            .clip(RoundedCornerShape(CHIP_CORNER))
-            .background(MaterialTheme.colorScheme.secondaryContainer)
-            .padding(horizontal = CHIP_PADDING, vertical = 1.dp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 4.dp),
     )
 }
 
 /**
- * One vertical line per ancestor, tinted by depth and tappable to fold that ancestor.
+ * One vertical line per ancestor, tappable to fold that ancestor.
  *
  * The rails are what make a deep thread readable without counting indents, and making each one
  * collapse its own ancestor means getting out of a long sub-thread is one tap on the line beside
@@ -482,7 +321,7 @@ private fun NovelCommentRails(
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier.fillMaxHeight()) {
-        ancestors.forEachIndexed { index, id ->
+        ancestors.forEach { id ->
             Box(
                 modifier = Modifier
                     .width(RAIL_SPACING)
@@ -494,7 +333,7 @@ private fun NovelCommentRails(
                     modifier = Modifier
                         .width(RAIL_WIDTH)
                         .fillMaxHeight()
-                        .background(railColor(index)),
+                        .background(MaterialTheme.colorScheme.outlineVariant),
                 )
             }
         }
@@ -522,14 +361,6 @@ fun NovelCommentThreadRow(
         NovelCommentRails(ancestors = ancestors, onCollapse = onCollapse)
         Box(modifier = Modifier.weight(1f)) { content() }
     }
-}
-
-/** Five tints, cycled. Enough that neighbouring depths differ; few enough to stay a palette. */
-@Composable
-private fun railColor(depth: Int): Color {
-    val scheme = MaterialTheme.colorScheme
-    val palette = listOf(scheme.primary, scheme.tertiary, scheme.secondary, scheme.error, scheme.outline)
-    return palette[depth % palette.size].copy(alpha = RAIL_ALPHA)
 }
 
 /**
@@ -568,11 +399,5 @@ private fun List<NovelCommentSpan>.toAnnotatedString(
         }
     }
 
-private val AVATAR_SIZE = 32.dp
-private val COMPACT_ICON = 18.dp
 private val RAIL_SPACING = 10.dp
-private val RAIL_WIDTH = 2.dp
-private val CHIP_CORNER = 4.dp
-private val CHIP_PADDING = 4.dp
-private val SPOILER_CORNER = 4.dp
-private const val RAIL_ALPHA = 0.45f
+private val RAIL_WIDTH = 1.dp

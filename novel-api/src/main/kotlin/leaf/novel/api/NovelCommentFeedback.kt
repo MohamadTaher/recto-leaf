@@ -16,6 +16,9 @@ data class NovelCommentFeedback(
     val positiveVote: NovelCommentPositiveVote = NovelCommentPositiveVote.LIKE,
     val rating: NovelCommentRating? = null,
     val reactions: List<NovelCommentReaction> = emptyList(),
+    /** Separate totals, never reconstructed from the net score. Null means not supplied. */
+    val likes: Int? = null,
+    val dislikes: Int? = null,
 )
 
 enum class NovelCommentPositiveVote {

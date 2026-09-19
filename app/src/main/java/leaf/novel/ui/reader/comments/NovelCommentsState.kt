@@ -3,6 +3,7 @@ package leaf.novel.ui.reader.comments
 import androidx.compose.runtime.Immutable
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
+import leaf.novel.api.NovelCommentFeed
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.api.NovelCommentSort
 
@@ -21,6 +22,7 @@ import leaf.novel.api.NovelCommentSort
 data class NovelCommentThread(
     val comments: List<NovelComment> = emptyList(),
     val voting: Set<String> = emptySet(),
+    val loadingReplies: Set<String> = emptySet(),
     val posting: Boolean = false,
     /** Whatever the site said the thread's size is, which is not always what arrived. */
     val total: Int? = null,
@@ -47,6 +49,8 @@ data class NovelCommentThread(
 data class NovelCommentsState(
     /** Null until a source that serves comments is bound; the reader's button hangs off it. */
     val capabilities: NovelCommentCapabilities? = null,
+    val feeds: List<NovelCommentFeed> = emptyList(),
+    val feed: NovelCommentFeed? = null,
 
     /** Whose comments these are. Fixed for the life of the controller that owns this state. */
     val scope: NovelCommentScope = NovelCommentScope.CHAPTER,
@@ -175,6 +179,7 @@ data class NovelCommentsState(
         }
         return copy(
             voting = thread.voting,
+            loadingReplies = thread.loadingReplies,
             posting = thread.posting,
             loading = !arrived && thread.failure == null,
             loaded = arrived,
