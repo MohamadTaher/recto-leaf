@@ -2,7 +2,7 @@
 
 All site knowledge lives in the extension. The app asks `NovelCommentSource` and draws what comes
 back; it has no list of sites, no endpoint templates and no per-site parsing. So adding comments to
-a site is one interface on one extension class, in `novel-extensions/`.
+a site is one interface on one extension class.
 
 ## The minimum
 
