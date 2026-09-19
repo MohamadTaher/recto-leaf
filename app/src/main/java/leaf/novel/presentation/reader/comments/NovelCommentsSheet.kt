@@ -38,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -262,14 +263,13 @@ private fun NovelCommentsHeader(
                 )
                 if (state.loaded) {
                     Text(
-                        text = stringResource(
-                            if (state.total == null && (state.loadingMore || state.hasMore)) {
-                                MR.strings.leaf_novel_comments_loaded
-                            } else {
-                                MR.strings.leaf_novel_comments_count
-                            },
-                            state.count,
-                        ),
+                        text = when {
+                            state.total == null && (state.loadingMore || state.hasMore) ->
+                                stringResource(MR.strings.leaf_novel_comments_loaded, state.count)
+                            state.feed != null ->
+                                stringResource(MR.strings.leaf_novel_comments_feed_count, state.feed.label, state.count)
+                            else -> stringResource(MR.strings.leaf_novel_comments_count, state.count)
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -332,7 +332,10 @@ private fun NovelCommentsHeader(
         }
 
         if (state.feeds.size > 1) {
-            SecondaryTabRow(selectedTabIndex = state.feeds.indexOf(state.feed).coerceAtLeast(0)) {
+            SecondaryTabRow(
+                selectedTabIndex = state.feeds.indexOf(state.feed).coerceAtLeast(0),
+                containerColor = Color.Transparent,
+            ) {
                 state.feeds.forEach { feed ->
                     Tab(
                         selected = state.feed == feed,
