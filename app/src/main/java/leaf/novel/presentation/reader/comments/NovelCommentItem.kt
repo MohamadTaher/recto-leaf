@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,9 +34,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -60,6 +66,7 @@ import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.comments.NovelCommentMarkup
 import leaf.novel.ui.reader.comments.NovelCommentReview
 import leaf.novel.ui.reader.comments.NovelCommentSpan
+import leaf.novel.ui.reader.comments.NovelCommentTree
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.ExpandMore
 import mihon.icons.materialsymbols.rounded.MoreVert
@@ -75,12 +82,13 @@ fun NovelCommentItem(
     capabilities: NovelCommentCapabilities,
     feedback: NovelCommentFeedback,
     voting: Boolean,
-    canReply: Boolean,
+    repliesExpanded: Boolean,
+    loadingReplies: Boolean,
     showAvatar: Boolean,
     spoilerGuard: Boolean,
     onToggleCollapsed: () -> Unit,
     onVote: (NovelCommentVote) -> Unit,
-    onReply: () -> Unit,
+    onToggleReplies: () -> Unit,
     onFocus: () -> Unit,
     onOpenLink: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -94,37 +102,63 @@ fun NovelCommentItem(
     var overflows by remember(comment.body) { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     val hidden = (spoilerGuard || hasSpoilers) && !revealed
+    val rating = (feedback.rating ?: review.rating).takeUnless { comment.deleted || hidden }
+    val hasAvatar = showAvatar && capabilities.avatars && !comment.deleted
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+    val replyCount = maxOf(
+        NovelCommentTree.count(comment.replies),
+        if (capabilities.lazyReplies) comment.replyCount else 0,
+    )
 
     Row(
-        modifier = modifier.fillMaxWidth().padding(vertical = 10.dp),
+        modifier = modifier.fillMaxWidth()
+            .drawBehind {
+                drawLine(
+                    color = dividerColor,
+                    start = Offset((if (hasAvatar) 42.dp else 8.dp).toPx(), size.height),
+                    end = Offset(size.width - 8.dp.toPx(), size.height),
+                    strokeWidth = 0.5.dp.toPx(),
+                )
+            }
+            .padding(top = 14.dp, bottom = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (showAvatar && capabilities.avatars && !comment.deleted) CommentAvatar(comment)
+        if (hasAvatar) CommentAvatar(comment)
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.Top) {
-                Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(modifier = Modifier.weight(1f).padding(top = 3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = if (comment.deleted) {
                                 stringResource(MR.strings.leaf_novel_comments_deleted)
                             } else {
                                 comment.author
                             },
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
                             color = if (comment.byUploader) {
                                 MaterialTheme.colorScheme.primary
                             } else {
-                                MaterialTheme.colorScheme.onSurface
+                                MaterialTheme.colorScheme.onSurfaceVariant
                             },
                         )
-                        if (comment.postedAt > 0) {
+                        if (comment.postedAt > 0 && rating == null) {
                             Text(
-                                text = relativeTimeSpanString(comment.postedAt),
+                                text = " · " + relativeTimeSpanString(comment.postedAt),
+                                maxLines = 1,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    }
+                    if (comment.postedAt > 0 && rating != null) {
+                        Text(
+                            text = relativeTimeSpanString(comment.postedAt),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (comment.byUploader) Badge(stringResource(MR.strings.leaf_novel_comments_uploader))
@@ -133,8 +167,9 @@ fun NovelCommentItem(
                         comment.chapterLabel?.takeIf { it.isNotBlank() }?.let { Badge(it) }
                     }
                 }
+                rating?.let { NovelCommentRatingRow(it, Modifier.padding(start = 8.dp, top = 5.dp)) }
                 Box {
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
                         Icon(
                             MaterialSymbols.Rounded.MoreVert,
                             stringResource(MR.strings.action_menu_overflow_description),
@@ -199,9 +234,6 @@ fun NovelCommentItem(
                 }
                 return@Column
             }
-            if (!comment.deleted && !hidden) {
-                (feedback.rating ?: review.rating)?.let { NovelCommentRatingRow(it) }
-            }
             when {
                 comment.deleted -> Unit
                 hidden -> Text(
@@ -218,8 +250,8 @@ fun NovelCommentItem(
                             MaterialTheme.colorScheme.primary,
                             MaterialTheme.colorScheme.onSurfaceVariant,
                         ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = if (expanded) Int.MAX_VALUE else 6,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = if (expanded) Int.MAX_VALUE else 4,
                         overflow = TextOverflow.Ellipsis,
                         onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
                     )
@@ -232,7 +264,7 @@ fun NovelCommentItem(
                                     MR.strings.leaf_novel_comments_read_more
                                 },
                             ),
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.heightIn(min = 40.dp)
                                 .clickable(role = Role.Button, onClick = { expanded = !expanded })
@@ -242,14 +274,7 @@ fun NovelCommentItem(
                 }
             }
             if (!comment.deleted) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
-                    if (canReply) {
-                        TextButton(onClick = onReply) { Text(stringResource(MR.strings.leaf_novel_comments_reply)) }
-                    }
-                }
+                NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
                 if (feedback.reactions.isNotEmpty()) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         feedback.reactions.forEach { reaction ->
@@ -266,6 +291,38 @@ fun NovelCommentItem(
                                 ).joinToString(" "),
                             )
                         }
+                    }
+                }
+            }
+            if (replyCount > 0) {
+                val label = stringResource(
+                    if (replyCount ==
+                        1
+                    ) {
+                        MR.strings.leaf_novel_comments_one_reply
+                    } else {
+                        MR.strings.leaf_novel_comments_replies
+                    },
+                    replyCount,
+                )
+                val action = if (repliesExpanded) stringResource(MR.strings.leaf_novel_comments_hide_replies) else label
+                Row(
+                    modifier = Modifier.heightIn(min = 44.dp)
+                        .clickable(role = Role.Button, onClick = onToggleReplies)
+                        .semantics { contentDescription = action }
+                        .padding(end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    if (loadingReplies && comment.replies.isEmpty()) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                    } else {
+                        Icon(
+                            MaterialSymbols.Rounded.ExpandMore,
+                            null,
+                            modifier = Modifier.size(18.dp).rotate(if (repliesExpanded) 0f else -90f),
+                        )
                     }
                 }
             }

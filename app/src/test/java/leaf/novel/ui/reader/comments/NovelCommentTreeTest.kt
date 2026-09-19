@@ -175,6 +175,26 @@ class NovelCommentTreeTest {
     // region flatten
 
     @Test
+    fun `reply expansion keeps the parent visible and opens each nesting level independently`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a", replies = listOf(comment("1b"))))))
+
+        NovelCommentTree.flatten(roots, expandedReplies = emptySet()).map { it.key } shouldBe listOf("1")
+        NovelCommentTree.flatten(roots, expandedReplies = setOf("1")).map { it.key } shouldBe listOf("1", "1a")
+        NovelCommentTree.flatten(roots, expandedReplies = setOf("1", "1a")).map { it.key } shouldBe
+            listOf("1", "1a", "1b")
+    }
+
+    @Test
+    fun `closed replies do not offer an extra paging row`() {
+        val roots = listOf(comment("1", replyCount = 12))
+
+        NovelCommentTree.flatten(roots, lazyReplies = true, expandedReplies = emptySet())
+            .map { it.key } shouldBe listOf("1")
+        NovelCommentTree.flatten(roots, lazyReplies = true, expandedReplies = setOf("1"))
+            .filterIsInstance<NovelCommentRow.MoreReplies>().single().count shouldBe 12
+    }
+
+    @Test
     fun `walks the forest depth first, carrying the ancestors`() {
         val roots = listOf(
             comment("1", replies = listOf(comment("1a"), comment("1b"))),

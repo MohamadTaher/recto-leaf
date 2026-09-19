@@ -144,6 +144,8 @@ object NovelCommentTree {
      * @param collapsed ids whose subtree is folded away.
      * @param loadingReplies ids whose replies are being fetched right now.
      * @param root when set, only this comment and its descendants — the sheet's focus mode.
+     * @param expandedReplies parents whose children are visible. The sheet starts with an empty set;
+     * callers flattening a whole tree can omit it.
      */
     fun flatten(
         roots: List<NovelComment>,
@@ -151,6 +153,7 @@ object NovelCommentTree {
         loadingReplies: Set<String> = emptySet(),
         lazyReplies: Boolean = false,
         root: String? = null,
+        expandedReplies: Set<String> = ids(roots),
     ): List<NovelCommentRow> {
         val start = if (root == null) roots else listOfNotNull(find(roots, root))
         val rows = mutableListOf<NovelCommentRow>()
@@ -176,7 +179,7 @@ object NovelCommentTree {
                 collapsed = folded,
                 hiddenCount = descendants,
             )
-            if (folded) continue
+            if (folded || comment.id !in expandedReplies) continue
 
             // The cap applies to what is *drawn*, so focusing a deep comment re-bases the depth and
             // lets the reader keep going. Without that the cap would be a wall rather than a fold.
@@ -191,7 +194,7 @@ object NovelCommentTree {
             }
 
             val missing = comment.replyCount - comment.replies.size
-            if (lazyReplies && missing > 0) {
+            if (lazyReplies && missing > 0 && (comment.replies.isNotEmpty() || comment.id !in loadingReplies)) {
                 rows += NovelCommentRow.MoreReplies(
                     comment = comment,
                     ancestors = ancestors + comment.id,

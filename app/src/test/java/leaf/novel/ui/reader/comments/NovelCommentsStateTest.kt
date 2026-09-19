@@ -38,7 +38,7 @@ class NovelCommentsStateTest {
     fun `never draws two rows with the same key when the pages overlap`() {
         // A comment the site sent nested on one page and flat on the next, which is what a thread
         // that grew between two requests looks like by the time it gets here.
-        val state = state().withThread(
+        val state = state().copy(expandedReplies = setOf("1")).withThread(
             thread(
                 comment("1", replies = listOf(comment("1a", parentId = "1"))),
                 comment("1a", parentId = "1"),
@@ -59,7 +59,7 @@ class NovelCommentsStateTest {
         first.collapsed shouldBe setOf("1")
 
         // The reader opens the first page's thread, then the next page lands.
-        val opened = first.copy(collapsed = emptySet()).withRoots(first.roots)
+        val opened = first.copy(collapsed = emptySet(), expandedReplies = setOf("1")).withRoots(first.roots)
         val second = opened.withThread(
             thread(
                 comment("1", replies = listOf(comment("1a"))),
@@ -73,13 +73,14 @@ class NovelCommentsStateTest {
     }
 
     @Test
-    fun `leaves the folds alone when the reader did not ask for collapsing`() {
+    fun `shows parent bodies while keeping replies closed by default`() {
         val state = state().withThread(
             thread(comment("1"), comment("2", replies = listOf(comment("2a")))),
         )
 
         state.collapsed shouldBe emptySet()
-        state.rows.map { it.key } shouldBe listOf("1", "2", "2a")
+        state.rows.map { it.key } shouldBe listOf("1", "2")
+        state.expandedReplies shouldBe emptySet()
     }
 
     /**

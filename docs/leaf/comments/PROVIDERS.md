@@ -152,6 +152,12 @@ Each `NovelCommentFeed` declares its own label and capabilities, including scope
 The app presents tabs when more than one feed applies, and keeps their pagination, replies and
 cached results separate. The original `getComments(request)` remains the single-feed fallback.
 
+Replies start behind an `X replies` row while the parent body remains visible. Opening it shows
+cached children immediately; a parent with only a count fetches its first reply page through the
+existing lazy-reply API. Closing the row does not discard replies or let a late response reopen it.
+Ratings sit beside the author, immediately before the comment menu, with fractional stars and the
+exact numeric value. Both reaction counts remain visible, including zero.
+
 ## Testing one
 
 The app's own `NovelCommentTreeTest` covers the nesting, so an extension does not have to. What is
@@ -159,6 +165,6 @@ worth checking by hand, once, on a real chapter:
 
 1. A chapter with no comments shows the empty message, not a spinner and not an error.
 2. A chapter with one page shows no "load more".
-3. A reply three deep is indented three rails.
+3. Opening each reply row reveals its next level; a reply three deep is indented three rails.
 4. Whatever the site calls its default sort is selected in the sort menu.
 5. Unknown counts remain absent, while real zeros remain visible beside the appropriate thumb.

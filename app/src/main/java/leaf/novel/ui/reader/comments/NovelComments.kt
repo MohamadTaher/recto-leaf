@@ -338,15 +338,33 @@ class NovelComments(
         }
     }
 
+    /** Opens cached replies immediately, fetching the first page only when none arrived with the parent. */
+    fun toggleReplies(comment: NovelComment) {
+        val current = NovelCommentTree.find(state.value.roots, comment.id) ?: return
+        val opening = current.id !in state.value.expandedReplies
+        mutableState.update {
+            val expanded = if (opening) it.expandedReplies + current.id else it.expandedReplies - current.id
+            it.copy(expandedReplies = expanded).withRoots(it.roots)
+        }
+        if (opening && current.replies.isEmpty() && current.replyCount > 0 &&
+            state.value.capabilities?.lazyReplies == true
+        ) {
+            loadReplies(current)
+        }
+    }
+
     /** Folds every top-level comment, which is how a long thread becomes a table of contents. */
     fun collapseAll() {
         mutableState.update {
-            it.copy(collapsed = it.roots.mapTo(mutableSetOf()) { root -> root.id }).withRoots(it.roots)
+            it.copy(collapsed = it.roots.mapTo(mutableSetOf()) { root -> root.id }, expandedReplies = emptySet())
+                .withRoots(it.roots)
         }
     }
 
     fun expandAll() {
-        mutableState.update { it.copy(collapsed = emptySet()).withRoots(it.roots) }
+        mutableState.update {
+            it.copy(collapsed = emptySet(), expandedReplies = NovelCommentTree.ids(it.roots)).withRoots(it.roots)
+        }
     }
 
     /**
@@ -356,7 +374,13 @@ class NovelComments(
      * past "continue this thread" — the same move Reddit makes for the same reason.
      */
     fun focus(id: String?) {
-        mutableState.update { it.copy(focus = id, collapsed = it.collapsed - id.orEmpty()).withRoots(it.roots) }
+        mutableState.update {
+            it.copy(
+                focus = id,
+                collapsed = it.collapsed - id.orEmpty(),
+                expandedReplies = if (id == null) it.expandedReplies else it.expandedReplies + id,
+            ).withRoots(it.roots)
+        }
     }
 
     /**
@@ -432,7 +456,14 @@ class NovelComments(
                                 replyingTo = null,
                                 draft = "",
                                 posted = it.posted + 1,
-                            )
+                                expandedReplies = if (parentId ==
+                                    null
+                                ) {
+                                    it.expandedReplies
+                                } else {
+                                    it.expandedReplies + parentId
+                                },
+                            ).withRoots(it.roots)
                         }
                     }
                 }

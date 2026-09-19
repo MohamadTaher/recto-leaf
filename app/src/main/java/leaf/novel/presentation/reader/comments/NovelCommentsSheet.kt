@@ -51,6 +51,7 @@ import leaf.novel.api.NovelCommentScope
 import leaf.novel.api.NovelCommentSort
 import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import leaf.novel.ui.reader.comments.NovelCommentRow
+import leaf.novel.ui.reader.comments.NovelCommentTree
 import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.comments.NovelCommentsState
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
@@ -158,7 +159,9 @@ fun NovelCommentsSheet(
                         items(state.rows, key = { it.key }) { row ->
                             NovelCommentThreadRow(
                                 ancestors = row.ancestors,
-                                onCollapse = comments::toggleCollapsed,
+                                onCollapse = { id ->
+                                    NovelCommentTree.find(state.roots, id)?.let(comments::toggleReplies)
+                                },
                             ) {
                                 when (row) {
                                     is NovelCommentRow.Body -> NovelCommentItem(
@@ -168,12 +171,13 @@ fun NovelCommentsSheet(
                                         capabilities = capabilities,
                                         feedback = comments.feedback(row.comment),
                                         voting = row.comment.id in state.voting,
-                                        canReply = comments.canReply(row.comment),
+                                        repliesExpanded = row.comment.id in state.expandedReplies,
+                                        loadingReplies = row.comment.id in state.loadingReplies,
                                         showAvatar = showAvatars,
                                         spoilerGuard = spoilerGuard,
                                         onToggleCollapsed = { comments.toggleCollapsed(row.comment.id) },
                                         onVote = { vote -> comments.vote(row.comment, vote) },
-                                        onReply = { comments.replyTo(row.comment) },
+                                        onToggleReplies = { comments.toggleReplies(row.comment) },
                                         onFocus = { comments.focus(row.comment.id) },
                                         onOpenLink = uriHandler::openUri,
                                     )
@@ -259,7 +263,7 @@ private fun NovelCommentsHeader(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(MR.strings.leaf_novel_comments),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                 )
                 if (state.loaded) {
                     Text(

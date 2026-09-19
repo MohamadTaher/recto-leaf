@@ -1340,6 +1340,9 @@
     <string name="leaf_novel_comments_sort_local">Sorted over the comments loaded so far, not the whole thread</string>
     <string name="leaf_novel_comments_reply">Reply</string>
     <string name="leaf_novel_comments_show_replies">Show %1$d more replies</string>
+    <string name="leaf_novel_comments_one_reply">%1$d reply</string>
+    <string name="leaf_novel_comments_replies">%1$d replies</string>
+    <string name="leaf_novel_comments_hide_replies">Hide replies</string>
     <string name="leaf_novel_comments_continue_thread">Continue this thread (%1$d)</string>
     <string name="leaf_novel_comments_hidden">%1$d hidden</string>
     <string name="leaf_novel_comments_collapse_all">Collapse all</string>

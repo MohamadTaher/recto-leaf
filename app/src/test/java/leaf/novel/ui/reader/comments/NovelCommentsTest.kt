@@ -44,6 +44,34 @@ import java.util.concurrent.CopyOnWriteArrayList
 class NovelCommentsTest {
 
     @Test
+    fun `opening replies fetches once and a late response does not reopen a closed thread`() = runBlocking<Unit> {
+        val parent = comment("parent", replyCount = 1)
+        val response = CompletableDeferred<NovelCommentPage>()
+        val source = FakeCommentSource(NovelCommentCapabilities(lazyReplies = true)) { request ->
+            if (request.parent == null) NovelCommentPage(listOf(parent)) else response.await()
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences())
+            comments.bind(source, Manga.create())
+            comments.setChapter(chapter(1))
+            waitFor("parent") { comments.state.value.loaded }
+            comments.state.value.rows.map { it.key } shouldBe listOf("parent")
+            comments.toggleReplies(parent)
+            waitFor("reply request") { source.replyRequests() == 1 }
+            comments.toggleReplies(parent)
+            response.complete(NovelCommentPage(listOf(comment("reply"))))
+            waitFor("cached response") { comments.state.value.roots.single().replies.size == 1 }
+            comments.state.value.rows.map { it.key } shouldBe listOf("parent")
+            comments.toggleReplies(parent)
+            comments.state.value.rows.map { it.key } shouldBe listOf("parent", "reply")
+            source.replyRequests() shouldBe 1
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `pending replies stay with their feed and cannot be fetched twice after switching tabs`() = runBlocking<Unit> {
         val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL), lazyReplies = true)
         val discussion = NovelCommentFeed("comments", "Comments", capabilities)
@@ -479,6 +507,7 @@ class NovelCommentsTest {
         comments.setChapter(Chapter.create().copy(id = 1L))
         comments.open()
         waitFor("the first page") { comments.state.value.loaded }
+        comments.toggleReplies(parent)
         comments.state.value.rows.any { it is NovelCommentRow.MoreReplies } shouldBe true
 
         comments.loadReplies(parent)

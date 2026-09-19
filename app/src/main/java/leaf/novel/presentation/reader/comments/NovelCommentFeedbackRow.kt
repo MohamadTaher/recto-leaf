@@ -31,7 +31,7 @@ import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
 @Composable
-fun NovelCommentRatingRow(rating: NovelCommentRating) {
+fun NovelCommentRatingRow(rating: NovelCommentRating, modifier: Modifier = Modifier) {
     if (!rating.value.isFinite() || !rating.maximum.isFinite() || rating.maximum <= 0 ||
         rating.value !in 0.0..rating.maximum
     ) {
@@ -41,15 +41,15 @@ fun NovelCommentRatingRow(rating: NovelCommentRating) {
     val maximum = rating.maximum.toString().removeSuffix(".0")
     val description = stringResource(MR.strings.leaf_novel_comments_rating, value, maximum)
     Row(
-        modifier = Modifier.padding(vertical = 4.dp).semantics(mergeDescendants = true) {
+        modifier = modifier.semantics(mergeDescendants = true) {
             contentDescription = description
         },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         repeat(5) { index ->
             val fraction = (rating.value / rating.maximum * 5 - index).toFloat().coerceIn(0f, 1f)
-            Box(Modifier.size(16.dp)) {
+            Box(Modifier.size(12.dp)) {
                 Icon(NovelCommentGlyphs.Star, null, tint = MaterialTheme.colorScheme.outlineVariant)
                 Icon(
                     NovelCommentGlyphs.FilledStar,
@@ -62,7 +62,11 @@ fun NovelCommentRatingRow(rating: NovelCommentRating) {
             }
         }
         Spacer(Modifier.width(4.dp))
-        Text("$value / $maximum", style = MaterialTheme.typography.labelMedium)
+        Text(
+            if (rating.maximum == 5.0) value else "$value / $maximum",
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
     }
 }
 

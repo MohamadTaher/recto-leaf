@@ -73,6 +73,8 @@ data class NovelCommentsState(
     val rows: List<NovelCommentRow> = emptyList(),
 
     val collapsed: Set<String> = emptySet(),
+    /** Replies open independently of the parent comment, and start behind a reply-count row. */
+    val expandedReplies: Set<String> = emptySet(),
     val loadingReplies: Set<String> = emptySet(),
     /** When set, the sheet shows this comment's subtree as if it were the whole thread. */
     val focus: String? = null,
@@ -125,6 +127,7 @@ data class NovelCommentsState(
         roots = emptyList(),
         rows = emptyList(),
         collapsed = emptySet(),
+        expandedReplies = emptySet(),
         loadingReplies = emptySet(),
         focus = null,
         loading = false,
@@ -151,6 +154,7 @@ data class NovelCommentsState(
                 loadingReplies = loadingReplies,
                 lazyReplies = capabilities?.lazyReplies == true,
                 root = focus,
+                expandedReplies = expandedReplies,
             ),
         )
     }
