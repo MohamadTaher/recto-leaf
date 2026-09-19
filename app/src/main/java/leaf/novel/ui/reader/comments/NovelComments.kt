@@ -68,22 +68,20 @@ import kotlin.time.Duration.Companion.minutes
  * rate limiting. `commentsAutoLoad` turns the whole of that off for a metered connection, and then
  * nothing is fetched until the sheet is opened.
  *
- * ### Every source that has the novel
+ * ### One thread from every source and every feed
  *
  * The novel's own source is only one of the places its readers talk. [matcher] finds the same novel
- * on the other installed comment sources, and their threads join this one: all together by default,
- * or one source at a time through [setOrigin]. Each source's thread is still fetched, paged and kept
- * on its own, exactly as a lone source's always was; only what reaches the sheet is merged. That
- * costs three things, each settled here so the sheet never has to know:
+ * on the other installed comment sources, and every feed of every one of them — its comments, its
+ * reviews — is fetched, paged and kept as a thread of its own, exactly as a lone feed always was.
+ * Only what reaches the sheet is merged, and two filters narrow it: [setKind] to reviews or to
+ * comments, [setOrigin] to one source. Merging costs two things, each settled here so the sheet
+ * never has to know:
  *
- *  - **Ids.** A comment id is unique only on its own site, so another source's ids carry a prefix
- *    naming it ([Origin.tag]), and every call back to a source takes it off again. The novel's own
- *    source keeps its ids untouched.
- *  - **Order.** One site's "top" means nothing next to another's, so a merged thread is ordered
- *    here by [NovelCommentsState.localSort], and a site's own orders are offered only while it is
- *    the one source showing.
- *  - **Tabs.** Feeds are matched by [NovelCommentFeed.key], with a source that declares none
- *    counted as [COMMENTS], so one site's reviews sit with another's reviews.
+ *  - **Ids.** A comment id is unique only within its own feed on its own site, so every other
+ *    thread's ids carry a prefix naming both ([Drain.tag]), and every call back to a source takes it
+ *    off again. The novel's own source keeps the ids of its first feed untouched.
+ *  - **Order.** One site's "top" means nothing next to another's, so each site is asked for its
+ *    default order and the thread is always ordered here, by [NovelCommentsState.localSort].
  */
 class NovelComments(
     private val scope: CoroutineScope,
@@ -114,14 +112,10 @@ class NovelComments(
     private var loadJob: Job? = null
     private var matchJob: Job? = null
 
-    /**
-     * One entry per thread asked for, keyed by source, by chapter — null for the novel's own — by
-     * feed and by order, because a site's orders are its own answers and each one is a different
-     * listing.
-     */
+    /** One entry per thread asked for, keyed by source, by chapter — null for the novel's own — and by feed. */
     private val drains = ConcurrentHashMap<Key, Drain>()
 
-    /** The threads the sheet is drawn from, one per source that serves the open tab and the filter. */
+    /** The threads the sheet is drawn from: every source and feed the filters let through. */
     @Volatile
     private var shown: List<Drain> = emptyList()
 
@@ -137,8 +131,8 @@ class NovelComments(
         get() = state.value.capabilities?.scopes?.contains(commentScope) == true
 
     fun feedback(comment: NovelComment): NovelCommentFeedback {
-        val origin = originOf(comment.id)
-        return (origin?.source as? NovelCommentFeedbackSource)?.getCommentFeedback(origin.untag(comment))
+        val drain = drainOf(comment.id)
+        return (drain?.origin?.source as? NovelCommentFeedbackSource)?.getCommentFeedback(drain.untag(comment))
             ?: NovelCommentFeedback(
                 positiveVote = if (capabilities(comment)?.downvotes == true) {
                     NovelCommentPositiveVote.UPVOTE
@@ -148,16 +142,15 @@ class NovelComments(
             )
     }
 
-    /** What the source a comment came from can do with it, which in a merged thread varies by row. */
-    fun capabilities(comment: NovelComment): NovelCommentCapabilities? =
-        originOf(comment.id)?.feed(state.value.feed?.key)?.capabilities
+    /** What the feed a comment came from can do with it, which in a merged thread varies by row. */
+    fun capabilities(comment: NovelComment): NovelCommentCapabilities? = drainOf(comment.id)?.feed?.capabilities
 
     /**
-     * The source a comment came from, named only while the sheet mixes comments from more than one —
-     * a chapter that only one of the sources has comments on needs no label on every row.
+     * The source a comment came from, named on every row unless the sheet is filtered to one source
+     * — then the filter already says it, and every row saying it again is noise.
      */
     fun sourceName(comment: NovelComment): String? =
-        if (shown.count { it.pages.value.comments.isNotEmpty() } > 1) originOf(comment.id)?.source?.name else null
+        if (state.value.origin == null) drainOf(comment.id)?.origin?.source?.name else null
 
     /**
      * Points this at a novel and its source.
@@ -168,7 +161,7 @@ class NovelComments(
      */
     fun bind(source: Source?, manga: Manga?) {
         val own = source as? NovelCommentSource
-        origins = if (own != null && manga != null) listOf(Origin(own, manga.toSManga(), tag = "")) else emptyList()
+        origins = if (own != null && manga != null) listOf(Origin(own, manga.toSManga(), own = true)) else emptyList()
         mutableState.update { it.copy(localSort = preferences.commentsLocalSort.get()).configured() }
     }
 
@@ -196,8 +189,8 @@ class NovelComments(
      */
     fun prefetch(chapters: List<Chapter>) {
         if (commentScope != NovelCommentScope.CHAPTER || !preferences.commentsAutoLoad.get()) return
-        val sources = contributors()
-        chapters.forEach { chapter -> sources.forEach { drainFor(it, chapter) } }
+        val threads = contributors()
+        chapters.forEach { chapter -> threads.forEach { (origin, feed) -> drainFor(origin, feed, chapter) } }
     }
 
     /**
@@ -237,9 +230,8 @@ class NovelComments(
     /** Throws away everything fetched for what is on screen, from every source, and fetches it again. */
     fun reload() {
         if (state.value.posting || state.value.voting.isNotEmpty()) return
-        contributors().forEach { origin ->
-            val key = keyFor(origin, chapter) ?: return@forEach
-            drains.remove(key)?.let { drain ->
+        contributors().forEach { (origin, feed) ->
+            drains.remove(keyFor(origin, feed, chapter) ?: return@forEach)?.let { drain ->
                 drain.job?.cancel()
                 drain.cacheKey?.let(cache::remove)
             }
@@ -273,10 +265,9 @@ class NovelComments(
      * sheet assumes what arrived with the comment is all there is and never offers the row.
      */
     fun loadReplies(comment: NovelComment) {
-        val drain = shownDrainOf(comment.id) ?: return
-        val origin = drain.origin
+        val drain = drainOf(comment.id) ?: return
         val target = drain.target ?: return
-        val id = origin.untagged(comment.id)
+        val id = drain.untagged(comment.id)
         if (id in drain.pages.value.loadingReplies) return
         val parent = NovelCommentTree.find(NovelCommentTree.build(drain.pages.value.comments), id) ?: return
         val next = drain.pages.value.replyPages.getOrElse(id) { 0 } + 1
@@ -290,7 +281,7 @@ class NovelComments(
                 cursor = drain.pages.value.replyCursors[id],
                 parent = parent,
             )
-            attempt { origin.getComments(request, drain.feed) }
+            attempt { drain.origin.getComments(request, drain.feed) }
                 .onSuccess { result ->
                     // A page that brought nothing new is the end of the replies whatever the site
                     // says about there being more, or the row would offer them again for ever.
@@ -320,32 +311,13 @@ class NovelComments(
         }
     }
 
-    /**
-     * Chooses one of the source's own orders, which means asking the site for it.
-     *
-     * Asked rather than applied here, because a site ranks from data it does not necessarily send —
-     * see [NovelCommentsState.localSort]. Each order is kept as its own thread, so going back to one
-     * already fetched costs nothing. Only offered while one source is showing.
-     */
-    fun setSort(sort: NovelCommentSort) {
-        if (state.value.posting || state.value.voting.isNotEmpty()) return
-        if (state.value.sortKey == sort.key) return
-        val origin = contributors().singleOrNull() ?: return
-        origin.sortKey = sort.key
-        preferences.commentsSort.set(sort.key)
-        loadJob?.cancel()
-        mutableState.update { it.reset().copy(replyingTo = it.replyingTo).configured() }
-        show()
-    }
-
-    fun setFeed(feed: NovelCommentFeed) {
+    /** Narrows the thread to reviews or to comments, or with [NovelCommentKind.ALL] shows both. */
+    fun setKind(kind: NovelCommentKind) {
         val current = state.value
-        if (current.feeds.none { it.key == feed.key } || feed.key == current.feed?.key) return
+        if (kind == current.kind || (kind != NovelCommentKind.ALL && kind !in current.kinds)) return
         if (current.posting || current.voting.isNotEmpty() || current.draft.isNotBlank()) return
         loadJob?.cancel()
-        // A tab starts at each site's own first order, as a single source's tabs always have.
-        origins.forEach { it.sortKey = null }
-        mutableState.update { it.reset().copy(feed = feed).configured() }
+        mutableState.update { it.reset().copy(kind = kind).configured() }
         show()
     }
 
@@ -360,10 +332,9 @@ class NovelComments(
     }
 
     /**
-     * Chooses one of the reader's own orders, which means reordering what is already here.
+     * Chooses the order the thread is drawn in, which means reordering what is already here.
      *
-     * No request: these exist precisely because the site has no orders to ask it for — or, with
-     * several sources showing, because no one site's order can rank another's comments.
+     * No request: every site was asked for its default order, and this reorders the lot.
      */
     fun setLocalSort(sort: NovelCommentLocalSort) {
         preferences.commentsLocalSort.set(sort)
@@ -431,9 +402,9 @@ class NovelComments(
      * vote that silently did not happen is worse than one that visibly failed.
      */
     fun vote(comment: NovelComment, vote: NovelCommentVote) {
-        val drain = shownDrainOf(comment.id) ?: return
+        val drain = drainOf(comment.id) ?: return
         val capabilities = drain.feed.capabilities
-        val id = drain.origin.untagged(comment.id)
+        val id = drain.untagged(comment.id)
         if (!capabilities.voting || comment.deleted || id in drain.pages.value.voting) return
         if (vote == NovelCommentVote.DOWN && !capabilities.downvotes) return
         val current = NovelCommentTree.find(NovelCommentTree.build(drain.pages.value.comments), id) ?: return
@@ -473,8 +444,9 @@ class NovelComments(
     /**
      * Posts what the composer holds, dropping it into the thread where the site put it.
      *
-     * Only with one source showing: a comment written into a merged thread has no one site to go to,
-     * and the merged capabilities say so by never claiming [NovelCommentCapabilities.posting].
+     * Only with one feed of one source showing: a comment written into a merged thread has no one
+     * place to go, and the merged capabilities say so by never claiming
+     * [NovelCommentCapabilities.posting].
      */
     fun post(body: String) {
         val drain = shown.singleOrNull() ?: return
@@ -482,7 +454,7 @@ class NovelComments(
         if (state.value.capabilities?.posting != true || body.isBlank() || drain.pages.value.posting) return
 
         val shownParentId = state.value.replyingTo?.id
-        val parentId = shownParentId?.let(drain.origin::untagged)
+        val parentId = shownParentId?.let(drain::untagged)
         change(drain) { it.copy(posting = true) }
         mutableState.update { it.copy(error = null) }
 
@@ -538,7 +510,7 @@ class NovelComments(
         loadJob?.cancel()
         match()
         val chapter = chapter
-        shown = contributors().mapNotNull { drainFor(it, chapter) }
+        shown = contributors().mapNotNull { (origin, feed) -> drainFor(origin, feed, chapter) }
         if (shown.isEmpty()) return
         // Read once rather than inside the collector, which runs for every page.
         val collapseNew = preferences.commentsCollapseReplies.get()
@@ -551,11 +523,11 @@ class NovelComments(
      * Draws the threads on screen as one.
      *
      * The single place the sheet is derived from what was fetched: called for every page that lands
-     * and for every change made to a thread here. With one source showing it is that source's
-     * thread untouched. With several, each is prefixed by its source, a site that sends every reply
-     * has its counts settled at what it sent — the reader assumes that of it anyway, and a merged
-     * thread offers lazy replies for whichever site has them — and one source's failure is named as
-     * that source's rather than passed off as the sheet's.
+     * and for every change made to a thread here. With one thread showing it is that thread
+     * untouched. With several, each is prefixed by its tag, a site that sends every reply has its
+     * counts settled at what it sent — the reader assumes that of it anyway, and a merged thread
+     * offers lazy replies for whichever site has them — and one thread's failure is named as its
+     * source's rather than passed off as the sheet's.
      *
      * @param then applied in the same update, for a change that has to land with the redraw rather
      * than a frame after it.
@@ -571,18 +543,18 @@ class NovelComments(
         val failed = threads.firstOrNull { (_, thread) -> thread.failure != null }
         val thread = NovelCommentThread(
             comments = threads.flatMap { (drain, thread) ->
-                drain.origin.present(thread.comments, settle = merged && !drain.feed.capabilities.lazyReplies)
+                drain.present(thread.comments, settle = merged && !drain.feed.capabilities.lazyReplies)
             },
-            voting = threads.flatMapTo(mutableSetOf()) { (drain, thread) -> thread.voting.map(drain.origin::tagged) },
+            voting = threads.flatMapTo(mutableSetOf()) { (drain, thread) -> thread.voting.map(drain::tagged) },
             loadingReplies = threads.flatMapTo(mutableSetOf()) { (drain, thread) ->
-                thread.loadingReplies.map(drain.origin::tagged)
+                thread.loadingReplies.map(drain::tagged)
             },
             posting = threads.any { (_, thread) -> thread.posting },
             total = threads.map { (_, thread) -> thread.total }.takeIf { null !in it }?.sumOf { it ?: 0 },
             loaded = arrived,
             done = done,
             hasMore = threads.any { (_, thread) -> thread.hasMore },
-            // A source that failed while the rest are still on their way is not yet the sheet's
+            // A thread that failed while the rest are still on their way is not yet the sheet's
             // failure: its error would stand in the place of comments that are about to arrive.
             failure = failed?.takeIf { arrived || done }?.let { (drain, thread) -> failureOf(drain, thread.failure!!) },
         )
@@ -591,57 +563,48 @@ class NovelComments(
     }
 
     /**
-     * The tabs, orders and capabilities for the sources the filter lets through.
+     * What the filters allow, and what the threads they let through can do.
      *
-     * A tab exists when any of them has a feed with its key, and is labelled by the first that names
-     * it. The orders are a site's own only when one source is left to ask; the capabilities are that
-     * source's, or with several the first one's with posting withdrawn and lazy replies claimed for
-     * whichever of them has them.
+     * The reviews filter is offered only while the sources on show have both reviews and comments,
+     * and falls back to both when a change of source leaves it pointing at nothing. The capabilities
+     * are the one thread's when one is showing, or with several the first one's with posting
+     * withdrawn and lazy replies claimed for whichever of them has them.
      */
     private fun NovelCommentsState.configured(): NovelCommentsState {
         val filter = origin
         val visible = this@NovelComments.origins.filter { filter == null || it.source.id == filter }
-        val tabs = visible.flatMap { it.feeds }
-            .groupBy { it.key }
-            .values
-            .map { same -> same.firstOrNull { it.label.isNotBlank() } ?: same.first() }
-        val tab = tabs.firstOrNull { it.key == feed?.key } ?: tabs.firstOrNull()
-        val feeds = visible.mapNotNull { source -> source.feed(tab?.key)?.let { source to it } }
-        val only = feeds.singleOrNull()
-        val sorts = only?.second?.capabilities?.sorts.orEmpty()
-        val capabilities = only?.second?.capabilities
-            ?: feeds.map { it.second.capabilities }.let { all ->
+        val kinds = visible.flatMap { it.feeds }.mapTo(mutableSetOf()) {
+            if (NovelCommentKind.REVIEWS.admits(it)) NovelCommentKind.REVIEWS else NovelCommentKind.COMMENTS
+        }
+        val kind = kind.takeIf { it == NovelCommentKind.ALL || it in kinds } ?: NovelCommentKind.ALL
+        val feeds = visible.flatMap { it.feeds.filter(kind::admits) }
+        val capabilities = feeds.singleOrNull()?.capabilities
+            ?: feeds.map { it.capabilities }.let { all ->
                 all.firstOrNull()?.copy(posting = false, lazyReplies = all.any { it.lazyReplies })
             }
-        return copy(
-            capabilities = capabilities,
-            feeds = tabs,
-            feed = tab,
-            sorts = sorts,
-            sortKey = only?.let { (source, feed) -> source.sort(feed).key }?.takeIf { sorts.isNotEmpty() },
-            origins = describe(tab?.key),
-        )
+        return copy(capabilities = capabilities, kind = kind, kinds = kinds, origins = describe(kind))
     }
 
-    /** Each source as the filter shows it, counted from its thread for whatever is open now. */
-    private fun describe(feed: String? = state.value.feed?.key): List<NovelCommentOrigin> = origins.map { origin ->
-        val thread = keyFor(origin, chapter, feed)?.let { drains[it] }?.pages?.value
+    /** Each source as the filter shows it, counted over its threads for whatever is open now. */
+    private fun describe(kind: NovelCommentKind = state.value.kind): List<NovelCommentOrigin> = origins.map { origin ->
+        val threads = origin.feeds.filter(kind::admits)
+            .mapNotNull { feed -> keyFor(origin, feed, chapter)?.let { drains[it] }?.pages?.value }
         NovelCommentOrigin(
             id = origin.source.id,
             name = origin.source.name,
-            count = thread?.takeIf { it.loaded }?.let {
+            count = threads.filter { it.loaded }.takeIf { it.isNotEmpty() }?.sumOf {
                 it.total ?: NovelCommentTree.count(NovelCommentTree.build(it.comments))
             },
-            loading = thread != null && !thread.done,
+            loading = threads.any { !it.done },
         )
     }
 
-    /** The sources whose threads make up the open tab, as far as the filter allows. */
-    private fun contributors(): List<Origin> {
+    /** Every source and feed whose thread makes up what the filters allow. */
+    private fun contributors(): List<Pair<Origin, NovelCommentFeed>> {
         val current = state.value
-        return origins.filter {
-            (current.origin == null || it.source.id == current.origin) && it.feed(current.feed?.key) != null
-        }
+        return origins
+            .filter { current.origin == null || it.source.id == current.origin }
+            .flatMap { origin -> origin.feeds.filter(current.kind::admits).map { origin to it } }
     }
 
     /**
@@ -658,18 +621,17 @@ class NovelComments(
         mutableState.update { it.copy(searching = true) }
         matchJob = scope.launch {
             val found = attempt { matcher.find(own.source, own.novel, commentScope) }.getOrElse { emptyList() }
-            origins = origins + found.map { (source, novel) -> Origin(source, novel, tag = "$TAG${source.id}$TAG") }
+            origins = origins + found.map { (source, novel) -> Origin(source, novel, own = false) }
             mutableState.update { it.copy(searching = false).configured() }
             if (loadJob?.isActive == true) show()
         }
     }
 
-    /** One source's thread for one chapter, started if this is the first time anything asked for it. */
-    private fun drainFor(origin: Origin, chapter: Chapter?): Drain? {
-        val key = keyFor(origin, chapter) ?: return null
+    /** One feed's thread for one chapter, started if this is the first time anything asked for it. */
+    private fun drainFor(origin: Origin, feed: NovelCommentFeed, chapter: Chapter?): Drain? {
+        val key = keyFor(origin, feed, chapter) ?: return null
         drains[key]?.let { return it }
-        val feed = origin.feed(key.feed) ?: return null
-        return Drain(origin, feed, origin.sort(feed)).also { drain ->
+        return Drain(origin, feed).also { drain ->
             drains[key] = drain
             drain.job = scope.launch { start(drain, chapter) }
         }
@@ -776,63 +738,41 @@ class NovelComments(
         Result.failure(e)
     }
 
-    /** A failure as the sheet reports it: with several sources showing, prefixed by whose it was. */
+    /** A failure as the sheet reports it: with several threads showing, prefixed by whose it was. */
     private fun failureOf(drain: Drain, failure: Throwable): Throwable {
         if (shown.size < 2) return failure
         val message = failure.message?.takeIf { it.isNotBlank() } ?: failure::class.simpleName
         return Exception("${drain.origin.source.name}: $message", failure)
     }
 
-    private fun originOf(id: String): Origin? = if (id.startsWith(TAG)) {
-        origins.firstOrNull { it.tag.isNotEmpty() && id.startsWith(it.tag) }
-    } else {
-        origins.firstOrNull()
+    /** The thread on screen a comment belongs to, read off its id's tag. */
+    private fun drainOf(id: String): Drain? {
+        val shown = shown
+        return if (id.startsWith(TAG)) {
+            shown.firstOrNull { it.tag.isNotEmpty() && id.startsWith(it.tag) }
+        } else {
+            shown.firstOrNull { it.tag.isEmpty() }
+        }
     }
 
-    private fun shownDrainOf(id: String): Drain? {
-        val origin = originOf(id) ?: return null
-        return shown.firstOrNull { it.origin === origin }
-    }
-
-    /** One thread is one source's comments on one chapter, in one feed and one of its orders. */
-    private fun keyFor(origin: Origin, chapter: Chapter?, feedKey: String? = state.value.feed?.key): Key? {
-        val feed = origin.feed(feedKey) ?: return null
+    /** One thread is one feed of one source, on one chapter. */
+    private fun keyFor(origin: Origin, feed: NovelCommentFeed, chapter: Chapter?): Key? {
         if (commentScope == NovelCommentScope.CHAPTER && chapter == null) return null
-        return Key(origin.source.id, chapter?.id, origin.sort(feed).key, feed.key)
+        return Key(origin.source.id, chapter?.id, feed.key)
     }
 
-    /** One source's copy of the novel. [tag] prefixes its comment ids, and is empty for the novel's own. */
-    private inner class Origin(val source: NovelCommentSource, val novel: SManga, val tag: String) {
+    /** One source's copy of the novel. [own] is the novel's own source, whose first feed keeps its ids. */
+    private inner class Origin(val source: NovelCommentSource, val novel: SManga, val own: Boolean) {
 
         private val declared = (source as? NovelCommentFeedSource)?.commentFeeds.orEmpty()
             .filter { commentScope in it.capabilities.scopes }
 
-        /** A source that declares no feeds has one all the same, and the sheet calls it comments. */
+        /** A source that declares no feeds has one all the same, and it counts as comments. */
         val feeds: List<NovelCommentFeed> = declared.ifEmpty {
             listOfNotNull(
                 NovelCommentFeed(COMMENTS, "", source.commentCapabilities)
                     .takeIf { commentScope in source.commentCapabilities.scopes },
             )
-        }
-
-        /**
-         * The order last chosen here, kept when a feed offers it.
-         *
-         * A key stored from another site means nothing here, so it is honoured only when this one
-         * offers it; otherwise the feed's own first order wins.
-         */
-        var sortKey: String? = preferences.commentsSort.get()
-
-        fun feed(key: String?): NovelCommentFeed? = feeds.firstOrNull { it.key == key }
-
-        /**
-         * The order to ask the site for.
-         *
-         * A source with no orders gets a blank one, which costs it nothing — it declared that it has
-         * nothing to sort by, and [NovelCommentsState.localSort] covers that case instead.
-         */
-        fun sort(feed: NovelCommentFeed): NovelCommentSort = feed.capabilities.sorts.let { sorts ->
-            sorts.firstOrNull { it.key == sortKey } ?: sorts.firstOrNull() ?: NovelCommentSort(key = "", label = "")
         }
 
         suspend fun getComments(request: NovelCommentRequest, feed: NovelCommentFeed): NovelCommentPage =
@@ -846,8 +786,42 @@ class NovelComments(
         suspend fun target(chapter: Chapter?): NovelCommentTarget? = when {
             commentScope == NovelCommentScope.NOVEL -> NovelCommentTarget(novel)
             chapter == null -> null
-            tag.isEmpty() -> NovelCommentTarget(novel, chapter.toSChapter())
+            own -> NovelCommentTarget(novel, chapter.toSChapter())
             else -> matcher?.chapter(source, novel, chapter.chapterNumber)?.let { NovelCommentTarget(novel, it) }
+        }
+    }
+
+    /** One feed's thread being filled: what has arrived so far, and the coroutine filling it. */
+    private inner class Drain(val origin: Origin, val feed: NovelCommentFeed) {
+        val pages = MutableStateFlow(NovelCommentThread())
+        var job: Job? = null
+
+        /**
+         * The site's own default order, which is all it is ever asked for.
+         *
+         * A source with no orders gets a blank one, which costs it nothing — it declared that it has
+         * nothing to sort by, and the thread is ordered here either way.
+         */
+        val order: NovelCommentSort = feed.capabilities.sorts.firstOrNull() ?: NovelCommentSort(key = "", label = "")
+
+        /** Prefixes this thread's ids; empty for the novel's own source's first feed. */
+        val tag: String = if (origin.own && feed == origin.feeds.firstOrNull()) {
+            ""
+        } else {
+            "$TAG${origin.source.id}$TAG${feed.key}$TAG"
+        }
+
+        /** Known once [start] has worked out what the thread is for. */
+        @Volatile
+        var target: NovelCommentTarget? = null
+
+        @Volatile
+        var cacheKey: ThreadKey? = null
+
+        /** Changes the thread, and the process's copy of it. */
+        fun update(transform: (NovelCommentThread) -> NovelCommentThread) {
+            pages.update(transform)
+            cacheKey?.let { cache.put(it, pages.value.settled()) }
         }
 
         fun tagged(id: String) = tag + id
@@ -864,8 +838,8 @@ class NovelComments(
         /**
          * The comments as the sheet sees them: prefixed, and with [settle], counted at what arrived.
          *
-         * The novel's own comments pass through untouched unless they need settling, so a sheet
-         * showing only them draws exactly what the source sent.
+         * An untagged thread passes through untouched unless it needs settling, so a sheet showing
+         * only it draws exactly what the source sent.
          */
         fun present(comments: List<NovelComment>, settle: Boolean): List<NovelComment> =
             if (tag.isEmpty() && !settle) {
@@ -882,26 +856,7 @@ class NovelComments(
             }
     }
 
-    /** One source's thread being filled: what has arrived so far, and the coroutine filling it. */
-    private inner class Drain(val origin: Origin, val feed: NovelCommentFeed, val order: NovelCommentSort) {
-        val pages = MutableStateFlow(NovelCommentThread())
-        var job: Job? = null
-
-        /** Known once [start] has worked out what the thread is for. */
-        @Volatile
-        var target: NovelCommentTarget? = null
-
-        @Volatile
-        var cacheKey: ThreadKey? = null
-
-        /** Changes the thread, and the process's copy of it. */
-        fun update(transform: (NovelCommentThread) -> NovelCommentThread) {
-            pages.update(transform)
-            cacheKey?.let { cache.put(it, pages.value.settled()) }
-        }
-    }
-
-    private data class Key(val source: Long, val chapterId: Long?, val sort: String, val feed: String)
+    private data class Key(val source: Long, val chapterId: Long?, val feed: String)
 
     /** The same thread wherever it is asked for from, which a [Key]'s chapter id is not for another source. */
     private data class ThreadKey(
@@ -919,13 +874,10 @@ class NovelComments(
         /** Long enough not to look like a scraper, short enough that a long thread still finishes. */
         const val PAGE_DELAY_MS = 350L
 
-        /**
-         * The feed every source without feeds of its own is taken to have, so its comments meet the
-         * ones other sources file under the same key. See `docs/leaf/comments/PROVIDERS.md`.
-         */
+        /** The feed a source without feeds of its own is taken to have. Anything but reviews is comments. */
         const val COMMENTS = "comments"
 
-        /** Opens and closes another source's prefix. No site puts a unit separator in an id. */
+        /** Opens and closes a thread's prefix. No site puts a unit separator in an id. */
         const val TAG = '\u001f'
 
         /** How long a thread fetched by an earlier screen is shown rather than fetched again. */

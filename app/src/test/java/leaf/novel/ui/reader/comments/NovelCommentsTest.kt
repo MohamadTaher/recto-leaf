@@ -72,55 +72,61 @@ class NovelCommentsTest {
     }
 
     @Test
-    fun `pending replies stay with their feed and cannot be fetched twice after switching tabs`() = runBlocking<Unit> {
-        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL), lazyReplies = true)
-        val discussion = NovelCommentFeed("comments", "Comments", capabilities)
-        val reviews = NovelCommentFeed("reviews", "Reviews", capabilities)
-        val response = CompletableDeferred<NovelCommentPage>()
-        val parent = comment("same-id", replyCount = 1)
-        val source = FakeCommentSource { error("A declared feed must be supplied") }
-        source.commentFeeds = listOf(discussion, reviews)
-        source.feedResponse = { request, feed ->
-            if (request.parent == null) {
-                NovelCommentPage(listOf(parent.copy(body = feed.key)))
-            } else {
-                response.await()
+    fun `pending replies stay with their feed and cannot be fetched twice after switching filters`() =
+        runBlocking<Unit> {
+            val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL), lazyReplies = true)
+            val discussion = NovelCommentFeed("comments", "Comments", capabilities)
+            val reviews = NovelCommentFeed("reviews", "Reviews", capabilities)
+            val response = CompletableDeferred<NovelCommentPage>()
+            val parent = comment("same-id", replyCount = 1)
+            val source = FakeCommentSource { error("A declared feed must be supplied") }
+            source.commentFeeds = listOf(discussion, reviews)
+            source.feedResponse = { request, feed ->
+                if (request.parent == null) {
+                    NovelCommentPage(listOf(parent.copy(body = feed.key)))
+                } else {
+                    response.await()
+                }
+            }
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
+                comments.bind(source, Manga.create())
+                comments.open()
+                // The same id in two feeds is two comments, not one drawn twice.
+                waitFor("both feeds") { comments.state.value.roots.size == 2 }
+                comments.state.value.roots.map { it.body } shouldBe listOf("comments", "reviews")
+                comments.loadReplies(parent)
+                waitFor("reply request") { source.feedRequests.any { it.second.parent != null } }
+                source.feedRequests.single { it.second.parent != null }.first shouldBe "comments"
+                comments.setKind(NovelCommentKind.REVIEWS)
+                waitFor("reviews") { comments.state.value.roots.singleOrNull()?.body == "reviews" }
+                comments.state.value.loadingReplies shouldBe emptySet()
+                comments.setKind(NovelCommentKind.COMMENTS)
+                waitFor("pending discussion reply") { "same-id" in comments.state.value.loadingReplies }
+                comments.loadReplies(parent)
+                delay(SETTLE_MS)
+                source.feedRequests.count { it.second.parent != null } shouldBe 1
+                comments.setKind(NovelCommentKind.ALL)
+                waitFor("both feeds again") { comments.state.value.roots.size == 2 }
+                comments.setKind(NovelCommentKind.REVIEWS)
+                waitFor("reviews again") { comments.state.value.roots.singleOrNull()?.body == "reviews" }
+                response.complete(NovelCommentPage(listOf(comment("reply"))))
+                delay(SETTLE_MS)
+                comments.state.value.roots.single().replies shouldBe emptyList()
+                comments.setKind(NovelCommentKind.COMMENTS)
+                waitFor("cached reply") { comments.state.value.roots.singleOrNull()?.replies?.size == 1 }
+                comments.state.value.loadingReplies shouldBe emptySet()
+            } finally {
+                scope.cancel()
             }
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
-            comments.bind(source, Manga.create())
-            comments.open()
-            waitFor("discussion") { comments.state.value.loaded }
-            comments.loadReplies(parent)
-            waitFor("reply request") { source.feedRequests.any { it.second.parent != null } }
-            comments.setFeed(reviews)
-            waitFor("reviews") { comments.state.value.roots.singleOrNull()?.body == "reviews" }
-            comments.state.value.loadingReplies shouldBe emptySet()
-            comments.setFeed(discussion)
-            waitFor("pending discussion reply") { "same-id" in comments.state.value.loadingReplies }
-            comments.loadReplies(parent)
-            delay(SETTLE_MS)
-            source.feedRequests.count { it.second.parent != null } shouldBe 1
-            comments.setFeed(reviews)
-            waitFor("reviews again") { comments.state.value.roots.singleOrNull()?.body == "reviews" }
-            response.complete(NovelCommentPage(listOf(comment("reply"))))
-            delay(SETTLE_MS)
-            comments.state.value.roots.single().replies shouldBe emptyList()
-            comments.setFeed(discussion)
-            waitFor("cached reply") { comments.state.value.roots.singleOrNull()?.replies?.size == 1 }
-            comments.state.value.loadingReplies shouldBe emptySet()
-        } finally {
-            scope.cancel()
-        }
-    }
 
     @Test
     fun `reviews and comments keep independent paging and cached results`() = runBlocking<Unit> {
         val capabilities = NovelCommentCapabilities(
             scopes = setOf(NovelCommentScope.NOVEL),
-            sorts = listOf(NovelCommentSort("newest", "Newest")),
+            sorts = listOf(NovelCommentSort("newest", "Newest"), NovelCommentSort("top", "Top")),
         )
         val discussion = NovelCommentFeed("comments", "Comments", capabilities)
         val reviews = NovelCommentFeed("reviews", "Reviews", capabilities)
@@ -137,19 +143,17 @@ class NovelCommentsTest {
             val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
             comments.bind(source, Manga.create())
             comments.open()
-            waitFor("discussion first page") { comments.state.value.loaded }
-            comments.setFeed(reviews)
-            waitFor("review feed") { comments.state.value.roots.firstOrNull()?.body == "reviews" }
-            waitFor("discussion second page") {
-                source.feedRequests.any { (feed, request) -> feed == "comments" && request.page == 2 }
-            }
-            comments.state.value.roots.single().body shouldBe "reviews"
-            comments.setFeed(discussion)
-            waitFor("cached discussion") { comments.state.value.roots.size == 2 }
-            comments.state.value.roots.map { it.body } shouldBe listOf("comments", "comments")
+            waitFor("every page of both feeds") { comments.state.value.roots.size == 3 }
             source.feedRequests.size shouldBe 3
-            comments.setFeed(reviews)
-            waitFor("cached reviews") { comments.state.value.roots.singleOrNull()?.body == "reviews" }
+            // Each site is asked for its own default order; the sheet orders the rest itself.
+            source.feedRequests.map { it.second.sort.key }.toSet() shouldBe setOf("newest")
+
+            comments.setKind(NovelCommentKind.REVIEWS)
+            waitFor("reviews") { comments.state.value.roots.map { it.body } == listOf("reviews") }
+            comments.setKind(NovelCommentKind.COMMENTS)
+            waitFor("comments") { comments.state.value.roots.map { it.body } == listOf("comments", "comments") }
+            comments.setKind(NovelCommentKind.ALL)
+            waitFor("both") { comments.state.value.roots.size == 3 }
             source.feedRequests.size shouldBe 3
         } finally {
             scope.cancel()
@@ -171,7 +175,7 @@ class NovelCommentsTest {
         try {
             val comments = NovelComments(scope, preferences())
             comments.bind(source, Manga.create())
-            comments.state.value.feeds.map { it.key } shouldBe listOf("comments")
+            comments.state.value.kinds shouldBe setOf(NovelCommentKind.COMMENTS)
         } finally {
             scope.cancel()
         }
@@ -335,15 +339,13 @@ class NovelCommentsTest {
             state.rows.map { it.key }.distinct().size shouldBe 2
             state.roots.map(comments::sourceName) shouldBe listOf("Own", "Other")
             state.origins.map { it.name to it.count } shouldBe listOf("Own" to 1, "Other" to 1)
-            // No one site's order can rank another's comments, and no one site can take a post.
-            state.sorts shouldBe emptyList()
+            // No one site can take a post written into a thread gathered from several.
             state.capabilities?.posting shouldBe false
 
             comments.setOrigin(2L)
             waitFor("one source") { comments.state.value.roots.size == 1 }
             comments.state.value.roots.single().body shouldBe "theirs"
             comments.sourceName(comments.state.value.roots.single()) shouldBe null
-            comments.state.value.sorts.map { it.key } shouldBe listOf("newest")
             comments.state.value.capabilities?.posting shouldBe true
 
             comments.setOrigin(null)
@@ -398,7 +400,7 @@ class NovelCommentsTest {
     }
 
     @Test
-    fun `puts one site's reviews with another's and counts a source without feeds as comments`() =
+    fun `filters every source to reviews or to comments, counting a source without feeds as comments`() =
         runBlocking<Unit> {
             val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
             val own =
@@ -421,15 +423,26 @@ class NovelCommentsTest {
             try {
                 val comments = shared(scope, own, plain, reviewer)
                 comments.open()
-                waitFor("the comments tab") { comments.state.value.roots.size == 2 }
-                comments.state.value.roots.map { it.body } shouldBe listOf("own-comments", "plain")
-                comments.state.value.feeds.map { it.label } shouldBe listOf("Comments", "Reviews")
+                waitFor("everything") { comments.state.value.roots.size == 4 }
+                comments.state.value.roots.map { it.body } shouldBe
+                    listOf("own-comments", "own-reviews", "plain", "their-review")
+                comments.state.value.kinds shouldBe setOf(NovelCommentKind.REVIEWS, NovelCommentKind.COMMENTS)
 
-                comments.setFeed(comments.state.value.feeds[1])
-                waitFor("the reviews tab") {
+                comments.setKind(NovelCommentKind.REVIEWS)
+                waitFor("the reviews") {
                     comments.state.value.roots.map { it.body } == listOf("own-reviews", "their-review")
                 }
-                plain.requests.size shouldBe 1
+                comments.setKind(NovelCommentKind.COMMENTS)
+                waitFor("the comments") {
+                    comments.state.value.roots.map { it.body } == listOf("own-comments", "plain")
+                }
+
+                // A source with reviews alone has nothing for the comments filter, which gives way.
+                comments.setOrigin(3L)
+                waitFor("the reviewer") { comments.state.value.roots.map { it.body } == listOf("their-review") }
+                comments.state.value.kind shouldBe NovelCommentKind.ALL
+                comments.state.value.kinds shouldBe setOf(NovelCommentKind.REVIEWS)
+                listOf(own, plain, reviewer).sumOf { it.requests.size + it.feedRequests.size } shouldBe 4
             } finally {
                 scope.cancel()
             }
@@ -456,8 +469,8 @@ class NovelCommentsTest {
                 comments.state.value.origins.all { !it.loading } && comments.state.value.roots.isNotEmpty()
             }
             comments.state.value.roots.map { it.body } shouldBe listOf("own")
-            // With one source left talking, its rows need no label naming it.
-            comments.sourceName(comments.state.value.roots.single()) shouldBe null
+            // Unfiltered, every row names its source, whether or not the others have anything.
+            comments.sourceName(comments.state.value.roots.single()) shouldBe "Own"
             other.requests.size shouldBe 1
             other.chapterFetches.get() shouldBe 1
         } finally {
@@ -503,6 +516,8 @@ class NovelCommentsTest {
             waitFor("the second screen") { second.state.value.loaded }
             second.state.value.roots.map { it.id } shouldBe listOf("1")
             source.requests.size shouldBe 1
+            // The byline names the extension whenever the sheet is not filtered, even with only one.
+            second.sourceName(second.state.value.roots.single()) shouldBe "fake"
 
             second.reload()
             waitFor("the refresh") { source.requests.size == 2 }

@@ -31,7 +31,7 @@ class SomeSite : NovelHttpSource(), NovelCommentSource {
 
 That is a complete, working implementation. The default `NovelCommentCapabilities()` says: chapter
 comments only, flat, unsorted, unscored, read-only, no avatars — and the sheet then draws exactly
-that, with no sort control, no vote arrows and no reply box. Nothing has to be stubbed.
+that, with no vote arrows and no reply box. Nothing has to be stubbed.
 
 ## Growing it
 
@@ -40,7 +40,7 @@ once the code behind it works; the sheet reads the capability, not the method.
 
 | Want | Set | Then |
 |---|---|---|
-| Sorting | `sorts = listOf(NovelCommentSort("new", "Newest"), …)` | read `request.sort.key` |
+| A default order | `sorts = listOf(NovelCommentSort("new", "Newest"), …)` | read `request.sort.key` |
 | The novel's own page too | `scopes = setOf(NOVEL, CHAPTER)` | branch on `request.target.chapter == null` |
 | Threads | `maxDepth = 2`, or `UNLIMITED` | set `parentId`, or nest in `replies` |
 | Replies on demand | `lazyReplies = true` | honour `request.parent` |
@@ -149,8 +149,9 @@ Other comment text is retained as written.
 
 Sources with distinct discussions and reviews can also implement `NovelCommentFeedSource`.
 Each `NovelCommentFeed` declares its own label and capabilities, including scope and sort options.
-The app presents tabs when more than one feed applies, and keeps their pagination, replies and
-cached results separate. The original `getComments(request)` remains the single-feed fallback.
+The app fetches every feed that applies and keeps their pagination, replies and cached results
+separate; the sheet shows them together, with a filter for reviews or comments alone. The original
+`getComments(request)` remains the single-feed fallback.
 
 Replies start behind an `X replies` row while the parent body remains visible. Opening it shows
 cached children immediately; a parent with only a count fetches its first reply page through the
@@ -162,23 +163,26 @@ exact numeric value. Both reaction counts remain visible, including zero.
 
 A novel's comments are not only its own source's. When the sheet opens, the app looks for the same
 novel on every other installed, enabled comment source and reads their threads alongside, all
-together by default or one extension at a time through a filter. Three things about an extension
-decide how well that works:
+together by default or one extension at a time through a filter. Every row looks the same whichever
+extension sent it: the name with the date beneath, and the rating — or, without one, the extension's
+name — on the right. A site's own labels for a user (tiers, titles, taglines) are not shown. Three
+things about an extension decide how well that works:
 
 - **Titles.** A match is a search result whose title equals the novel's once case and punctuation
   are ignored — nothing looser, because another novel's discussion is worse than none. Search
   results carrying the site's own full title match best.
-- **Feed keys.** Tabs from different extensions are merged by `NovelCommentFeed.key`. Use
-  `comments` for discussion and `reviews` for reviews; a source that declares no feeds counts as
-  `comments`. So a site whose only listing is reviews should declare a single `reviews` feed, or
-  its reviews land in the comments tab beside other sites' discussion.
+- **Feed keys.** The sheet's review filter reads `NovelCommentFeed.key`: a feed keyed `reviews`
+  is reviews, and every other feed — including the one a source without feeds is taken to have —
+  is comments. So a site whose only listing is reviews should declare a single `reviews` feed, or
+  its reviews are filtered as comments.
 - **Chapter numbers.** A chapter's comments on another site are found by number: the reader's
   chapter number, looked up in the other source's chapter list. Fill `chapter_number`, or give
   chapters names `ChapterRecognition` can read a number from.
 
-Ids only need to be unique on their own site; the app keeps sites apart. Sorting a merged thread is
-the app's own, since one site's "top" cannot rank another's, and posting is offered only while one
-extension is showing.
+Ids only need to be unique within one feed of one site; the app keeps feeds and sites apart. The
+order is always the app's own, since one site's "top" cannot rank another's: each feed is asked for
+the first of its `sorts`, so put the site's default first, and the sheet reorders what arrives.
+Posting is offered only while one feed of one extension is showing.
 
 ## Testing one
 
@@ -188,5 +192,5 @@ worth checking by hand, once, on a real chapter:
 1. A chapter with no comments shows the empty message, not a spinner and not an error.
 2. A chapter with one page shows no "load more".
 3. Opening each reply row reveals its next level; a reply three deep is indented three rails.
-4. Whatever the site calls its default sort is selected in the sort menu.
+4. The first of the declared `sorts` is the order the site itself defaults to.
 5. Unknown counts remain absent, while real zeros remain visible beside the appropriate thumb.

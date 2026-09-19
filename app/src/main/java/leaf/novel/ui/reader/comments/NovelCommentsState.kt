@@ -5,7 +5,6 @@ import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentFeed
 import leaf.novel.api.NovelCommentScope
-import leaf.novel.api.NovelCommentSort
 
 /**
  * One thread as it is fetched, which is the model everything else is derived from.
@@ -57,6 +56,29 @@ data class NovelCommentThread(
     )
 }
 
+/** The sheet's reviews filter: everything, reviews alone, or everything that is not a review. */
+enum class NovelCommentKind {
+    ALL,
+    REVIEWS,
+    COMMENTS,
+    ;
+
+    /** Whether a feed belongs to this kind. A feed is a review feed by its key, and nothing else. */
+    fun admits(feed: NovelCommentFeed): Boolean = when (this) {
+        ALL -> true
+        REVIEWS -> feed.key == REVIEWS_FEED
+        COMMENTS -> feed.key != REVIEWS_FEED
+    }
+
+    /** The next in the toggle's cycle: all, then reviews, then comments, then all again. */
+    val next: NovelCommentKind get() = entries[(ordinal + 1) % entries.size]
+
+    companion object {
+        /** The key every source files its reviews under; see `docs/leaf/comments/PROVIDERS.md`. */
+        const val REVIEWS_FEED = "reviews"
+    }
+}
+
 /** One source in the sheet's extension filter, with however many comments it has brought so far. */
 @Immutable
 data class NovelCommentOrigin(
@@ -79,8 +101,11 @@ data class NovelCommentOrigin(
 data class NovelCommentsState(
     /** Null until a source that serves comments is bound; the reader's button hangs off it. */
     val capabilities: NovelCommentCapabilities? = null,
-    val feeds: List<NovelCommentFeed> = emptyList(),
-    val feed: NovelCommentFeed? = null,
+
+    /** Reviews, comments or both. Offered only while [kinds] holds both. */
+    val kind: NovelCommentKind = NovelCommentKind.ALL,
+    /** Which of reviews and comments the sources on show have at all. */
+    val kinds: Set<NovelCommentKind> = emptySet(),
 
     /** Whose comments these are. Fixed for the life of the controller that owns this state. */
     val scope: NovelCommentScope = NovelCommentScope.CHAPTER,
@@ -92,17 +117,12 @@ data class NovelCommentsState(
     /** Still looking for the novel on the other sources. */
     val searching: Boolean = false,
 
-    /** The source's own orders. Empty means it has none and [localSort] applies instead. */
-    val sorts: List<NovelCommentSort> = emptyList(),
-    val sortKey: String? = null,
-
     /**
-     * The order to apply here, for a source that offers none of its own.
+     * The order the thread is drawn in, applied here to whatever every source sent.
      *
-     * A fallback, never a replacement. A site orders from data it does not necessarily send: its
-     * "top" can weigh replies, recency and votes that never reach a [NovelComment], so a site with
-     * no likes count in its payload can still rank by likes and this cannot. Asking the site is
-     * strictly the more capable of the two, and reordering its answer locally would throw that away.
+     * Always the app's own rather than a site's: the thread mixes sources, and one site's "top" is
+     * no way to rank another site's comments. Each site is asked for its default order and the
+     * sheet reorders the lot, so the same choice means the same thing whatever the source.
      */
     val localSort: NovelCommentLocalSort = NovelCommentLocalSort.TOP,
 
@@ -181,8 +201,7 @@ data class NovelCommentsState(
 
     /** The thread, and the rows that go with it. Nothing else may set one without the other. */
     fun withRoots(roots: List<NovelComment>): NovelCommentsState {
-        // Ordered locally only where the source offers nothing to order by; see [localSort].
-        val ordered = if (sorts.isEmpty()) NovelCommentTree.sortedBy(roots, localSort) else roots
+        val ordered = NovelCommentTree.sortedBy(roots, localSort)
         return copy(
             roots = ordered,
             rows = NovelCommentTree.flatten(

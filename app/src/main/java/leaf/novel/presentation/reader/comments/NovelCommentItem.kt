@@ -73,7 +73,15 @@ import mihon.icons.materialsymbols.rounded.MoreVert
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
-/** Avatar gutter, compact byline, readable body and a consistent reaction row. */
+/**
+ * Avatar gutter, byline, readable body and a consistent reaction row — the same shape whichever
+ * extension the comment came from.
+ *
+ * The byline is the part that has to agree across sites: the name top left with the date beneath
+ * it, the rating top right with the extension beneath it, and for a comment with no rating the
+ * extension in the rating's place. Whatever a site adds of its own to a user — a tier, a title, a
+ * tagline — is left out, because no two sites mean the same thing by one.
+ */
 @Composable
 fun NovelCommentItem(
     comment: NovelComment,
@@ -81,8 +89,10 @@ fun NovelCommentItem(
     hiddenCount: Int,
     capabilities: NovelCommentCapabilities,
     feedback: NovelCommentFeedback,
-    /** The extension the comment came from, set only when the sheet mixes several. */
+    /** The extension the comment came from, set unless the sheet is filtered to one. */
     sourceName: String?,
+    /** Whether to name the chapter a comment is on, which only a novel-wide listing needs. */
+    showChapter: Boolean,
     voting: Boolean,
     repliesExpanded: Boolean,
     loadingReplies: Boolean,
@@ -129,48 +139,53 @@ fun NovelCommentItem(
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f).padding(top = 3.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (comment.deleted) {
+                            stringResource(MR.strings.leaf_novel_comments_deleted)
+                        } else {
+                            comment.author
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (comment.byUploader) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    val details = listOfNotNull(
+                        comment.postedAt.takeIf { it > 0 }?.let { relativeTimeSpanString(it) },
+                        comment.chapterLabel?.takeIf { showChapter && it.isNotBlank() },
+                        stringResource(MR.strings.leaf_novel_comments_pinned).takeIf { comment.pinned },
+                    )
+                    if (details.isNotEmpty()) {
                         Text(
-                            text = if (comment.deleted) {
-                                stringResource(MR.strings.leaf_novel_comments_deleted)
-                            } else {
-                                comment.author
-                            },
-                            modifier = Modifier.weight(1f, fill = false),
+                            text = details.joinToString(" · "),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (comment.byUploader) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (comment.postedAt > 0 && rating == null) {
+                    }
+                }
+                if (rating != null || sourceName != null) {
+                    Column(
+                        modifier = Modifier.padding(start = 8.dp, top = 5.dp),
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        rating?.let { NovelCommentRatingRow(it) }
+                        sourceName?.let {
                             Text(
-                                text = " · " + relativeTimeSpanString(comment.postedAt),
+                                text = it,
                                 maxLines = 1,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
-                    if (comment.postedAt > 0 && rating != null) {
-                        Text(
-                            text = relativeTimeSpanString(comment.postedAt),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        sourceName?.let { Badge(it) }
-                        if (comment.byUploader) Badge(stringResource(MR.strings.leaf_novel_comments_uploader))
-                        if (comment.pinned) Badge(stringResource(MR.strings.leaf_novel_comments_pinned))
-                        comment.badge?.takeIf { it.isNotBlank() }?.let { Badge(it) }
-                        comment.chapterLabel?.takeIf { it.isNotBlank() }?.let { Badge(it) }
-                    }
                 }
-                rating?.let { NovelCommentRatingRow(it, Modifier.padding(start = 8.dp, top = 5.dp)) }
                 Box {
                     IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
                         Icon(

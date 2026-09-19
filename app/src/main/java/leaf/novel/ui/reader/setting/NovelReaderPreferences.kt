@@ -258,18 +258,7 @@ class NovelReaderPreferences(
     val commentsEnabled: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_comments_enabled", true)
 
-    /**
-     * The last order chosen, as the source's own key.
-     *
-     * One key for every source rather than one each, and deliberately: a key from one site is
-     * meaningless on another, so the sheet falls back to the source's first order whenever the
-     * stored key is not among the ones it offers. That makes "newest" stick across the sites that
-     * happen to call it the same thing, and costs nothing on the ones that do not.
-     */
-    val commentsSort: Preference<String> =
-        preferenceStore.getString("leaf_novel_comments_sort", "")
-
-    /** The order to apply ourselves, for a source that declares none. */
+    /** The order the comments sheet draws a thread in, whichever sources it came from. */
     val commentsLocalSort: Preference<NovelCommentLocalSort> =
         preferenceStore.getEnum("leaf_novel_comments_local_sort", NovelCommentLocalSort.TOP)
 

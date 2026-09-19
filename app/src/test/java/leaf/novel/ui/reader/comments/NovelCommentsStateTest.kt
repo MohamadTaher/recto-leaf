@@ -3,7 +3,6 @@ package leaf.novel.ui.reader.comments
 import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
-import leaf.novel.api.NovelCommentSort
 import org.junit.jupiter.api.Test
 
 /**
@@ -97,31 +96,9 @@ class NovelCommentsStateTest {
         state.collapsed shouldBe emptySet()
     }
 
-    /**
-     * A site ranks from data it does not necessarily send: its "top" can weigh replies, recency and
-     * votes that never reach a [NovelComment]. Reordering its answer locally would throw that away,
-     * so a source that declares sorts of its own keeps the order it was given.
-     */
+    /** Always the app's own order: a thread gathered from several sites has no one site's order to keep. */
     @Test
-    fun `leaves the site's order alone when the source has sorts of its own`() {
-        val withSorts = NovelCommentsState(
-            capabilities = NovelCommentCapabilities(scored = true),
-            sorts = listOf(NovelCommentSort("top", "Top")),
-            sortKey = "top",
-            localSort = NovelCommentLocalSort.TOP,
-        )
-
-        // The site's own "top", which is not the likes order and is not meant to be.
-        val state = withSorts.withThread(
-            thread(comment("hot", score = 1), comment("liked", score = 40), comment("old", score = 7)),
-        )
-
-        state.rows.map { it.key } shouldBe listOf("hot", "liked", "old")
-    }
-
-    /** The fallback, for a source that declares no orders at all. */
-    @Test
-    fun `orders the thread itself when the source has none to ask for`() {
+    fun `orders the thread itself`() {
         val state = state().copy(localSort = NovelCommentLocalSort.TOP).withThread(
             thread(comment("low", score = 1), comment("high", score = 40), comment("mid", score = 7)),
         )

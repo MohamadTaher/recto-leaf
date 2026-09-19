@@ -1337,7 +1337,6 @@
     <string name="leaf_novel_comments_sort_top">Top</string>
     <string name="leaf_novel_comments_sort_newest">Newest</string>
     <string name="leaf_novel_comments_sort_oldest">Oldest</string>
-    <string name="leaf_novel_comments_sort_local">Sorted over the comments loaded so far, not the whole thread</string>
     <string name="leaf_novel_comments_reply">Reply</string>
     <string name="leaf_novel_comments_show_replies">Show %1$d more replies</string>
     <string name="leaf_novel_comments_one_reply">%1$d reply</string>
@@ -1350,7 +1349,6 @@
     <string name="leaf_novel_comments_back_to_thread">Back to all comments</string>
     <string name="leaf_novel_comments_focus">Open this thread</string>
     <string name="leaf_novel_comments_next">Next comment</string>
-    <string name="leaf_novel_comments_uploader">Uploader</string>
     <string name="leaf_novel_comments_pinned">Pinned</string>
     <string name="leaf_novel_comments_deleted">Comment removed</string>
     <string name="leaf_novel_comments_spoiler">Spoiler — tap to show</string>
@@ -1359,7 +1357,6 @@
     <string name="leaf_novel_comments_like">Like</string>
     <string name="leaf_novel_comments_dislike">Dislike</string>
     <string name="leaf_novel_comments_read_more">Read more</string>
-    <string name="leaf_novel_comments_sort_by">Sort: %1$s</string>
     <string name="leaf_novel_comments_heart">Heart</string>
     <string name="leaf_novel_comments_star">Star</string>
     <string name="leaf_novel_comments_rating">Rated %1$s / %2$s</string>
@@ -1374,6 +1371,10 @@
     <string name="leaf_novel_comments_post">Post</string>
     <string name="leaf_novel_comments_requires_account">Posting needs an account on this site</string>
     <string name="leaf_novel_comments_searching">Looking for this novel on your other extensions…</string>
+    <string name="leaf_novel_comments_all_extensions">All extensions</string>
+    <string name="leaf_novel_comments_kind_all">Reviews and comments</string>
+    <string name="leaf_novel_comments_kind_reviews">Reviews only</string>
+    <string name="leaf_novel_comments_kind_comments">Comments only</string>
     <string name="leaf_novel_reader_heading_comments">Comments</string>
     <string name="leaf_novel_comments_setting_enabled">Offer comments</string>
     <string name="leaf_novel_comments_setting_auto_load">Load comments ahead of being asked</string>
