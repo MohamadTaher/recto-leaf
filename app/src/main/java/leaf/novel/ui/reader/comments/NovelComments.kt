@@ -81,7 +81,7 @@ import kotlin.time.Duration.Companion.minutes
  *    thread's ids carry a prefix naming both ([Drain.tag]), and every call back to a source takes it
  *    off again. The novel's own source keeps the ids of its first feed untouched.
  *  - **Order.** One site's "top" means nothing next to another's, so each site is asked for its
- *    default order and the thread is always ordered here, by [NovelCommentsState.localSort].
+ *    default order and the thread is always ordered here, most liked first.
  */
 class NovelComments(
     private val scope: CoroutineScope,
@@ -118,6 +118,16 @@ class NovelComments(
     /** The threads the sheet is drawn from: every source and feed the filters let through. */
     @Volatile
     private var shown: List<Drain> = emptyList()
+
+    /**
+     * Which [shown] the sheet is drawing, counted up every time it changes.
+     *
+     * A collector cancelled by a chapter turn can be part way through drawing the chapter it was
+     * watching; without this its last redraw could land after the next chapter's first, and the
+     * sheet would show the old chapter's comments until the new one's thread next changed.
+     */
+    @Volatile
+    private var generation = 0
 
     /**
      * Whether this novel has the comments this instance is for.
@@ -162,7 +172,7 @@ class NovelComments(
     fun bind(source: Source?, manga: Manga?) {
         val own = source as? NovelCommentSource
         origins = if (own != null && manga != null) listOf(Origin(own, manga.toSManga(), own = true)) else emptyList()
-        mutableState.update { it.copy(localSort = preferences.commentsLocalSort.get()).configured() }
+        mutableState.update { it.configured() }
     }
 
     /**
@@ -177,6 +187,7 @@ class NovelComments(
         this.chapter = chapter
         loadJob?.cancel()
         shown = emptyList()
+        generation++
         mutableState.update { it.reset(chapterName = chapter?.name).copy(draft = "", origins = describe()) }
         if (preferences.commentsAutoLoad.get()) show()
     }
@@ -329,16 +340,6 @@ class NovelComments(
         loadJob?.cancel()
         mutableState.update { it.reset().copy(origin = id).configured() }
         show()
-    }
-
-    /**
-     * Chooses the order the thread is drawn in, which means reordering what is already here.
-     *
-     * No request: every site was asked for its default order, and this reorders the lot.
-     */
-    fun setLocalSort(sort: NovelCommentLocalSort) {
-        preferences.commentsLocalSort.set(sort)
-        mutableState.update { it.copy(localSort = sort).withRoots(it.roots) }
     }
 
     /** Folds or unfolds one comment's subtree. */
@@ -511,11 +512,12 @@ class NovelComments(
         match()
         val chapter = chapter
         shown = contributors().mapNotNull { (origin, feed) -> drainFor(origin, feed, chapter) }
+        val current = ++generation
         if (shown.isEmpty()) return
         // Read once rather than inside the collector, which runs for every page.
         val collapseNew = preferences.commentsCollapseReplies.get()
         loadJob = scope.launch {
-            shown.map { it.pages }.merge().collect { publish(collapseNew) }
+            shown.map { it.pages }.merge().collect { publish(collapseNew, current) }
         }
     }
 
@@ -523,17 +525,19 @@ class NovelComments(
      * Draws the threads on screen as one.
      *
      * The single place the sheet is derived from what was fetched: called for every page that lands
-     * and for every change made to a thread here. With one thread showing it is that thread
-     * untouched. With several, each is prefixed by its tag, a site that sends every reply has its
-     * counts settled at what it sent — the reader assumes that of it anyway, and a merged thread
-     * offers lazy replies for whichever site has them — and one thread's failure is named as its
-     * source's rather than passed off as the sheet's.
+     * and for every change made to a thread here. Every comment is ordered by its likes, whichever
+     * source sent it. With several threads showing, each is prefixed by its tag, a site that sends
+     * every reply has its counts settled at what it sent — the reader assumes that of it anyway, and
+     * a merged thread offers lazy replies for whichever site has them — and one thread's failure is
+     * named as its source's rather than passed off as the sheet's.
      *
+     * @param current the [generation] the caller is drawing; a redraw for an older one is dropped.
      * @param then applied in the same update, for a change that has to land with the redraw rather
      * than a frame after it.
      */
     private fun publish(
         collapseNew: Boolean = false,
+        current: Int = generation,
         then: (NovelCommentsState) -> NovelCommentsState = { it },
     ) {
         val threads = shown.map { it to it.pages.value }
@@ -541,10 +545,19 @@ class NovelComments(
         val arrived = threads.any { (_, thread) -> thread.loaded }
         val done = threads.all { (_, thread) -> thread.done }
         val failed = threads.firstOrNull { (_, thread) -> thread.failure != null }
-        val thread = NovelCommentThread(
-            comments = threads.flatMap { (drain, thread) ->
-                drain.present(thread.comments, settle = merged && !drain.feed.capabilities.lazyReplies)
+        val likes = HashMap<String, Int>()
+        val presented = threads.flatMap { (drain, thread) ->
+            drain.present(thread.comments, settle = merged && !drain.feed.capabilities.lazyReplies, likes)
+        }
+        val counts = threads.filter { (_, thread) -> thread.loaded }.groupBy(
+            keySelector = { (drain, _) -> NovelCommentKind.REVIEWS.admits(drain.feed) },
+            valueTransform = { (_, thread) ->
+                thread.total
+                    ?: NovelCommentTree.count(NovelCommentTree.build(thread.comments))
             },
+        )
+        val thread = NovelCommentThread(
+            comments = NovelCommentTree.sortedBy(presented) { likes[it.id] ?: 0 },
             voting = threads.flatMapTo(mutableSetOf()) { (drain, thread) -> thread.voting.map(drain::tagged) },
             loadingReplies = threads.flatMapTo(mutableSetOf()) { (drain, thread) ->
                 thread.loadingReplies.map(drain::tagged)
@@ -559,7 +572,15 @@ class NovelComments(
             failure = failed?.takeIf { arrived || done }?.let { (drain, thread) -> failureOf(drain, thread.failure!!) },
         )
         val described = describe()
-        mutableState.update { then(it.copy(origins = described).withThread(thread, collapseNew)) }
+        mutableState.update {
+            if (current != generation) return@update it
+            val counted = it.copy(
+                origins = described,
+                reviewCount = counts[true].orEmpty().sum(),
+                commentCount = counts[false].orEmpty().sum(),
+            )
+            then(counted.withThread(thread, collapseNew))
+        }
     }
 
     /**
@@ -839,21 +860,32 @@ class NovelComments(
          * The comments as the sheet sees them: prefixed, and with [settle], counted at what arrived.
          *
          * An untagged thread passes through untouched unless it needs settling, so a sheet showing
-         * only it draws exactly what the source sent.
+         * only it draws exactly what the source sent. Each comment's likes go into [likes] under the
+         * id the sheet will know it by, read while the source's own copy is still in hand.
          */
-        fun present(comments: List<NovelComment>, settle: Boolean): List<NovelComment> =
-            if (tag.isEmpty() && !settle) {
-                comments
-            } else {
-                comments.map {
+        fun present(comments: List<NovelComment>, settle: Boolean, likes: MutableMap<String, Int>): List<NovelComment> =
+            comments.map {
+                likes[tagged(it.id)] = likes(it)
+                if (tag.isEmpty() && !settle) {
+                    it.also { comment -> present(comment.replies, settle = false, likes) }
+                } else {
                     it.copy(
                         id = tagged(it.id),
                         parentId = it.parentId?.let(::tagged),
-                        replies = present(it.replies, settle),
+                        replies = present(it.replies, settle, likes),
                         replyCount = if (settle) it.replies.size else it.replyCount,
                     )
                 }
             }
+
+        /**
+         * How liked a comment is: the site's own like count where it gives one apart from dislikes,
+         * or else its score, which on a site with no downvote is the same thing.
+         */
+        private fun likes(comment: NovelComment): Int =
+            (origin.source as? NovelCommentFeedbackSource)?.getCommentFeedback(comment)?.likes
+                ?: comment.score
+                ?: 0
     }
 
     private data class Key(val source: Long, val chapterId: Long?, val feed: String)

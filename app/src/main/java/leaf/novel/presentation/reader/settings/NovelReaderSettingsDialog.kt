@@ -57,7 +57,6 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.launch
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.ui.reader.NovelReaderCss
-import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
@@ -494,13 +493,6 @@ private fun ColumnScope.MiscellaneousPage(
     // the same rule the status bar rows follow above.
     val commentsEnabled by novelReaderPreferences.commentsEnabled.collectAsState()
     if (commentsEnabled) {
-        EnumSelectItem(
-            label = stringResource(MR.strings.action_sort),
-            preference = novelReaderPreferences.commentsLocalSort,
-            options = NovelCommentLocalSort.entries,
-            labelOf = { stringResource(it.titleRes) },
-        )
-
         CheckboxItem(
             label = stringResource(MR.strings.leaf_novel_comments_setting_auto_load),
             pref = novelReaderPreferences.commentsAutoLoad,

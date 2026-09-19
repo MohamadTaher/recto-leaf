@@ -131,7 +131,7 @@ class NovelCommentTreeTest {
 
         val roots = NovelCommentTree.build(nested)
 
-        NovelCommentTree.flatten(roots).map { it.key } shouldBe listOf("1", "dupe", "2")
+        NovelCommentTree.flatten(roots).map { it.key } shouldBe listOf("1", "dupe", "hide:1", "2")
     }
 
     // endregion
@@ -139,35 +139,23 @@ class NovelCommentTreeTest {
     // region sorting
 
     @Test
-    fun `orders siblings at every level`() {
+    fun `orders siblings at every level by likes`() {
         val roots = listOf(
             comment("low", score = 1, replies = listOf(comment("a", score = 1), comment("b", score = 9))),
             comment("high", score = 5),
         )
 
-        val sorted = NovelCommentTree.sortedBy(roots, NovelCommentLocalSort.TOP)
+        val sorted = NovelCommentTree.sortedBy(roots) { it.score ?: 0 }
 
         sorted.map { it.id } shouldBe listOf("high", "low")
         sorted[1].replies.map { it.id } shouldBe listOf("b", "a")
     }
 
     @Test
-    fun `keeps a pinned comment on top whatever the order`() {
-        val roots = listOf(
-            comment("normal", score = 100),
-            comment("pinned", score = 0, pinned = true),
-        )
-
-        NovelCommentTree.sortedBy(roots, NovelCommentLocalSort.TOP).map { it.id } shouldBe
-            listOf("pinned", "normal")
-    }
-
-    @Test
-    fun `leaves the order alone when the site gave no dates to sort by`() {
+    fun `leaves ties in the order they arrived`() {
         val roots = listOf(comment("1"), comment("2"), comment("3"))
 
-        NovelCommentTree.sortedBy(roots, NovelCommentLocalSort.OLDEST).map { it.id } shouldBe
-            listOf("1", "2", "3")
+        NovelCommentTree.sortedBy(roots) { 0 }.map { it.id } shouldBe listOf("1", "2", "3")
     }
 
     // endregion
@@ -179,9 +167,26 @@ class NovelCommentTreeTest {
         val roots = listOf(comment("1", replies = listOf(comment("1a", replies = listOf(comment("1b"))))))
 
         NovelCommentTree.flatten(roots, expandedReplies = emptySet()).map { it.key } shouldBe listOf("1")
-        NovelCommentTree.flatten(roots, expandedReplies = setOf("1")).map { it.key } shouldBe listOf("1", "1a")
+        NovelCommentTree.flatten(roots, expandedReplies = setOf("1")).map { it.key } shouldBe
+            listOf("1", "1a", "hide:1")
         NovelCommentTree.flatten(roots, expandedReplies = setOf("1", "1a")).map { it.key } shouldBe
-            listOf("1", "1a", "1b")
+            listOf("1", "1a", "1b", "hide:1a", "hide:1")
+    }
+
+    /**
+     * An open comment's thread line runs past every reply, and past the row offering the replies
+     * still to come, before it ends — so the row that closes it has to come after all of them, at
+     * the parent's own depth.
+     */
+    @Test
+    fun `closes an open comment after its replies and the ones still to come`() {
+        val roots = listOf(comment("1", replies = listOf(comment("1a")), replyCount = 5), comment("2"))
+
+        val rows = NovelCommentTree.flatten(roots, lazyReplies = true, expandedReplies = setOf("1"))
+
+        rows.map { it.key } shouldBe listOf("1", "1a", "more:1", "hide:1", "2")
+        rows[1].ancestors shouldBe listOf("1")
+        rows[3].ancestors shouldBe emptyList()
     }
 
     @Test
@@ -203,7 +208,7 @@ class NovelCommentTreeTest {
 
         val rows = NovelCommentTree.flatten(roots)
 
-        rows.map { it.key } shouldBe listOf("1", "1a", "1b", "2")
+        rows.map { it.key } shouldBe listOf("1", "1a", "1b", "hide:1", "2")
         rows[1].ancestors shouldBe listOf("1")
     }
 
@@ -351,7 +356,7 @@ class NovelCommentTreeTest {
         val merged = NovelCommentTree.merge(roots, listOf(comment("1a", parentId = "1"), comment("2")))
 
         merged.map { it.id } shouldBe listOf("1", "2")
-        NovelCommentTree.flatten(merged).map { it.key } shouldBe listOf("1", "1a", "2")
+        NovelCommentTree.flatten(merged).map { it.key } shouldBe listOf("1", "1a", "hide:1", "2")
     }
 
     @Test

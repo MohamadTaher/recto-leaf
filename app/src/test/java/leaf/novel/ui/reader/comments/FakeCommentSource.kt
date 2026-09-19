@@ -17,7 +17,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /** A source that serves whatever the test hands it, and remembers what it was asked. */
-internal class FakeCommentSource(
+internal open class FakeCommentSource(
     override val commentCapabilities: NovelCommentCapabilities = NovelCommentCapabilities(),
     override val id: Long = 1L,
     override val name: String = "fake",

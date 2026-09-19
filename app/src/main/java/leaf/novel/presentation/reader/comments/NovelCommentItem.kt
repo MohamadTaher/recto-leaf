@@ -37,7 +37,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import eu.kanade.presentation.components.DropdownMenu
@@ -74,17 +77,23 @@ import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
 /**
- * Avatar gutter, byline, readable body and a consistent reaction row — the same shape whichever
- * extension the comment came from.
+ * One comment: a header row, the body beneath it, and the line that ties it to its replies — the
+ * same shape whichever extension the comment came from.
  *
- * The byline is the part that has to agree across sites: the name top left with the date beneath
- * it, the rating top right with the extension beneath it, and for a comment with no rating the
- * extension in the rating's place. Whatever a site adds of its own to a user — a tier, a title, a
- * tagline — is left out, because no two sites mean the same thing by one.
+ * The header is one row, everything in it centred on the avatar: the name over the date on the
+ * left, the rating over the extension on the right (the extension alone, in the rating's place,
+ * when there is no rating), and the menu at the end. Whatever a site adds of its own to a user — a
+ * tier, a title, a tagline — is left out, because no two sites mean the same thing by one.
+ *
+ * A comment with replies draws a line down from its avatar, the way YouTube does. Closed, it turns
+ * into the "replies" row at the foot of the comment; open, it runs on past every reply to the
+ * [NovelCommentRepliesRow] that closes them, drawn by the rails of the rows between.
  */
 @Composable
 fun NovelCommentItem(
     comment: NovelComment,
+    /** How many comments this one is nested under, which sets its avatar and its indent. */
+    depth: Int,
     collapsed: Boolean,
     hiddenCount: Int,
     capabilities: NovelCommentCapabilities,
@@ -115,68 +124,95 @@ fun NovelCommentItem(
     var menuExpanded by remember { mutableStateOf(false) }
     val hidden = (spoilerGuard || hasSpoilers) && !revealed
     val rating = (feedback.rating ?: review.rating).takeUnless { comment.deleted || hidden }
-    val hasAvatar = showAvatar && capabilities.avatars && !comment.deleted
+    val avatar = avatarSize(depth)
+    val lineColor = MaterialTheme.colorScheme.outlineVariant
     val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
     val replyCount = maxOf(
         NovelCommentTree.count(comment.replies),
         if (capabilities.lazyReplies) comment.replyCount else 0,
     )
+    // The thread line: down from the avatar to the replies row, or on into the replies when open.
+    val threaded = !collapsed && replyCount > 0
+    val continues = threaded && repliesExpanded
 
-    Row(
+    Column(
         modifier = modifier.fillMaxWidth()
             .drawBehind {
-                drawLine(
-                    color = dividerColor,
-                    start = Offset((if (hasAvatar) 42.dp else 8.dp).toPx(), size.height),
-                    end = Offset(size.width - 8.dp.toPx(), size.height),
-                    strokeWidth = 0.5.dp.toPx(),
-                )
-            }
-            .padding(top = 14.dp, bottom = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (hasAvatar) CommentAvatar(comment)
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(modifier = Modifier.weight(1f).padding(top = 3.dp)) {
-                    Text(
-                        text = if (comment.deleted) {
-                            stringResource(MR.strings.leaf_novel_comments_deleted)
-                        } else {
-                            comment.author
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (comment.byUploader) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                // A rule under the comment, except where its thread line carries on below it.
+                if (!continues) {
+                    drawLine(
+                        color = dividerColor,
+                        start = Offset((avatar + GAP).toPx(), size.height),
+                        end = Offset(size.width - 8.dp.toPx(), size.height),
+                        strokeWidth = 0.5.dp.toPx(),
                     )
-                    val details = listOfNotNull(
+                }
+            }
+            .padding(top = 10.dp),
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.width(avatar).fillMaxHeight().drawBehind {
+                    if (threaded) {
+                        val x = size.width / 2
+                        drawLine(
+                            lineColor,
+                            Offset(x, (size.height + avatar.toPx()) / 2),
+                            Offset(x, size.height),
+                            LINE.toPx(),
+                        )
+                    }
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                CommentAvatar(comment, avatar, showImage = showAvatar && capabilities.avatars)
+            }
+            Spacer(Modifier.width(GAP))
+            HeaderLines(
+                modifier = Modifier.weight(1f),
+                alignment = Alignment.Start,
+                lines = listOfNotNull(
+                    @Composable {
+                        Text(
+                            text = if (comment.deleted) {
+                                stringResource(MR.strings.leaf_novel_comments_deleted)
+                            } else {
+                                comment.author
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (comment.byUploader) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    },
+                    listOfNotNull(
                         comment.postedAt.takeIf { it > 0 }?.let { relativeTimeSpanString(it) },
                         comment.chapterLabel?.takeIf { showChapter && it.isNotBlank() },
                         stringResource(MR.strings.leaf_novel_comments_pinned).takeIf { comment.pinned },
-                    )
-                    if (details.isNotEmpty()) {
-                        Text(
-                            text = details.joinToString(" · "),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                if (rating != null || sourceName != null) {
-                    Column(
-                        modifier = Modifier.padding(start = 8.dp, top = 5.dp),
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        rating?.let { NovelCommentRatingRow(it) }
-                        sourceName?.let {
+                    ).takeIf { it.isNotEmpty() }?.let { details ->
+                        @Composable {
+                            Text(
+                                text = details.joinToString(" · "),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                ),
+            )
+            HeaderLines(
+                modifier = Modifier.padding(start = 8.dp),
+                alignment = Alignment.End,
+                lines = listOfNotNull(
+                    rating?.let { @Composable { NovelCommentRatingRow(it) } },
+                    sourceName?.let {
+                        @Composable {
                             Text(
                                 text = it,
                                 maxLines = 1,
@@ -184,136 +220,166 @@ fun NovelCommentItem(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                    }
+                    },
+                ),
+            )
+            Box {
+                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        MaterialSymbols.Rounded.MoreVert,
+                        stringResource(MR.strings.action_menu_overflow_description),
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
-                Box {
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            MaterialSymbols.Rounded.MoreVert,
-                            stringResource(MR.strings.action_menu_overflow_description),
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(
+                                    if (collapsed) {
+                                        MR.strings.leaf_novel_comments_expand
+                                    } else {
+                                        MR.strings.leaf_novel_comments_collapse
+                                    },
+                                ),
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onToggleCollapsed()
+                        },
+                    )
+                    if (comment.replies.isNotEmpty() || comment.replyCount > 0) {
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    stringResource(
-                                        if (collapsed) {
-                                            MR.strings.leaf_novel_comments_expand
-                                        } else {
-                                            MR.strings.leaf_novel_comments_collapse
-                                        },
-                                    ),
-                                )
-                            },
+                            text = { Text(stringResource(MR.strings.leaf_novel_comments_focus)) },
                             onClick = {
                                 menuExpanded = false
-                                onToggleCollapsed()
+                                onFocus()
                             },
                         )
-                        if (comment.replies.isNotEmpty() || comment.replyCount > 0) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(MR.strings.leaf_novel_comments_focus)) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onFocus()
-                                },
-                            )
-                        }
-                        if (!comment.deleted) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(MR.strings.action_copy_to_clipboard)) },
-                                onClick = {
-                                    menuExpanded = false
-                                    context.copyToClipboard(comment.author, NovelCommentMarkup.plainText(comment.body))
-                                },
-                            )
-                        }
-                        comment.permalink?.let { url ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(MR.strings.action_open_in_browser)) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onOpenLink(url)
-                                },
-                            )
-                        }
                     }
-                }
-            }
-            if (collapsed) {
-                TextButton(onClick = onToggleCollapsed) {
-                    Icon(MaterialSymbols.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
-                    Text(
-                        stringResource(MR.strings.leaf_novel_comments_expand) +
-                            if (hiddenCount > 0) " · $hiddenCount" else "",
-                    )
-                }
-                return@Column
-            }
-            when {
-                comment.deleted -> Unit
-                hidden -> Text(
-                    text = stringResource(MR.strings.leaf_novel_comments_spoiler),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                        .clickable(role = Role.Button, onClick = { revealed = true }).padding(12.dp),
-                )
-                else -> {
-                    Text(
-                        text = spans.toAnnotatedString(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = if (expanded) Int.MAX_VALUE else 4,
-                        overflow = TextOverflow.Ellipsis,
-                        onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
-                    )
-                    if (expanded || overflows) {
-                        Text(
-                            text = stringResource(
-                                if (expanded) {
-                                    MR.strings.manga_info_collapse
-                                } else {
-                                    MR.strings.leaf_novel_comments_read_more
-                                },
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.heightIn(min = 40.dp)
-                                .clickable(role = Role.Button, onClick = { expanded = !expanded })
-                                .padding(vertical = 10.dp),
+                    if (!comment.deleted) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(MR.strings.action_copy_to_clipboard)) },
+                            onClick = {
+                                menuExpanded = false
+                                context.copyToClipboard(comment.author, NovelCommentMarkup.plainText(comment.body))
+                            },
+                        )
+                    }
+                    comment.permalink?.let { url ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(MR.strings.action_open_in_browser)) },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenLink(url)
+                            },
                         )
                     }
                 }
             }
-            if (!comment.deleted) {
-                NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
-                if (feedback.reactions.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        feedback.reactions.forEach { reaction ->
-                            Badge(
-                                listOfNotNull(
-                                    reaction.emoji,
-                                    reaction.label,
-                                    reaction.count?.toString(),
-                                    if (reaction.selected) {
-                                        stringResource(MR.strings.leaf_novel_comments_your_reaction)
+        }
+
+        Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            Box(
+                modifier = Modifier.width(avatar).fillMaxHeight().drawBehind {
+                    if (threaded) {
+                        val x = size.width / 2
+                        drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), LINE.toPx())
+                    }
+                },
+            )
+            Spacer(Modifier.width(GAP))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(top = 4.dp, bottom = if (threaded && !continues) 0.dp else 12.dp),
+            ) {
+                if (collapsed) {
+                    TextButton(onClick = onToggleCollapsed) {
+                        Icon(MaterialSymbols.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
+                        Text(
+                            stringResource(MR.strings.leaf_novel_comments_expand) +
+                                if (hiddenCount > 0) " · $hiddenCount" else "",
+                        )
+                    }
+                    return@Column
+                }
+                when {
+                    comment.deleted -> Unit
+                    hidden -> Text(
+                        text = stringResource(MR.strings.leaf_novel_comments_spoiler),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                            .clickable(role = Role.Button, onClick = { revealed = true }).padding(12.dp),
+                    )
+                    else -> {
+                        // The body itself is the control: a tap opens a long comment, and another
+                        // closes it. The label below only says which a tap will do.
+                        Text(
+                            text = spans.toAnnotatedString(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = if (expanded) Int.MAX_VALUE else 4,
+                            overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
+                            modifier = Modifier.clickable(
+                                enabled = expanded || overflows,
+                                interactionSource = null,
+                                indication = null,
+                                onClick = { expanded = !expanded },
+                            ),
+                        )
+                        if (expanded || overflows) {
+                            Text(
+                                text = stringResource(
+                                    if (expanded) {
+                                        MR.strings.manga_info_collapse
                                     } else {
-                                        null
+                                        MR.strings.leaf_novel_comments_read_more
                                     },
-                                ).joinToString(" "),
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.heightIn(min = 40.dp)
+                                    .clickable(role = Role.Button, onClick = { expanded = !expanded })
+                                    .padding(vertical = 10.dp),
                             )
                         }
                     }
                 }
+                if (!comment.deleted) {
+                    NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
+                    if (feedback.reactions.isNotEmpty()) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            feedback.reactions.forEach { reaction ->
+                                Badge(
+                                    listOfNotNull(
+                                        reaction.emoji,
+                                        reaction.label,
+                                        reaction.count?.toString(),
+                                        if (reaction.selected) {
+                                            stringResource(MR.strings.leaf_novel_comments_your_reaction)
+                                        } else {
+                                            null
+                                        },
+                                    ).joinToString(" "),
+                                )
+                            }
+                        }
+                    }
+                }
             }
-            if (replyCount > 0) {
-                val label = stringResource(
+        }
+
+        if (threaded && !continues) {
+            NovelCommentRepliesRow(
+                depth = depth,
+                label = stringResource(
                     if (replyCount ==
                         1
                     ) {
@@ -322,52 +388,136 @@ fun NovelCommentItem(
                         MR.strings.leaf_novel_comments_replies
                     },
                     replyCount,
+                ),
+                open = false,
+                loading = loadingReplies && comment.replies.isEmpty(),
+                onClick = onToggleReplies,
+            )
+        }
+    }
+}
+
+/**
+ * The row a thread line turns into: "3 replies" under a closed comment, "Collapse" under the last of
+ * an open one's replies.
+ *
+ * The whole row is the button, not just its words. The line comes down the avatar's centre and
+ * bends into the label, so the row reads as the end of the thread it belongs to.
+ */
+@Composable
+fun NovelCommentRepliesRow(
+    /** The depth of the comment whose replies these are, which places the line under its avatar. */
+    depth: Int,
+    label: String,
+    open: Boolean,
+    loading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val avatar = avatarSize(depth)
+    val lineColor = MaterialTheme.colorScheme.outlineVariant
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(REPLIES_ROW_HEIGHT)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.width(avatar).fillMaxHeight().drawBehind {
+                val x = size.width / 2
+                val y = size.height / 2
+                val radius = ELBOW.toPx()
+                val stroke = Stroke(width = LINE.toPx())
+                drawLine(lineColor, Offset(x, 0f), Offset(x, y - radius), LINE.toPx())
+                drawArc(
+                    color = lineColor,
+                    startAngle = 180f,
+                    sweepAngle = -90f,
+                    useCenter = false,
+                    topLeft = Offset(x, y - 2 * radius),
+                    size = Size(2 * radius, 2 * radius),
+                    style = stroke,
                 )
-                val action = if (repliesExpanded) stringResource(MR.strings.leaf_novel_comments_hide_replies) else label
-                Row(
-                    modifier = Modifier.heightIn(min = 44.dp)
-                        .clickable(role = Role.Button, onClick = onToggleReplies)
-                        .semantics { contentDescription = action }
-                        .padding(end = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                    if (loadingReplies && comment.replies.isEmpty()) {
-                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
-                    } else {
-                        Icon(
-                            MaterialSymbols.Rounded.ExpandMore,
-                            null,
-                            modifier = Modifier.size(18.dp).rotate(if (repliesExpanded) 0f else -90f),
-                        )
-                    }
-                }
+                drawLine(
+                    lineColor,
+                    Offset(x + radius, y),
+                    Offset(size.width + GAP.toPx() - 4.dp.toPx(), y),
+                    LINE.toPx(),
+                )
+            },
+        )
+        Spacer(Modifier.width(GAP))
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.width(4.dp))
+        if (loading) {
+            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
+        } else {
+            Icon(
+                MaterialSymbols.Rounded.ExpandMore,
+                null,
+                modifier = Modifier.size(18.dp).rotate(if (open) 180f else -90f),
+            )
+        }
+    }
+}
+
+/**
+ * A header column of one or two lines, each given half the row and centred in it; a lone line gets
+ * the whole row, so it sits level with the avatar.
+ */
+@Composable
+private fun HeaderLines(
+    lines: List<@Composable () -> Unit>,
+    alignment: Alignment.Horizontal,
+    modifier: Modifier = Modifier,
+) {
+    if (lines.isEmpty()) return
+    Column(modifier = modifier.fillMaxHeight(), horizontalAlignment = alignment) {
+        lines.forEach { line ->
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = if (alignment == Alignment.End) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                line()
             }
         }
     }
 }
 
+/**
+ * The avatar, or its stand-in: every comment has one, so that every thread line has somewhere to
+ * start. The picture itself only where the reader wants pictures and the site has real ones.
+ */
 @Composable
-private fun CommentAvatar(comment: NovelComment) {
+private fun CommentAvatar(comment: NovelComment, size: Dp, showImage: Boolean) {
     var failed by remember(comment.avatarUrl) { mutableStateOf(false) }
-    if (comment.avatarUrl != null && !failed) {
+    if (showImage && !comment.deleted && comment.avatarUrl != null && !failed) {
         AsyncImage(
             model = comment.avatarUrl,
             contentDescription = null,
             onError = { failed = true },
-            modifier = Modifier.size(32.dp).clip(CircleShape),
+            modifier = Modifier.size(size).clip(CircleShape),
         )
     } else {
         Box(
-            modifier = Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+            modifier = Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                comment.author.take(1).uppercase(),
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                style = MaterialTheme.typography.labelLarge,
-            )
+            if (!comment.deleted) {
+                Text(
+                    comment.author.take(1).uppercase(),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    style = if (size <
+                        32.dp
+                    ) {
+                        MaterialTheme.typography.labelSmall
+                    } else {
+                        MaterialTheme.typography.labelLarge
+                    },
+                )
+            }
         }
     }
 }
@@ -383,11 +533,11 @@ private fun Badge(label: String) {
 }
 
 /**
- * One vertical line per ancestor, tappable to fold that ancestor.
+ * One thread line per ancestor, each under that ancestor's avatar and tappable to close its replies.
  *
- * The rails are what make a deep thread readable without counting indents, and making each one
- * collapse its own ancestor means getting out of a long sub-thread is one tap on the line beside
- * it rather than a scroll back up to find its head.
+ * Each column is exactly as wide as its ancestor's avatar and the gap after it, so the line drawn
+ * here continues the one drawn under the avatar itself, and a reply's own avatar starts where its
+ * parent's text did.
  */
 @Composable
 private fun NovelCommentRails(
@@ -395,22 +545,20 @@ private fun NovelCommentRails(
     onCollapse: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val lineColor = MaterialTheme.colorScheme.outlineVariant
     Row(modifier = modifier.fillMaxHeight()) {
-        ancestors.forEach { id ->
+        ancestors.forEachIndexed { level, id ->
+            val avatar = avatarSize(level)
             Box(
                 modifier = Modifier
-                    .width(RAIL_SPACING)
+                    .width(avatar + GAP)
                     .fillMaxHeight()
-                    .clickable { onCollapse(id) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(RAIL_WIDTH)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outlineVariant),
-                )
-            }
+                    .clickable { onCollapse(id) }
+                    .drawBehind {
+                        val x = avatar.toPx() / 2
+                        drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), LINE.toPx())
+                    },
+            )
         }
     }
 }
@@ -437,6 +585,15 @@ fun NovelCommentThreadRow(
         Box(modifier = Modifier.weight(1f)) { content() }
     }
 }
+
+/** A top-level comment's avatar, and the smaller one every reply gets, as YouTube does. */
+private fun avatarSize(depth: Int): Dp = if (depth == 0) 32.dp else 24.dp
+
+private val GAP = 10.dp
+private val HEADER_HEIGHT = 40.dp
+private val REPLIES_ROW_HEIGHT = 44.dp
+private val LINE = 1.5.dp
+private val ELBOW = 10.dp
 
 /**
  * The spans as Compose sees them.
@@ -473,6 +630,3 @@ private fun List<NovelCommentSpan>.toAnnotatedString(
             }
         }
     }
-
-private val RAIL_SPACING = 10.dp
-private val RAIL_WIDTH = 1.dp

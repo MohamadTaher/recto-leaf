@@ -181,7 +181,8 @@ things about an extension decide how well that works:
 
 Ids only need to be unique within one feed of one site; the app keeps feeds and sites apart. The
 order is always the app's own, since one site's "top" cannot rank another's: each feed is asked for
-the first of its `sorts`, so put the site's default first, and the sheet reorders what arrives.
+the first of its `sorts`, so put the site's default first, and the sheet ranks what arrives
+by likes — the `likes` a `NovelCommentFeedbackSource` gives, or else the comment's `score`.
 Posting is offered only while one feed of one extension is showing.
 
 ## Testing one

@@ -45,7 +45,7 @@ class NovelCommentsStateTest {
             ),
         )
 
-        state.rows.map { it.key } shouldBe listOf("1", "1a", "2")
+        state.rows.map { it.key } shouldBe listOf("1", "1a", "hide:1", "2")
         state.count shouldBe 3
     }
 
@@ -68,7 +68,7 @@ class NovelCommentsStateTest {
         )
 
         second.collapsed shouldBe setOf("2")
-        second.rows.map { it.key } shouldBe listOf("1", "1a", "2")
+        second.rows.map { it.key } shouldBe listOf("1", "1a", "hide:1", "2")
     }
 
     @Test
@@ -94,28 +94,5 @@ class NovelCommentsStateTest {
         )
 
         state.collapsed shouldBe emptySet()
-    }
-
-    /** Always the app's own order: a thread gathered from several sites has no one site's order to keep. */
-    @Test
-    fun `orders the thread itself`() {
-        val state = state().copy(localSort = NovelCommentLocalSort.TOP).withThread(
-            thread(comment("low", score = 1), comment("high", score = 40), comment("mid", score = 7)),
-        )
-
-        state.rows.map { it.key } shouldBe listOf("high", "mid", "low")
-    }
-
-    /** Pinned stays pinned: a site that pinned a comment did so to have it read first. */
-    @Test
-    fun `keeps a pinned comment at the top whatever the order`() {
-        val state = state().copy(localSort = NovelCommentLocalSort.TOP).withThread(
-            thread(
-                comment("loud", score = 99),
-                comment("note", score = 0).copy(pinned = true),
-            ),
-        )
-
-        state.rows.map { it.key } shouldBe listOf("note", "loud")
     }
 }

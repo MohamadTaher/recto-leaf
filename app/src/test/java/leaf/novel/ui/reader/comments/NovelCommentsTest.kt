@@ -20,6 +20,8 @@ import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentDraft
 import leaf.novel.api.NovelCommentFeed
 import leaf.novel.api.NovelCommentFeedSource
+import leaf.novel.api.NovelCommentFeedback
+import leaf.novel.api.NovelCommentFeedbackSource
 import leaf.novel.api.NovelCommentPage
 import leaf.novel.api.NovelCommentPositiveVote
 import leaf.novel.api.NovelCommentRequest
@@ -64,7 +66,7 @@ class NovelCommentsTest {
             waitFor("cached response") { comments.state.value.roots.single().replies.size == 1 }
             comments.state.value.rows.map { it.key } shouldBe listOf("parent")
             comments.toggleReplies(parent)
-            comments.state.value.rows.map { it.key } shouldBe listOf("parent", "reply")
+            comments.state.value.rows.map { it.key } shouldBe listOf("parent", "reply", "hide:parent")
             source.replyRequests() shouldBe 1
         } finally {
             scope.cancel()
@@ -387,7 +389,7 @@ class NovelCommentsTest {
             }
             other.requests.single { it.parent != null }.parent?.id shouldBe "1"
             own.replyRequests() shouldBe 0
-            comments.state.value.rows.map { it.key }.distinct().size shouldBe 3
+            comments.state.value.rows.map { it.key }.let { it.distinct() shouldBe it }
 
             comments.vote(theirs, NovelCommentVote.UP)
             waitFor("their vote") { other.votedOn.size == 1 && comments.state.value.voting.isEmpty() }
@@ -427,6 +429,9 @@ class NovelCommentsTest {
                 comments.state.value.roots.map { it.body } shouldBe
                     listOf("own-comments", "own-reviews", "plain", "their-review")
                 comments.state.value.kinds shouldBe setOf(NovelCommentKind.REVIEWS, NovelCommentKind.COMMENTS)
+                // What the header names: two reviews and two comments.
+                comments.state.value.reviewCount shouldBe 2
+                comments.state.value.commentCount shouldBe 2
 
                 comments.setKind(NovelCommentKind.REVIEWS)
                 waitFor("the reviews") {
@@ -491,6 +496,44 @@ class NovelCommentsTest {
             waitFor("the failure") { comments.state.value.error != null }
             comments.state.value.error shouldBe "Other: offline"
             comments.state.value.roots.map { it.id } shouldBe listOf("1")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /**
+     * One order for every source: most liked first. A site's own like count wins over its net score,
+     * which on a site with downvotes is not the same number; a site with no like count is ranked by
+     * its score.
+     */
+    @Test
+    fun `orders every source's comments by their likes`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+        val likes = mapOf("liked-little" to 2)
+        val own = object :
+            FakeCommentSource(capabilities, id = 1L, name = "Own", respond = {
+                NovelCommentPage(
+                    listOf(
+                        // A net score of a hundred, but only two likes: the likes are what count.
+                        comment("liked-little").copy(score = 100),
+                        comment("scored").copy(score = 7),
+                    ),
+                )
+            }),
+            NovelCommentFeedbackSource {
+            override fun getCommentFeedback(comment: NovelComment) = NovelCommentFeedback(likes = likes[comment.id])
+        }
+        val other = FakeCommentSource(capabilities, id = 2L, name = "Other") {
+            NovelCommentPage(listOf(comment("theirs").copy(score = 5)))
+        }
+        other.search = { listOf(novel("Shadow Slave")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = shared(scope, own, other)
+            comments.open()
+            waitFor("both sources") { comments.state.value.roots.size == 3 }
+            comments.state.value.roots.map { it.id.substringAfterLast('\u001f') } shouldBe
+                listOf("scored", "theirs", "liked-little")
         } finally {
             scope.cancel()
         }

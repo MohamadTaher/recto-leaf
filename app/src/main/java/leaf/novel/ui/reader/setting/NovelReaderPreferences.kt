@@ -4,7 +4,6 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
-import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
@@ -257,10 +256,6 @@ class NovelReaderPreferences(
      */
     val commentsEnabled: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_comments_enabled", true)
-
-    /** The order the comments sheet draws a thread in, whichever sources it came from. */
-    val commentsLocalSort: Preference<NovelCommentLocalSort> =
-        preferenceStore.getEnum("leaf_novel_comments_local_sort", NovelCommentLocalSort.TOP)
 
     /**
      * Whether comments are fetched ahead, or wait to be asked for.

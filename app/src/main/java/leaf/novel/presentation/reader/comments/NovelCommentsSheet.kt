@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -49,14 +50,12 @@ import eu.kanade.presentation.components.DropdownMenu
 import kotlinx.coroutines.launch
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.ui.reader.comments.NovelCommentKind
-import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import leaf.novel.ui.reader.comments.NovelCommentRow
 import leaf.novel.ui.reader.comments.NovelCommentTree
 import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.comments.NovelCommentsState
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.Check
 import mihon.icons.materialsymbols.rounded.Close
 import mihon.icons.materialsymbols.rounded.ExpandLess
@@ -98,7 +97,7 @@ fun NovelCommentsSheet(
 
     // Focusing re-roots the list, so it has to start at the top rather than wherever the previous
     // thread happened to be scrolled to.
-    LaunchedEffect(state.focus, state.localSort, state.kind, state.origin) {
+    LaunchedEffect(state.focus, state.kind, state.origin) {
         listState.scrollToItem(0)
     }
 
@@ -109,7 +108,6 @@ fun NovelCommentsSheet(
                 onRefresh = comments::reload,
                 onSetKind = comments::setKind,
                 onSetOrigin = comments::setOrigin,
-                onSetLocalSort = comments::setLocalSort,
                 onCollapseAll = comments::collapseAll,
                 onExpandAll = comments::expandAll,
                 onClearFocus = { comments.focus(null) },
@@ -166,6 +164,7 @@ fun NovelCommentsSheet(
                                 when (row) {
                                     is NovelCommentRow.Body -> NovelCommentItem(
                                         comment = row.comment,
+                                        depth = row.ancestors.size,
                                         collapsed = row.collapsed,
                                         hiddenCount = row.hiddenCount,
                                         capabilities = comments.capabilities(row.comment) ?: capabilities,
@@ -191,6 +190,14 @@ fun NovelCommentsSheet(
                                         ),
                                         loading = row.loading,
                                         onClick = { comments.loadReplies(row.comment) },
+                                    )
+
+                                    is NovelCommentRow.HideReplies -> NovelCommentRepliesRow(
+                                        depth = row.ancestors.size,
+                                        label = stringResource(MR.strings.leaf_novel_comments_collapse_replies),
+                                        open = true,
+                                        loading = row.loading,
+                                        onClick = { comments.toggleReplies(row.comment) },
                                     )
 
                                     is NovelCommentRow.ContinueThread -> ThreadAction(
@@ -244,7 +251,6 @@ private fun NovelCommentsHeader(
     onRefresh: () -> Unit,
     onSetKind: (NovelCommentKind) -> Unit,
     onSetOrigin: (Long?) -> Unit,
-    onSetLocalSort: (NovelCommentLocalSort) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
     onClearFocus: () -> Unit,
@@ -261,17 +267,31 @@ private fun NovelCommentsHeader(
                 .padding(top = MaterialTheme.padding.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Named for what is showing: a discussion while reviews and comments are shown together,
+            // and otherwise whichever of the two it is.
+            val mixed = state.kind == NovelCommentKind.ALL &&
+                NovelCommentKind.REVIEWS in state.kinds && NovelCommentKind.COMMENTS in state.kinds
+            val reviews = !mixed &&
+                (state.kind == NovelCommentKind.REVIEWS || state.kinds == setOf(NovelCommentKind.REVIEWS))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(MR.strings.leaf_novel_comments),
+                    text = stringResource(
+                        when {
+                            mixed -> MR.strings.leaf_novel_comments_discussion
+                            reviews -> MR.strings.leaf_novel_comments_reviews
+                            else -> MR.strings.leaf_novel_comments
+                        },
+                    ),
                     style = MaterialTheme.typography.titleLarge,
                 )
                 if (state.loaded) {
+                    val reviewCount = stringResource(MR.strings.leaf_novel_comments_review_count, state.reviewCount)
+                    val commentCount = stringResource(MR.strings.leaf_novel_comments_count, state.commentCount)
                     Text(
-                        text = if (state.total == null && (state.loadingMore || state.hasMore)) {
-                            stringResource(MR.strings.leaf_novel_comments_loaded, state.count)
-                        } else {
-                            stringResource(MR.strings.leaf_novel_comments_count, state.count)
+                        text = when {
+                            mixed -> "$reviewCount · $commentCount"
+                            reviews -> reviewCount
+                            else -> commentCount
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -334,7 +354,7 @@ private fun NovelCommentsHeader(
             )
         }
 
-        NovelCommentFilters(state, onSetKind, onSetOrigin, onSetLocalSort)
+        NovelCommentFilters(state, onSetKind, onSetOrigin)
 
         if (state.focus != null) {
             TextButton(
@@ -354,7 +374,7 @@ private fun NovelCommentsHeader(
 }
 
 /**
- * The order, then the two filters, nested: reviews or comments, and within that which extension.
+ * The two filters, nested: reviews or comments, and within that which extension.
  *
  * One row whatever the sources are, so the sheet looks the same on every novel. The review toggle
  * appears only where there are both reviews and comments to choose between, the extension picker
@@ -366,33 +386,14 @@ private fun NovelCommentFilters(
     state: NovelCommentsState,
     onSetKind: (NovelCommentKind) -> Unit,
     onSetOrigin: (Long?) -> Unit,
-    onSetLocalSort: (NovelCommentLocalSort) -> Unit,
 ) {
     val enabled = !state.posting && state.voting.isEmpty() && state.draft.isBlank()
-    var sortExpanded by remember { mutableStateOf(false) }
     var originExpanded by remember { mutableStateOf(false) }
 
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box {
-            IconButton(onClick = { sortExpanded = true }) {
-                Icon(MaterialSymbols.AutoMirroredRounded.Sort, stringResource(MR.strings.action_sort))
-            }
-            DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
-                NovelCommentLocalSort.entries.forEach { sort ->
-                    DropdownMenuItem(
-                        text = { Text(stringResource(sort.titleRes)) },
-                        trailingIcon = {
-                            if (sort == state.localSort) Icon(MaterialSymbols.Rounded.Check, null)
-                        },
-                        onClick = {
-                            sortExpanded = false
-                            onSetLocalSort(sort)
-                        },
-                    )
-                }
-            }
-        }
-
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         if (NovelCommentKind.REVIEWS in state.kinds && NovelCommentKind.COMMENTS in state.kinds) {
             NovelCommentKindToggle(state.kind, enabled) { onSetKind(state.kind.next) }
         }

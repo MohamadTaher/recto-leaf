@@ -118,17 +118,15 @@ object NovelCommentTree {
     }
 
     /**
-     * Reorders siblings at every level.
+     * Siblings at every level, most liked first.
      *
-     * Only ever used for a source with no sorts of its own: it works on the comments already
-     * fetched and cannot reach the ones it has not, so on a paginated site it sorts a page rather
-     * than a thread. That is worth having and worth being honest about — the sheet says so.
-     *
-     * Pinned comments stay at the top of their level whatever the order, because a site that pinned
-     * one did so to be read first.
+     * One order for every source, because a thread gathers several and no one site's ranking can
+     * place another's comments. Likes are the one measure every site with any reaction has. Stable,
+     * so comments that tie — every comment on a site with no likes at all — keep the order they
+     * arrived in.
      */
-    fun sortedBy(roots: List<NovelComment>, sort: NovelCommentLocalSort): List<NovelComment> {
-        val comparator = compareByDescending<NovelComment> { it.pinned }.then(sort.comparator)
+    fun sortedBy(roots: List<NovelComment>, likes: (NovelComment) -> Int): List<NovelComment> {
+        val comparator = compareByDescending(likes)
         fun order(level: List<NovelComment>): List<NovelComment> = level
             .sortedWith(comparator)
             .map { if (it.replies.isEmpty()) it else it.copy(replies = order(it.replies)) }
@@ -160,15 +158,20 @@ object NovelCommentTree {
 
         // Ancestors are carried per entry rather than recomputed: the sheet draws one indent rail
         // per ancestor and each rail collapses the ancestor it belongs to, so the row needs their
-        // ids, not just how many there are.
-        data class Pending(val comment: NovelComment, val ancestors: List<String>)
+        // ids, not just how many there are. A row already built waits on the stack for the rows
+        // that must come before it: a subtree's closing row goes on before its replies do.
+        data class Pending(val comment: NovelComment, val ancestors: List<String>, val row: NovelCommentRow? = null)
 
         val stack = ArrayDeque<Pending>()
         // Reversed so that pushing onto a stack pops them back in the order the site gave.
         start.asReversed().forEach { stack.addLast(Pending(it, emptyList())) }
 
         while (stack.isNotEmpty()) {
-            val (comment, ancestors) = stack.removeLast()
+            val (comment, ancestors, built) = stack.removeLast()
+            if (built != null) {
+                rows += built
+                continue
+            }
             val depth = ancestors.size
             val folded = comment.id in collapsed
             val descendants = if (folded) countDescendants(comment) else 0
@@ -180,6 +183,15 @@ object NovelCommentTree {
                 hiddenCount = descendants,
             )
             if (folded || comment.id !in expandedReplies) continue
+
+            val missing = comment.replyCount - comment.replies.size
+            val hasMore = lazyReplies && missing > 0
+            if (comment.replies.isEmpty() && !hasMore) continue
+
+            // Everything under an open comment ends with the row that closes it, so its thread line
+            // has somewhere to end. Pushed first, it is drawn last.
+            val loadingFirst = comment.replies.isEmpty() && comment.id in loadingReplies
+            stack.addLast(Pending(comment, ancestors, NovelCommentRow.HideReplies(comment, ancestors, loadingFirst)))
 
             // The cap applies to what is *drawn*, so focusing a deep comment re-bases the depth and
             // lets the reader keep going. Without that the cap would be a wall rather than a fold.
@@ -193,14 +205,15 @@ object NovelCommentTree {
                 continue
             }
 
-            val missing = comment.replyCount - comment.replies.size
-            if (lazyReplies && missing > 0 && (comment.replies.isNotEmpty() || comment.id !in loadingReplies)) {
-                rows += NovelCommentRow.MoreReplies(
+            // After the replies already here, which is where the ones still to come will go.
+            if (hasMore && !loadingFirst) {
+                val more = NovelCommentRow.MoreReplies(
                     comment = comment,
                     ancestors = ancestors + comment.id,
                     count = missing,
                     loading = comment.id in loadingReplies,
                 )
+                stack.addLast(Pending(comment, ancestors, more))
             }
 
             comment.replies.asReversed().forEach { stack.addLast(Pending(it, ancestors + comment.id)) }
@@ -383,6 +396,21 @@ sealed interface NovelCommentRow {
         val loading: Boolean,
     ) : NovelCommentRow {
         override val key: String get() = "more:${comment.id}"
+    }
+
+    /**
+     * The foot of an open comment's replies, where they are closed again.
+     *
+     * Carries the parent's own ancestors rather than the replies', because it is drawn at the
+     * parent's depth: the parent's thread line runs down past every reply and ends here.
+     */
+    data class HideReplies(
+        val comment: NovelComment,
+        override val ancestors: List<String>,
+        /** The first replies are still on their way, so there is nothing above this row yet. */
+        val loading: Boolean,
+    ) : NovelCommentRow {
+        override val key: String get() = "hide:${comment.id}"
     }
 
     /** A subtree too deep to indent further, offered as its own root instead. */

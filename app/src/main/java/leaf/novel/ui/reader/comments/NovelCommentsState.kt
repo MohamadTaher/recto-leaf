@@ -117,15 +117,6 @@ data class NovelCommentsState(
     /** Still looking for the novel on the other sources. */
     val searching: Boolean = false,
 
-    /**
-     * The order the thread is drawn in, applied here to whatever every source sent.
-     *
-     * Always the app's own rather than a site's: the thread mixes sources, and one site's "top" is
-     * no way to rank another site's comments. Each site is asked for its default order and the
-     * sheet reorders the lot, so the same choice means the same thing whatever the source.
-     */
-    val localSort: NovelCommentLocalSort = NovelCommentLocalSort.TOP,
-
     val roots: List<NovelComment> = emptyList(),
     val rows: List<NovelCommentRow> = emptyList(),
 
@@ -147,6 +138,9 @@ data class NovelCommentsState(
 
     /** Whatever the site said the thread's size is, which is not always what arrived. */
     val total: Int? = null,
+    /** The same, split: how many reviews and how many comments, for a header that names both. */
+    val reviewCount: Int = 0,
+    val commentCount: Int = 0,
 
     /** The failure to show. Cleared as soon as the reader has seen it. */
     val error: String? = null,
@@ -193,6 +187,8 @@ data class NovelCommentsState(
         voting = emptySet(),
         hasMore = false,
         total = null,
+        reviewCount = 0,
+        commentCount = 0,
         error = null,
         loaded = false,
         replyingTo = null,
@@ -201,11 +197,10 @@ data class NovelCommentsState(
 
     /** The thread, and the rows that go with it. Nothing else may set one without the other. */
     fun withRoots(roots: List<NovelComment>): NovelCommentsState {
-        val ordered = NovelCommentTree.sortedBy(roots, localSort)
         return copy(
-            roots = ordered,
+            roots = roots,
             rows = NovelCommentTree.flatten(
-                roots = ordered,
+                roots = roots,
                 collapsed = collapsed,
                 loadingReplies = loadingReplies,
                 lazyReplies = capabilities?.lazyReplies == true,
