@@ -539,6 +539,36 @@ class NovelCommentsTest {
         }
     }
 
+    /** Newest and oldest are the app's own too, so changing order is a redraw, never a request. */
+    @Test
+    fun `reorders the thread by likes, newest or oldest without asking again`() = runBlocking<Unit> {
+        val source = FakeCommentSource(NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))) {
+            NovelCommentPage(
+                listOf(
+                    comment("old-liked").copy(score = 9, postedAt = 1_000),
+                    comment("new-quiet").copy(score = 1, postedAt = 3_000),
+                    comment("middle").copy(score = 5, postedAt = 2_000),
+                ),
+            )
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
+            comments.bind(source, Manga.create())
+            comments.open()
+            waitFor("the thread") { comments.state.value.roots.size == 3 }
+            comments.state.value.roots.map { it.id } shouldBe listOf("old-liked", "middle", "new-quiet")
+
+            comments.setSort(NovelCommentLocalSort.NEWEST)
+            comments.state.value.roots.map { it.id } shouldBe listOf("new-quiet", "middle", "old-liked")
+            comments.setSort(NovelCommentLocalSort.OLDEST)
+            comments.state.value.roots.map { it.id } shouldBe listOf("old-liked", "middle", "new-quiet")
+            source.requests.size shouldBe 1
+        } finally {
+            scope.cancel()
+        }
+    }
+
     /** Leaving the novel and coming back used to fetch every thread again. */
     @Test
     fun `a novel opened again soon after is not fetched again`() = runBlocking<Unit> {

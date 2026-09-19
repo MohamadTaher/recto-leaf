@@ -1337,6 +1337,9 @@
     <string name="leaf_novel_comments_empty_novel">No comments on this novel yet</string>
     <string name="leaf_novel_comments_load">Load comments</string>
     <string name="leaf_novel_comments_load_more">Load more comments</string>
+    <string name="leaf_novel_comments_sort_top">Top</string>
+    <string name="leaf_novel_comments_sort_newest">Newest</string>
+    <string name="leaf_novel_comments_sort_oldest">Oldest</string>
     <string name="leaf_novel_comments_reply">Reply</string>
     <string name="leaf_novel_comments_show_replies">Show %1$d more replies</string>
     <string name="leaf_novel_comments_one_reply">%1$d reply</string>

@@ -48,14 +48,17 @@ import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.DropdownMenu
 import kotlinx.coroutines.launch
+import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.ui.reader.comments.NovelCommentKind
+import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import leaf.novel.ui.reader.comments.NovelCommentRow
 import leaf.novel.ui.reader.comments.NovelCommentTree
 import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.comments.NovelCommentsState
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.Check
 import mihon.icons.materialsymbols.rounded.Close
 import mihon.icons.materialsymbols.rounded.ExpandLess
@@ -97,8 +100,27 @@ fun NovelCommentsSheet(
 
     // Focusing re-roots the list, so it has to start at the top rather than wherever the previous
     // thread happened to be scrolled to.
-    LaunchedEffect(state.focus, state.kind, state.origin) {
+    LaunchedEffect(state.focus, state.sort, state.kind, state.origin) {
         listState.scrollToItem(0)
+    }
+
+    // Closing something long — a comment's text, or a thread of replies — leaves the reader wherever
+    // its end was, which is past everything that followed it. So a close brings the comment's own
+    // top back into view, but only when that top has gone off the top of the list: a comment still
+    // on screen stays exactly where it is.
+    fun scrollBackTo(id: String) {
+        val index = comments.state.value.rows.indexOfFirst { it is NovelCommentRow.Body && it.comment.id == id }
+        if (index < 0) return
+        val first = listState.firstVisibleItemIndex
+        if (index < first || (index == first && listState.firstVisibleItemScrollOffset > 0)) {
+            scope.launch { listState.animateScrollToItem(index) }
+        }
+    }
+
+    fun toggleReplies(comment: NovelComment) {
+        val closing = comment.id in comments.state.value.expandedReplies
+        comments.toggleReplies(comment)
+        if (closing) scrollBackTo(comment.id)
     }
 
     AdaptiveSheet(onDismissRequest = onDismissRequest) {
@@ -108,6 +130,7 @@ fun NovelCommentsSheet(
                 onRefresh = comments::reload,
                 onSetKind = comments::setKind,
                 onSetOrigin = comments::setOrigin,
+                onSetSort = comments::setSort,
                 onCollapseAll = comments::collapseAll,
                 onExpandAll = comments::expandAll,
                 onClearFocus = { comments.focus(null) },
@@ -158,7 +181,7 @@ fun NovelCommentsSheet(
                             NovelCommentThreadRow(
                                 ancestors = row.ancestors,
                                 onCollapse = { id ->
-                                    NovelCommentTree.find(state.roots, id)?.let(comments::toggleReplies)
+                                    NovelCommentTree.find(state.roots, id)?.let(::toggleReplies)
                                 },
                             ) {
                                 when (row) {
@@ -178,9 +201,10 @@ fun NovelCommentsSheet(
                                         spoilerGuard = spoilerGuard,
                                         onToggleCollapsed = { comments.toggleCollapsed(row.comment.id) },
                                         onVote = { vote -> comments.vote(row.comment, vote) },
-                                        onToggleReplies = { comments.toggleReplies(row.comment) },
+                                        onToggleReplies = { toggleReplies(row.comment) },
                                         onFocus = { comments.focus(row.comment.id) },
                                         onOpenLink = uriHandler::openUri,
+                                        onShrink = { scrollBackTo(row.comment.id) },
                                     )
 
                                     is NovelCommentRow.MoreReplies -> ThreadAction(
@@ -197,7 +221,7 @@ fun NovelCommentsSheet(
                                         label = stringResource(MR.strings.leaf_novel_comments_collapse_replies),
                                         open = true,
                                         loading = row.loading,
-                                        onClick = { comments.toggleReplies(row.comment) },
+                                        onClick = { toggleReplies(row.comment) },
                                     )
 
                                     is NovelCommentRow.ContinueThread -> ThreadAction(
@@ -251,6 +275,7 @@ private fun NovelCommentsHeader(
     onRefresh: () -> Unit,
     onSetKind: (NovelCommentKind) -> Unit,
     onSetOrigin: (Long?) -> Unit,
+    onSetSort: (NovelCommentLocalSort) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
     onClearFocus: () -> Unit,
@@ -354,7 +379,7 @@ private fun NovelCommentsHeader(
             )
         }
 
-        NovelCommentFilters(state, onSetKind, onSetOrigin)
+        NovelCommentFilters(state, onSetKind, onSetOrigin, onSetSort)
 
         if (state.focus != null) {
             TextButton(
@@ -374,7 +399,7 @@ private fun NovelCommentsHeader(
 }
 
 /**
- * The two filters, nested: reviews or comments, and within that which extension.
+ * The order, then the two filters, nested: reviews or comments, and within that which extension.
  *
  * One row whatever the sources are, so the sheet looks the same on every novel. The review toggle
  * appears only where there are both reviews and comments to choose between, the extension picker
@@ -386,14 +411,34 @@ private fun NovelCommentFilters(
     state: NovelCommentsState,
     onSetKind: (NovelCommentKind) -> Unit,
     onSetOrigin: (Long?) -> Unit,
+    onSetSort: (NovelCommentLocalSort) -> Unit,
 ) {
     val enabled = !state.posting && state.voting.isEmpty() && state.draft.isBlank()
+    var sortExpanded by remember { mutableStateOf(false) }
     var originExpanded by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box {
+            IconButton(onClick = { sortExpanded = true }) {
+                Icon(MaterialSymbols.AutoMirroredRounded.Sort, stringResource(MR.strings.action_sort))
+            }
+            DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                NovelCommentLocalSort.entries.forEach { sort ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(sort.titleRes)) },
+                        trailingIcon = { if (sort == state.sort) Icon(MaterialSymbols.Rounded.Check, null) },
+                        onClick = {
+                            sortExpanded = false
+                            onSetSort(sort)
+                        },
+                    )
+                }
+            }
+        }
+
         if (NovelCommentKind.REVIEWS in state.kinds && NovelCommentKind.COMMENTS in state.kinds) {
             NovelCommentKindToggle(state.kind, enabled) { onSetKind(state.kind.next) }
         }

@@ -118,15 +118,12 @@ object NovelCommentTree {
     }
 
     /**
-     * Siblings at every level, most liked first.
+     * Siblings at every level, in [comparator]'s order.
      *
      * One order for every source, because a thread gathers several and no one site's ranking can
-     * place another's comments. Likes are the one measure every site with any reaction has. Stable,
-     * so comments that tie — every comment on a site with no likes at all — keep the order they
-     * arrived in.
+     * place another's comments. Stable, so comments that tie keep the order they arrived in.
      */
-    fun sortedBy(roots: List<NovelComment>, likes: (NovelComment) -> Int): List<NovelComment> {
-        val comparator = compareByDescending(likes)
+    fun sortedBy(roots: List<NovelComment>, comparator: Comparator<NovelComment>): List<NovelComment> {
         fun order(level: List<NovelComment>): List<NovelComment> = level
             .sortedWith(comparator)
             .map { if (it.replies.isEmpty()) it else it.copy(replies = order(it.replies)) }

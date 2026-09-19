@@ -81,7 +81,7 @@ import kotlin.time.Duration.Companion.minutes
  *    thread's ids carry a prefix naming both ([Drain.tag]), and every call back to a source takes it
  *    off again. The novel's own source keeps the ids of its first feed untouched.
  *  - **Order.** One site's "top" means nothing next to another's, so each site is asked for its
- *    default order and the thread is always ordered here, most liked first.
+ *    default order and the thread is always ordered here, by [NovelCommentsState.sort].
  */
 class NovelComments(
     private val scope: CoroutineScope,
@@ -172,7 +172,7 @@ class NovelComments(
     fun bind(source: Source?, manga: Manga?) {
         val own = source as? NovelCommentSource
         origins = if (own != null && manga != null) listOf(Origin(own, manga.toSManga(), own = true)) else emptyList()
-        mutableState.update { it.configured() }
+        mutableState.update { it.copy(sort = preferences.commentsLocalSort.get()).configured() }
     }
 
     /**
@@ -320,6 +320,14 @@ class NovelComments(
                     if (drain in shown) publish { it.withFailure(failureOf(drain, failure)) }
                 }
         }
+    }
+
+    /** Redraws the thread in another order. No request: the order is applied here, to what arrived. */
+    fun setSort(sort: NovelCommentLocalSort) {
+        if (sort == state.value.sort) return
+        preferences.commentsLocalSort.set(sort)
+        mutableState.update { it.copy(sort = sort) }
+        publish()
     }
 
     /** Narrows the thread to reviews or to comments, or with [NovelCommentKind.ALL] shows both. */
@@ -557,7 +565,7 @@ class NovelComments(
             },
         )
         val thread = NovelCommentThread(
-            comments = NovelCommentTree.sortedBy(presented) { likes[it.id] ?: 0 },
+            comments = NovelCommentTree.sortedBy(presented, state.value.sort.comparator { likes[it.id] ?: 0 }),
             voting = threads.flatMapTo(mutableSetOf()) { (drain, thread) -> thread.voting.map(drain::tagged) },
             loadingReplies = threads.flatMapTo(mutableSetOf()) { (drain, thread) ->
                 thread.loadingReplies.map(drain::tagged)

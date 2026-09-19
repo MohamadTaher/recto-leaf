@@ -145,7 +145,7 @@ class NovelCommentTreeTest {
             comment("high", score = 5),
         )
 
-        val sorted = NovelCommentTree.sortedBy(roots) { it.score ?: 0 }
+        val sorted = NovelCommentTree.sortedBy(roots, compareByDescending { it.score ?: 0 })
 
         sorted.map { it.id } shouldBe listOf("high", "low")
         sorted[1].replies.map { it.id } shouldBe listOf("b", "a")
@@ -155,7 +155,7 @@ class NovelCommentTreeTest {
     fun `leaves ties in the order they arrived`() {
         val roots = listOf(comment("1"), comment("2"), comment("3"))
 
-        NovelCommentTree.sortedBy(roots) { 0 }.map { it.id } shouldBe listOf("1", "2", "3")
+        NovelCommentTree.sortedBy(roots, compareBy { 0 }).map { it.id } shouldBe listOf("1", "2", "3")
     }
 
     // endregion

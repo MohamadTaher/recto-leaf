@@ -102,6 +102,9 @@ data class NovelCommentsState(
     /** Null until a source that serves comments is bound; the reader's button hangs off it. */
     val capabilities: NovelCommentCapabilities? = null,
 
+    /** The order the thread is drawn in, applied here to every source alike. */
+    val sort: NovelCommentLocalSort = NovelCommentLocalSort.TOP,
+
     /** Reviews, comments or both. Offered only while [kinds] holds both. */
     val kind: NovelCommentKind = NovelCommentKind.ALL,
     /** Which of reviews and comments the sources on show have at all. */

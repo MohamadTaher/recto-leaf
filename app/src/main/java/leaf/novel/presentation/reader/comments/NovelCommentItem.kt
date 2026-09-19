@@ -112,14 +112,20 @@ fun NovelCommentItem(
     onToggleReplies: () -> Unit,
     onFocus: () -> Unit,
     onOpenLink: (String) -> Unit,
+    /** Called when a long comment is closed again, so the sheet can bring its top back into view. */
+    onShrink: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    var expanded by rememberSaveable(comment.id, comment.body) { mutableStateOf(false) }
+    val toggleBody = {
+        expanded = !expanded
+        if (!expanded) onShrink()
+    }
     val review = remember(comment.body) { NovelCommentReview.parse(comment.body) }
     val spans = remember(review.body, comment.permalink) { NovelCommentMarkup.parse(review.body, comment.permalink) }
     val hasSpoilers = remember(spans) { spans.any { it.spoiler } }
     var revealed by remember(comment.id) { mutableStateOf(false) }
-    var expanded by rememberSaveable(comment.id, comment.body) { mutableStateOf(false) }
     var overflows by remember(comment.body) { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     val hidden = (spoilerGuard || hasSpoilers) && !revealed
@@ -152,76 +158,53 @@ fun NovelCommentItem(
     ) {
         Row(modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                modifier = Modifier.width(avatar).fillMaxHeight().drawBehind {
-                    if (threaded) {
-                        val x = size.width / 2
-                        drawLine(
-                            lineColor,
-                            Offset(x, (size.height + avatar.toPx()) / 2),
-                            Offset(x, size.height),
-                            LINE.toPx(),
-                        )
-                    }
-                },
+                modifier = Modifier.width(avatar).fillMaxHeight()
+                    .then(if (threaded) Modifier.clickable(onClick = onToggleReplies) else Modifier)
+                    .drawBehind {
+                        if (threaded) {
+                            val x = size.width / 2
+                            drawLine(
+                                lineColor,
+                                Offset(x, (size.height + avatar.toPx()) / 2),
+                                Offset(x, size.height),
+                                LINE.toPx(),
+                            )
+                        }
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 CommentAvatar(comment, avatar, showImage = showAvatar && capabilities.avatars)
             }
             Spacer(Modifier.width(GAP))
-            HeaderLines(
-                modifier = Modifier.weight(1f),
-                alignment = Alignment.Start,
-                lines = listOfNotNull(
-                    @Composable {
-                        Text(
-                            text = if (comment.deleted) {
-                                stringResource(MR.strings.leaf_novel_comments_deleted)
-                            } else {
-                                comment.author
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (comment.byUploader) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    },
-                    listOfNotNull(
-                        comment.postedAt.takeIf { it > 0 }?.let { relativeTimeSpanString(it) },
-                        comment.chapterLabel?.takeIf { showChapter && it.isNotBlank() },
-                        stringResource(MR.strings.leaf_novel_comments_pinned).takeIf { comment.pinned },
-                    ).takeIf { it.isNotEmpty() }?.let { details ->
-                        @Composable {
-                            Text(
-                                text = details.joinToString(" · "),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                ),
+            val details = listOfNotNull(
+                comment.postedAt.takeIf { it > 0 }?.let { relativeTimeSpanString(it) },
+                comment.chapterLabel?.takeIf { showChapter && it.isNotBlank() },
+                stringResource(MR.strings.leaf_novel_comments_pinned).takeIf { comment.pinned },
             )
-            HeaderLines(
-                modifier = Modifier.padding(start = 8.dp),
-                alignment = Alignment.End,
-                lines = listOfNotNull(
-                    rating?.let { @Composable { NovelCommentRatingRow(it) } },
-                    sourceName?.let {
-                        @Composable {
-                            Text(
-                                text = it,
-                                maxLines = 1,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                ),
+            val source: (@Composable () -> Unit)? = sourceName?.let { { HeaderLabel(it) } }
+            HeaderGrid(
+                modifier = Modifier.weight(1f),
+                topStart = {
+                    Text(
+                        text = if (comment.deleted) {
+                            stringResource(MR.strings.leaf_novel_comments_deleted)
+                        } else {
+                            comment.author
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (comment.byUploader) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                },
+                // The rating's place, taken by the extension when there is no rating.
+                topEnd = rating?.let { { NovelCommentRatingRow(it) } } ?: source,
+                bottomStart = details.takeIf { it.isNotEmpty() }?.let { { HeaderLabel(it.joinToString(" · ")) } },
+                bottomEnd = source.takeIf { rating != null },
             )
             Box {
                 IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
@@ -282,12 +265,14 @@ fun NovelCommentItem(
 
         Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Box(
-                modifier = Modifier.width(avatar).fillMaxHeight().drawBehind {
-                    if (threaded) {
-                        val x = size.width / 2
-                        drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), LINE.toPx())
-                    }
-                },
+                modifier = Modifier.width(avatar).fillMaxHeight()
+                    .then(if (threaded) Modifier.clickable(onClick = onToggleReplies) else Modifier)
+                    .drawBehind {
+                        if (threaded) {
+                            val x = size.width / 2
+                            drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), LINE.toPx())
+                        }
+                    },
             )
             Spacer(Modifier.width(GAP))
             Column(
@@ -331,7 +316,7 @@ fun NovelCommentItem(
                                 enabled = expanded || overflows,
                                 interactionSource = null,
                                 indication = null,
-                                onClick = { expanded = !expanded },
+                                onClick = toggleBody,
                             ),
                         )
                         if (expanded || overflows) {
@@ -346,7 +331,7 @@ fun NovelCommentItem(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.heightIn(min = 40.dp)
-                                    .clickable(role = Role.Button, onClick = { expanded = !expanded })
+                                    .clickable(role = Role.Button, onClick = toggleBody)
                                     .padding(vertical = 10.dp),
                             )
                         }
@@ -464,26 +449,53 @@ fun NovelCommentRepliesRow(
 }
 
 /**
- * A header column of one or two lines, each given half the row and centred in it; a lone line gets
- * the whole row, so it sits level with the avatar.
+ * The header beside the avatar, as two rows: the name with the rating across the top, the date with
+ * the extension across the bottom.
+ *
+ * Rows rather than two side-by-side columns, because what has to line up is across: the date and
+ * the extension are one line and are centred on it together, whatever either side is set in. Each
+ * row takes half the height; with nothing for the bottom row, the top one takes the whole height
+ * and sits level with the avatar.
  */
 @Composable
-private fun HeaderLines(
-    lines: List<@Composable () -> Unit>,
-    alignment: Alignment.Horizontal,
+private fun HeaderGrid(
+    topStart: @Composable () -> Unit,
+    topEnd: (@Composable () -> Unit)?,
+    bottomStart: (@Composable () -> Unit)?,
+    bottomEnd: (@Composable () -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    if (lines.isEmpty()) return
-    Column(modifier = modifier.fillMaxHeight(), horizontalAlignment = alignment) {
-        lines.forEach { line ->
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = if (alignment == Alignment.End) Alignment.CenterEnd else Alignment.CenterStart,
-            ) {
-                line()
-            }
+    val twoRows = bottomStart != null || bottomEnd != null
+    Column(modifier = modifier.fillMaxHeight()) {
+        HeaderRow(topStart, topEnd, Modifier.weight(1f))
+        if (twoRows) HeaderRow(bottomStart, bottomEnd, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun HeaderRow(
+    start: (@Composable () -> Unit)?,
+    end: (@Composable () -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.weight(1f)) { start?.invoke() }
+        if (end != null) {
+            Spacer(Modifier.width(8.dp))
+            end()
         }
     }
+}
+
+@Composable
+private fun HeaderLabel(text: String) {
+    Text(
+        text = text,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /**
