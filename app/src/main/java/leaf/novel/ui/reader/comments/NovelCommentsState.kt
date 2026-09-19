@@ -35,6 +35,36 @@ data class NovelCommentThread(
     val nextPage: Int = 1,
     val nextCursor: String? = null,
     val failure: Throwable? = null,
+    /** Per comment, the last page of replies fetched and the cursor that follows it. */
+    val replyPages: Map<String, Int> = emptyMap(),
+    val replyCursors: Map<String, String?> = emptyMap(),
+) {
+
+    /**
+     * The thread as another screen can pick it up: what was fetched, without what was happening.
+     *
+     * A vote or a reply page still on its way belongs to the coroutine that asked for it, and a
+     * failure to the attempt that met it — so a thread that failed is left for the next reader to
+     * try again from where it stopped, rather than handed over already given up.
+     */
+    fun settled() = copy(
+        voting = emptySet(),
+        loadingReplies = emptySet(),
+        posting = false,
+        done = done && failure == null,
+        hasMore = hasMore && failure == null,
+        failure = null,
+    )
+}
+
+/** One source in the sheet's extension filter, with however many comments it has brought so far. */
+@Immutable
+data class NovelCommentOrigin(
+    val id: Long,
+    val name: String,
+    /** Null until its thread has come back, which is not the same as none. */
+    val count: Int? = null,
+    val loading: Boolean = false,
 )
 
 /**
@@ -54,6 +84,13 @@ data class NovelCommentsState(
 
     /** Whose comments these are. Fixed for the life of the controller that owns this state. */
     val scope: NovelCommentScope = NovelCommentScope.CHAPTER,
+
+    /** The novel's own source and every other that has it; the filter appears once there are two. */
+    val origins: List<NovelCommentOrigin> = emptyList(),
+    /** The one source to show, or null for all of them together. */
+    val origin: Long? = null,
+    /** Still looking for the novel on the other sources. */
+    val searching: Boolean = false,
 
     /** The source's own orders. Empty means it has none and [localSort] applies instead. */
     val sorts: List<NovelCommentSort> = emptyList(),

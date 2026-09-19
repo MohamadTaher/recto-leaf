@@ -1373,6 +1373,7 @@
     <string name="leaf_novel_comments_replying_to">Replying to %1$s</string>
     <string name="leaf_novel_comments_post">Post</string>
     <string name="leaf_novel_comments_requires_account">Posting needs an account on this site</string>
+    <string name="leaf_novel_comments_searching">Looking for this novel on your other extensions…</string>
     <string name="leaf_novel_reader_heading_comments">Comments</string>
     <string name="leaf_novel_comments_setting_enabled">Offer comments</string>
     <string name="leaf_novel_comments_setting_auto_load">Load comments ahead of being asked</string>

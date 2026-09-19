@@ -11,6 +11,8 @@ import androidx.compose.ui.platform.LocalContext
 import eu.kanade.tachiyomi.source.Source
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.presentation.reader.comments.NovelCommentsSheet
+import leaf.novel.ui.reader.comments.NovelCommentCache
+import leaf.novel.ui.reader.comments.NovelCommentMatcher
 import leaf.novel.ui.reader.comments.NovelComments
 import mihon.app.di.appGraph
 import tachiyomi.domain.manga.model.Manga
@@ -38,14 +40,21 @@ import tachiyomi.presentation.core.util.collectAsState
 @Composable
 fun novelCommentsAction(manga: Manga, source: Source): (() -> Unit)? {
     val context = LocalContext.current
-    val preferences = remember { context.appGraph.novelReaderPreferences }
+    val graph = remember { context.appGraph }
+    val preferences = graph.novelReaderPreferences
     val enabled by preferences.commentsEnabled.collectAsState()
     val scope = rememberCoroutineScope()
 
     // Bound once per novel. The scope is the composition's, so leaving the screen cancels whatever
     // is still being fetched rather than draining a thread nobody is going to read.
     val comments = remember(manga.id, source.id) {
-        NovelComments(scope, preferences, NovelCommentScope.NOVEL).apply { bind(source, manga) }
+        NovelComments(
+            scope = scope,
+            preferences = preferences,
+            commentScope = NovelCommentScope.NOVEL,
+            matcher = NovelCommentMatcher.installed(graph.sourceManager, graph.sourcePreferences),
+            cache = NovelCommentCache.shared,
+        ).apply { bind(source, manga) }
     }
     var showing by rememberSaveable(manga.id) { mutableStateOf(false) }
 

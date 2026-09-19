@@ -17,6 +17,7 @@ import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactory
 import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactoryKey
 import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.source.interactor.GetIncognitoState
+import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.data.download.DownloadProvider
@@ -48,6 +49,8 @@ import leaf.novel.data.epub.NovelEpubException
 import leaf.novel.data.epub.novelEpubReader
 import leaf.novel.source.local.LocalNovelSource
 import leaf.novel.source.local.io.NovelFileSystem
+import leaf.novel.ui.reader.comments.NovelCommentCache
+import leaf.novel.ui.reader.comments.NovelCommentMatcher
 import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.loader.EpubContentProvider
 import leaf.novel.ui.reader.loader.NovelContentProvider
@@ -116,6 +119,7 @@ class NovelReaderViewModel(
     private val fileSystem: NovelFileSystem,
     private val downloadProvider: DownloadProvider,
     private val sourceManager: SourceManager,
+    private val sourcePreferences: SourcePreferences,
     private val preferenceStore: PreferenceStore,
     val readerPreferences: ReaderPreferences,
     val novelReaderPreferences: NovelReaderPreferences,
@@ -154,7 +158,12 @@ class NovelReaderViewModel(
      * reply has no business recomposing the reader. The chapter's own comments only — the novel's
      * belong to the screen that describes the novel, not to a tab over the chapter being read.
      */
-    val comments = NovelComments(viewModelScope, novelReaderPreferences)
+    val comments = NovelComments(
+        scope = viewModelScope,
+        preferences = novelReaderPreferences,
+        matcher = NovelCommentMatcher.installed(sourceManager, sourcePreferences),
+        cache = NovelCommentCache.shared,
+    )
 
     private var provider: NovelContentProvider? = null
 

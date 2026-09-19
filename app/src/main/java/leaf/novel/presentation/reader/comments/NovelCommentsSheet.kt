@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader.comments
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +17,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -96,7 +99,7 @@ fun NovelCommentsSheet(
 
     // Focusing re-roots the list, so it has to start at the top rather than wherever the previous
     // thread happened to be scrolled to.
-    LaunchedEffect(state.focus, state.sortKey, state.localSort, state.feed?.key) {
+    LaunchedEffect(state.focus, state.sortKey, state.localSort, state.feed?.key, state.origin) {
         listState.scrollToItem(0)
     }
 
@@ -107,6 +110,7 @@ fun NovelCommentsSheet(
                 onRefresh = comments::reload,
                 onSetSort = comments::setSort,
                 onSetFeed = comments::setFeed,
+                onSetOrigin = comments::setOrigin,
                 onSetLocalSort = comments::setLocalSort,
                 onCollapseAll = comments::collapseAll,
                 onExpandAll = comments::expandAll,
@@ -168,8 +172,9 @@ fun NovelCommentsSheet(
                                         comment = row.comment,
                                         collapsed = row.collapsed,
                                         hiddenCount = row.hiddenCount,
-                                        capabilities = capabilities,
+                                        capabilities = comments.capabilities(row.comment) ?: capabilities,
                                         feedback = comments.feedback(row.comment),
+                                        sourceName = comments.sourceName(row.comment),
                                         voting = row.comment.id in state.voting,
                                         repliesExpanded = row.comment.id in state.expandedReplies,
                                         loadingReplies = row.comment.id in state.loadingReplies,
@@ -242,6 +247,7 @@ private fun NovelCommentsHeader(
     onRefresh: () -> Unit,
     onSetSort: (NovelCommentSort) -> Unit,
     onSetFeed: (NovelCommentFeed) -> Unit,
+    onSetOrigin: (Long?) -> Unit,
     onSetLocalSort: (NovelCommentLocalSort) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
@@ -270,7 +276,7 @@ private fun NovelCommentsHeader(
                         text = when {
                             state.total == null && (state.loadingMore || state.hasMore) ->
                                 stringResource(MR.strings.leaf_novel_comments_loaded, state.count)
-                            state.feed != null ->
+                            !state.feed?.label.isNullOrBlank() ->
                                 stringResource(MR.strings.leaf_novel_comments_feed_count, state.feed.label, state.count)
                             else -> stringResource(MR.strings.leaf_novel_comments_count, state.count)
                         },
@@ -345,11 +351,13 @@ private fun NovelCommentsHeader(
                         selected = state.feed == feed,
                         enabled = !state.posting && state.voting.isEmpty() && state.draft.isBlank(),
                         onClick = { onSetFeed(feed) },
-                        text = { Text(feed.label) },
+                        // A source without feeds of its own has one with no label; see NovelComments.
+                        text = { Text(feed.label.ifBlank { stringResource(MR.strings.leaf_novel_comments) }) },
                     )
                 }
             }
         }
+        NovelCommentOrigins(state, onSetOrigin)
         val selectedSort = state.sorts.firstOrNull { it.key == state.sortKey }?.label
             ?: state.sorts.firstOrNull()?.label
             ?: stringResource(state.localSort.titleRes)
@@ -407,6 +415,52 @@ private fun NovelCommentsHeader(
                 Text(stringResource(MR.strings.leaf_novel_comments_back_to_thread))
             }
         }
+    }
+}
+
+/**
+ * Which sources the thread is gathered from, as chips: all of them, or one.
+ *
+ * Only once a second source has the novel — with one there is nothing to choose between, and the
+ * sheet stays exactly what it was. While the others are still being searched, a line says so, so
+ * that a thread that later grows is not a surprise.
+ */
+@Composable
+private fun NovelCommentOrigins(state: NovelCommentsState, onSetOrigin: (Long?) -> Unit) {
+    val enabled = !state.posting && state.voting.isEmpty() && state.draft.isBlank()
+    if (state.origins.size > 1) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+        ) {
+            FilterChip(
+                selected = state.origin == null,
+                onClick = { onSetOrigin(null) },
+                enabled = enabled,
+                label = { Text(stringResource(MR.strings.all)) },
+            )
+            state.origins.forEach { origin ->
+                FilterChip(
+                    selected = state.origin == origin.id,
+                    onClick = { onSetOrigin(origin.id) },
+                    enabled = enabled,
+                    label = {
+                        Text(
+                            origin.count?.let {
+                                stringResource(MR.strings.leaf_novel_comments_feed_count, origin.name, it)
+                            } ?: origin.name,
+                        )
+                    },
+                )
+            }
+        }
+    }
+    if (state.searching) {
+        Text(
+            text = stringResource(MR.strings.leaf_novel_comments_searching),
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.secondaryItemAlpha(),
+        )
     }
 }
 

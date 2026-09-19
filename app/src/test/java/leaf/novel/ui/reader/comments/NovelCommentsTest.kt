@@ -311,6 +311,218 @@ class NovelCommentsTest {
         }
     }
 
+    /** Two sites that both number their comments from one have two comments called "1", not one. */
+    @Test
+    fun `gathers the novel's comments from every source that has it`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(
+            scopes = setOf(NovelCommentScope.NOVEL),
+            sorts = listOf(NovelCommentSort("newest", "Newest")),
+            posting = true,
+        )
+        val own = FakeCommentSource(capabilities, id = 1L, name = "Own") { NovelCommentPage(listOf(comment("1"))) }
+        val other = FakeCommentSource(capabilities, id = 2L, name = "Other") {
+            NovelCommentPage(listOf(comment("1").copy(body = "theirs")))
+        }
+        other.search = { listOf(novel("Shadow Slave")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = shared(scope, own, other)
+            comments.open()
+            waitFor("both sources") { comments.state.value.roots.size == 2 }
+
+            val state = comments.state.value
+            state.roots.map { it.body } shouldBe listOf("1", "theirs")
+            state.rows.map { it.key }.distinct().size shouldBe 2
+            state.roots.map(comments::sourceName) shouldBe listOf("Own", "Other")
+            state.origins.map { it.name to it.count } shouldBe listOf("Own" to 1, "Other" to 1)
+            // No one site's order can rank another's comments, and no one site can take a post.
+            state.sorts shouldBe emptyList()
+            state.capabilities?.posting shouldBe false
+
+            comments.setOrigin(2L)
+            waitFor("one source") { comments.state.value.roots.size == 1 }
+            comments.state.value.roots.single().body shouldBe "theirs"
+            comments.sourceName(comments.state.value.roots.single()) shouldBe null
+            comments.state.value.sorts.map { it.key } shouldBe listOf("newest")
+            comments.state.value.capabilities?.posting shouldBe true
+
+            comments.setOrigin(null)
+            waitFor("both again") { comments.state.value.roots.size == 2 }
+            // Filtering redraws what was fetched rather than fetching it again.
+            own.requests.size shouldBe 1
+            other.requests.size shouldBe 1
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `answers another source's comment through that source and under its own id`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(
+            scopes = setOf(NovelCommentScope.NOVEL),
+            lazyReplies = true,
+            voting = true,
+        )
+        val own = FakeCommentSource(capabilities, id = 1L, name = "Own") { NovelCommentPage(listOf(comment("1"))) }
+        val other = FakeCommentSource(capabilities, id = 2L, name = "Other") { request ->
+            if (request.parent == null) {
+                NovelCommentPage(listOf(comment("1", replyCount = 1)))
+            } else {
+                NovelCommentPage(listOf(comment("1a")))
+            }
+        }
+        other.search = { listOf(novel("Shadow Slave")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = shared(scope, own, other)
+            comments.open()
+            waitFor("both sources") { comments.state.value.roots.size == 2 }
+            val theirs = comments.state.value.roots.single { comments.sourceName(it) == "Other" }
+
+            comments.toggleReplies(theirs)
+            waitFor("their reply") {
+                NovelCommentTree.find(comments.state.value.roots, theirs.id)?.replies?.size == 1
+            }
+            other.requests.single { it.parent != null }.parent?.id shouldBe "1"
+            own.replyRequests() shouldBe 0
+            comments.state.value.rows.map { it.key }.distinct().size shouldBe 3
+
+            comments.vote(theirs, NovelCommentVote.UP)
+            waitFor("their vote") { other.votedOn.size == 1 && comments.state.value.voting.isEmpty() }
+            other.votedOn.single().id shouldBe "1"
+            own.votes shouldBe emptyList()
+            comments.state.value.roots.single { it.id == theirs.id }.vote shouldBe NovelCommentVote.UP
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `puts one site's reviews with another's and counts a source without feeds as comments`() =
+        runBlocking<Unit> {
+            val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+            val own =
+                FakeCommentSource(capabilities, id = 1L, name = "Own") { error("A declared feed must be supplied") }
+            own.commentFeeds = listOf(
+                NovelCommentFeed("comments", "Comments", capabilities),
+                NovelCommentFeed("reviews", "Reviews", capabilities),
+            )
+            own.feedResponse = { _, feed -> NovelCommentPage(listOf(comment("own-${feed.key}"))) }
+            val plain = FakeCommentSource(capabilities, id = 2L, name = "Plain") {
+                NovelCommentPage(listOf(comment("plain")))
+            }
+            val reviewer = FakeCommentSource(capabilities, id = 3L, name = "Reviewer") {
+                error("A declared feed must be supplied")
+            }
+            reviewer.commentFeeds = listOf(NovelCommentFeed("reviews", "Their reviews", capabilities))
+            reviewer.feedResponse = { _, _ -> NovelCommentPage(listOf(comment("their-review"))) }
+            listOf(plain, reviewer).forEach { it.search = { listOf(novel("Shadow Slave")) } }
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val comments = shared(scope, own, plain, reviewer)
+                comments.open()
+                waitFor("the comments tab") { comments.state.value.roots.size == 2 }
+                comments.state.value.roots.map { it.body } shouldBe listOf("own-comments", "plain")
+                comments.state.value.feeds.map { it.label } shouldBe listOf("Comments", "Reviews")
+
+                comments.setFeed(comments.state.value.feeds[1])
+                waitFor("the reviews tab") {
+                    comments.state.value.roots.map { it.body } == listOf("own-reviews", "their-review")
+                }
+                plain.requests.size shouldBe 1
+            } finally {
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `asks another source for its own chapter with the reader's number`() = runBlocking<Unit> {
+        val own = FakeCommentSource(id = 1L, name = "Own") { NovelCommentPage(listOf(comment("own"))) }
+        val other = FakeCommentSource(id = 2L, name = "Other") { request ->
+            NovelCommentPage(listOf(comment("theirs-${request.target.chapter?.url}")))
+        }
+        other.search = { listOf(novel("Shadow Slave")) }
+        other.chapters = { listOf(sourceChapter(12f, "/theirs/12"), sourceChapter(11f, "/theirs/11")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = shared(scope, own, other, commentScope = NovelCommentScope.CHAPTER)
+            comments.setChapter(chapter(1).copy(chapterNumber = 11.0))
+            waitFor("both sources") { comments.state.value.roots.size == 2 }
+            comments.state.value.roots.map { it.body } shouldBe listOf("own", "theirs-/theirs/11")
+
+            // A chapter the other site does not have is an empty thread there, not a request.
+            comments.setChapter(chapter(2).copy(chapterNumber = 40.0))
+            waitFor("the next chapter") {
+                comments.state.value.origins.all { !it.loading } && comments.state.value.roots.isNotEmpty()
+            }
+            comments.state.value.roots.map { it.body } shouldBe listOf("own")
+            // With one source left talking, its rows need no label naming it.
+            comments.sourceName(comments.state.value.roots.single()) shouldBe null
+            other.requests.size shouldBe 1
+            other.chapterFetches.get() shouldBe 1
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `names the source whose comments failed and keeps the ones that arrived`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+        val own = FakeCommentSource(capabilities, id = 1L, name = "Own") { NovelCommentPage(listOf(comment("1"))) }
+        val other = FakeCommentSource(capabilities, id = 2L, name = "Other") { error("offline") }
+        other.search = { listOf(novel("Shadow Slave")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = shared(scope, own, other)
+            comments.open()
+            waitFor("the failure") { comments.state.value.error != null }
+            comments.state.value.error shouldBe "Other: offline"
+            comments.state.value.roots.map { it.id } shouldBe listOf("1")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** Leaving the novel and coming back used to fetch every thread again. */
+    @Test
+    fun `a novel opened again soon after is not fetched again`() = runBlocking<Unit> {
+        val source = FakeCommentSource(NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))) {
+            NovelCommentPage(listOf(comment("1")))
+        }
+        val cache = NovelCommentCache()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val first = NovelComments(scope, preferences(), NovelCommentScope.NOVEL, cache = cache)
+            first.bind(source, Manga.create())
+            first.open()
+            waitFor("the first screen") { first.state.value.loaded }
+
+            val second = NovelComments(scope, preferences(), NovelCommentScope.NOVEL, cache = cache)
+            second.bind(source, Manga.create())
+            second.open()
+            waitFor("the second screen") { second.state.value.loaded }
+            second.state.value.roots.map { it.id } shouldBe listOf("1")
+            source.requests.size shouldBe 1
+
+            second.reload()
+            waitFor("the refresh") { source.requests.size == 2 }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** A controller that also looks for the novel on the [sources] after the first, which is its own. */
+    private fun shared(
+        scope: CoroutineScope,
+        vararg sources: FakeCommentSource,
+        commentScope: NovelCommentScope = NovelCommentScope.NOVEL,
+    ) = NovelComments(
+        scope = scope,
+        preferences = preferences(),
+        commentScope = commentScope,
+        matcher = NovelCommentMatcher(NovelCommentCache()) { sources.toList() },
+    ).apply { bind(sources.first(), Manga.create().copy(title = "Shadow Slave", url = "/shadow-slave")) }
+
     private fun preferences() = NovelReaderPreferences(InMemoryPreferenceStore())
 
     private fun comment(id: String, replies: List<NovelComment> = emptyList(), replyCount: Int = replies.size) =
@@ -516,85 +728,6 @@ class NovelCommentsTest {
         comments.state.value.rows.any { it is NovelCommentRow.MoreReplies } shouldBe false
         scope.cancel()
     }
-}
-
-/** A source that serves whatever the test hands it, and remembers what it was asked. */
-private class FakeCommentSource(
-    override val commentCapabilities: NovelCommentCapabilities = NovelCommentCapabilities(),
-    private val respond: suspend (NovelCommentRequest) -> NovelCommentPage,
-) : NovelCommentFeedSource {
-
-    override var commentFeeds: List<NovelCommentFeed> = emptyList()
-    val feedRequests = CopyOnWriteArrayList<Pair<String, NovelCommentRequest>>()
-    var feedResponse: suspend (NovelCommentRequest, NovelCommentFeed) -> NovelCommentPage = { request, _ ->
-        respond(request)
-    }
-
-    override suspend fun getComments(request: NovelCommentRequest, feed: NovelCommentFeed): NovelCommentPage {
-        feedRequests += feed.key to request
-        return feedResponse(request, feed)
-    }
-
-    val votes = CopyOnWriteArrayList<NovelCommentVote>()
-    val posts = CopyOnWriteArrayList<NovelCommentDraft>()
-    var voteResponse: suspend (NovelComment, NovelCommentVote) -> NovelComment = { comment, vote ->
-        comment.copy(vote = vote)
-    }
-    var postResponse: suspend (NovelCommentDraft) -> NovelComment = { throw UnsupportedOperationException() }
-
-    override suspend fun voteComment(comment: NovelComment, vote: NovelCommentVote): NovelComment {
-        votes += vote
-        return voteResponse(comment, vote)
-    }
-
-    override suspend fun postComment(draft: NovelCommentDraft): NovelComment {
-        posts += draft
-        return postResponse(draft)
-    }
-
-    /** Written from the source's own thread and read from the test's, so not an `ArrayList`. */
-    val requests = CopyOnWriteArrayList<NovelCommentRequest>()
-
-    @Volatile
-    var started = false
-
-    @Volatile
-    var cancelled = false
-
-    fun replyRequests() = requests.count { it.parent != null }
-
-    fun idle(comments: NovelComments) = comments.state.value.loadingReplies.isEmpty()
-
-    override val id = 1L
-    override val name = "fake"
-    override val supportsLatest = false
-
-    override suspend fun getComments(request: NovelCommentRequest): NovelCommentPage {
-        requests += request
-        started = true
-        try {
-            return respond(request)
-        } catch (e: Throwable) {
-            cancelled = true
-            throw e
-        }
-    }
-
-    override suspend fun getPopularManga(page: Int): MangasPage = throw UnsupportedOperationException()
-
-    override suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException()
-
-    override suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage =
-        throw UnsupportedOperationException()
-
-    override suspend fun getMangaUpdate(
-        manga: SManga,
-        chapters: List<SChapter>,
-        fetchDetails: Boolean,
-        fetchChapters: Boolean,
-    ): SMangaUpdate = throw UnsupportedOperationException()
-
-    override suspend fun getPageList(chapter: SChapter) = throw UnsupportedOperationException()
 }
 
 private const val WAIT_MS = 5_000L

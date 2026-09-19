@@ -81,6 +81,8 @@ fun NovelCommentItem(
     hiddenCount: Int,
     capabilities: NovelCommentCapabilities,
     feedback: NovelCommentFeedback,
+    /** The extension the comment came from, set only when the sheet mixes several. */
+    sourceName: String?,
     voting: Boolean,
     repliesExpanded: Boolean,
     loadingReplies: Boolean,
@@ -161,6 +163,7 @@ fun NovelCommentItem(
                         )
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        sourceName?.let { Badge(it) }
                         if (comment.byUploader) Badge(stringResource(MR.strings.leaf_novel_comments_uploader))
                         if (comment.pinned) Badge(stringResource(MR.strings.leaf_novel_comments_pinned))
                         comment.badge?.takeIf { it.isNotBlank() }?.let { Badge(it) }

@@ -158,6 +158,28 @@ existing lazy-reply API. Closing the row does not discard replies or let a late 
 Ratings sit beside the author, immediately before the comment menu, with fractional stars and the
 exact numeric value. Both reaction counts remain visible, including zero.
 
+## Shared across extensions
+
+A novel's comments are not only its own source's. When the sheet opens, the app looks for the same
+novel on every other installed, enabled comment source and reads their threads alongside, all
+together by default or one extension at a time through a filter. Three things about an extension
+decide how well that works:
+
+- **Titles.** A match is a search result whose title equals the novel's once case and punctuation
+  are ignored — nothing looser, because another novel's discussion is worse than none. Search
+  results carrying the site's own full title match best.
+- **Feed keys.** Tabs from different extensions are merged by `NovelCommentFeed.key`. Use
+  `comments` for discussion and `reviews` for reviews; a source that declares no feeds counts as
+  `comments`. So a site whose only listing is reviews should declare a single `reviews` feed, or
+  its reviews land in the comments tab beside other sites' discussion.
+- **Chapter numbers.** A chapter's comments on another site are found by number: the reader's
+  chapter number, looked up in the other source's chapter list. Fill `chapter_number`, or give
+  chapters names `ChapterRecognition` can read a number from.
+
+Ids only need to be unique on their own site; the app keeps sites apart. Sorting a merged thread is
+the app's own, since one site's "top" cannot rank another's, and posting is offered only while one
+extension is showing.
+
 ## Testing one
 
 The app's own `NovelCommentTreeTest` covers the nesting, so an extension does not have to. What is
