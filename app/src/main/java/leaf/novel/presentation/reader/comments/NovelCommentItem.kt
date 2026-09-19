@@ -5,18 +5,22 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -41,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -50,16 +56,20 @@ import eu.kanade.presentation.util.relativeTimeSpanString
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
+import leaf.novel.api.NovelCommentFeedback
+import leaf.novel.api.NovelCommentPositiveVote
 import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.comments.NovelCommentMarkup
+import leaf.novel.ui.reader.comments.NovelCommentReview
 import leaf.novel.ui.reader.comments.NovelCommentSpan
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.ArrowDownward
 import mihon.icons.materialsymbols.rounded.ArrowUpward
+import mihon.icons.materialsymbols.rounded.ExpandLess
+import mihon.icons.materialsymbols.rounded.ExpandMore
 import mihon.icons.materialsymbols.rounded.Favorite
 import mihon.icons.materialsymbols.rounded.MoreVert
 import mihon.icons.materialsymbols.rounded.Person
-import mihon.icons.materialsymbols.rounded.PushPin
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -78,6 +88,9 @@ fun NovelCommentItem(
     collapsed: Boolean,
     hiddenCount: Int,
     capabilities: NovelCommentCapabilities,
+    feedback: NovelCommentFeedback,
+    voting: Boolean,
+    canReply: Boolean,
     showAvatar: Boolean,
     spoilerGuard: Boolean,
     onToggleCollapsed: () -> Unit,
@@ -88,7 +101,8 @@ fun NovelCommentItem(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val spans = remember(comment.body) { NovelCommentMarkup.parse(comment.body, comment.permalink) }
+    val review = remember(comment.body) { NovelCommentReview.parse(comment.body) }
+    val spans = remember(review.body, comment.permalink) { NovelCommentMarkup.parse(review.body, comment.permalink) }
     val hasSpoilers = remember(spans) { spans.any { it.spoiler } }
     // Per comment and not remembered across a reload: a thread that refreshes should not silently
     // uncover what the reader covered back up.
@@ -110,9 +124,34 @@ fun NovelCommentItem(
             onClick = onToggleCollapsed,
         )
 
-        if (collapsed) return@Column
+        if (collapsed) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            return@Column
+        }
 
         Spacer(Modifier.height(MaterialTheme.padding.extraSmall))
+        if (!comment.deleted && !hidden) {
+            val rating = feedback.rating ?: review.rating
+            if (rating != null && rating.value.isFinite() && rating.maximum.isFinite() &&
+                rating.maximum > 0 && rating.value in 0.0..rating.maximum
+            ) {
+                Row(
+                    modifier = Modifier.padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(NovelCommentGlyphs.Star, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        text = stringResource(
+                            MR.strings.leaf_novel_comments_rating,
+                            rating.value.toString().removeSuffix(".0"),
+                            rating.maximum.toString().removeSuffix(".0"),
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            }
+        }
         when {
             comment.deleted -> Text(
                 text = stringResource(MR.strings.leaf_novel_comments_deleted),
@@ -130,31 +169,59 @@ fun NovelCommentItem(
             )
         }
 
-        Row(
+        if (!comment.deleted && feedback.reactions.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                feedback.reactions.forEach { reaction ->
+                    Text(
+                        text = listOfNotNull(
+                            reaction.emoji,
+                            reaction.label,
+                            reaction.count?.toString(),
+                            if (reaction.selected) {
+                                stringResource(
+                                    MR.strings.leaf_novel_comments_your_reaction,
+                                )
+                            } else {
+                                null
+                            },
+                        ).joinToString(" "),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (reaction.selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
+        }
+
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (capabilities.scored || capabilities.voting) {
+            if (!comment.deleted && (capabilities.scored || capabilities.voting)) {
                 Votes(
                     comment = comment,
                     capabilities = capabilities,
+                    feedback = feedback,
+                    voting = voting,
                     onVote = onVote,
                 )
             }
 
-            if (capabilities.posting) {
+            if (canReply) {
                 TextButton(onClick = onReply) {
                     Text(stringResource(MR.strings.leaf_novel_comments_reply))
                 }
             }
 
-            Spacer(Modifier.weight(1f))
-
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
                     Icon(
                         imageVector = MaterialSymbols.Rounded.MoreVert,
-                        contentDescription = null,
+                        contentDescription = stringResource(MR.strings.action_menu_overflow_description),
                         modifier = Modifier.size(COMPACT_ICON),
                     )
                 }
@@ -189,14 +256,14 @@ fun NovelCommentItem(
                 }
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
 /**
  * Who said it and when, plus the two flags that change how it is read.
  *
- * The whole line is the collapse control, which is Reddit's own arrangement: a wide, obvious target
- * that is exactly the thing being folded, and no extra chevron competing with the text.
+ * The byline is a wide collapse target with a visible chevron. Metadata wraps below the name.
  */
 @Composable
 private fun Byline(
@@ -209,7 +276,14 @@ private fun Byline(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(
+                role = Role.Button,
+                onClickLabel = stringResource(
+                    if (collapsed) MR.strings.leaf_novel_comments_expand else MR.strings.leaf_novel_comments_collapse,
+                ),
+                onClick = onClick,
+            )
+            .heightIn(min = 48.dp)
             .padding(vertical = MaterialTheme.padding.extraSmall),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
@@ -240,111 +314,126 @@ private fun Byline(
             }
         }
 
-        Text(
-            text = comment.author,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = if (comment.byUploader) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-        )
-
-        if (comment.byUploader) {
-            Chip(stringResource(MR.strings.leaf_novel_comments_uploader))
-        }
-        comment.badge?.takeIf { it.isNotBlank() }?.let { Chip(it) }
-
-        if (comment.pinned) {
-            Icon(
-                imageVector = MaterialSymbols.Rounded.PushPin,
-                contentDescription = stringResource(MR.strings.leaf_novel_comments_pinned),
-                modifier = Modifier
-                    .size(COMPACT_ICON)
-                    .secondaryItemAlpha(),
-            )
-        }
-
-        // Zero means the site gave no date, not the epoch — the reader is told nothing rather than
-        // being told it was posted in 1970.
-        if (comment.postedAt > 0L) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = relativeTimeSpanString(comment.postedAt),
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.secondaryItemAlpha(),
+                text = if (comment.deleted) stringResource(MR.strings.leaf_novel_comments_deleted) else comment.author,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = if (comment.byUploader) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (comment.byUploader) Chip(stringResource(MR.strings.leaf_novel_comments_uploader))
+                comment.badge?.takeIf { it.isNotBlank() }?.let { Chip(it) }
+                if (comment.pinned) Chip(stringResource(MR.strings.leaf_novel_comments_pinned))
+                if (comment.postedAt > 0L) {
+                    Text(
+                        text = relativeTimeSpanString(comment.postedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                comment.chapterLabel?.takeIf { it.isNotBlank() }?.let {
+                    Text(text = it, style = MaterialTheme.typography.labelSmall)
+                }
+                if (collapsed && hiddenCount > 0) {
+                    Chip(stringResource(MR.strings.leaf_novel_comments_hidden, hiddenCount))
+                }
+            }
         }
-
-        if (collapsed && hiddenCount > 0) {
-            Spacer(Modifier.weight(1f))
-            Chip(stringResource(MR.strings.leaf_novel_comments_hidden, hiddenCount))
-        }
+        Icon(
+            imageVector = if (collapsed) MaterialSymbols.Rounded.ExpandMore else MaterialSymbols.Rounded.ExpandLess,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
-/**
- * The score and, where the site takes them, the votes.
- *
- * One heart where the site has only a like and two arrows where it has both, because a permanently
- * disabled downvote is a promise the site never made.
- */
+/** Votes retain the site's meaning, including when only a read-only total is available. */
 @Composable
 private fun Votes(
     comment: NovelComment,
     capabilities: NovelCommentCapabilities,
+    feedback: NovelCommentFeedback,
+    voting: Boolean,
     onVote: (NovelCommentVote) -> Unit,
 ) {
-    val voted = comment.vote
-    val active = MaterialTheme.colorScheme.primary
-    val idle = MaterialTheme.colorScheme.onSurfaceVariant
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    val kind = feedback.positiveVote
+    val icon = when (kind) {
+        NovelCommentPositiveVote.UPVOTE -> MaterialSymbols.Rounded.ArrowUpward
+        NovelCommentPositiveVote.LIKE -> NovelCommentGlyphs.Like
+        NovelCommentPositiveVote.HEART -> MaterialSymbols.Rounded.Favorite
+        NovelCommentPositiveVote.STAR -> NovelCommentGlyphs.Star
+    }
+    val label = stringResource(
+        when (kind) {
+            NovelCommentPositiveVote.UPVOTE -> MR.strings.leaf_novel_comments_upvote
+            NovelCommentPositiveVote.LIKE -> MR.strings.leaf_novel_comments_like
+            NovelCommentPositiveVote.HEART -> MR.strings.leaf_novel_comments_heart
+            NovelCommentPositiveVote.STAR -> MR.strings.leaf_novel_comments_star
+        },
+    )
+    val score = comment.score.takeIf { capabilities.scored }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         if (capabilities.voting) {
-            IconButton(onClick = { onVote(NovelCommentVote.UP) }) {
-                Icon(
-                    imageVector = if (capabilities.downvotes) {
-                        MaterialSymbols.Rounded.ArrowUpward
-                    } else {
-                        MaterialSymbols.Rounded.Favorite
-                    },
-                    contentDescription = stringResource(
-                        if (capabilities.downvotes) {
-                            MR.strings.leaf_novel_comments_upvote
-                        } else {
-                            MR.strings.leaf_novel_comments_like
-                        },
-                    ),
-                    tint = if (voted == NovelCommentVote.UP) active else idle,
-                    modifier = Modifier.size(COMPACT_ICON),
-                )
-            }
-        }
-
-        // Null is the site having no score for this comment, which is not the same as a score of
-        // zero — and drawing one as the other invents a number the site never gave.
-        val score = comment.score
-        if (capabilities.scored && score != null) {
-            Text(
-                text = score.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = when (voted) {
-                    NovelCommentVote.UP -> active
-                    NovelCommentVote.DOWN -> MaterialTheme.colorScheme.error
-                    NovelCommentVote.NONE -> idle
-                },
+            FilterChip(
+                selected = comment.vote == NovelCommentVote.UP,
+                onClick = { onVote(NovelCommentVote.UP) },
+                enabled = !voting,
+                label = { Text(if (!capabilities.downvotes && score != null) "$label $score" else label) },
+                leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(COMPACT_ICON)) },
             )
-        }
-
-        if (capabilities.voting && capabilities.downvotes) {
-            IconButton(onClick = { onVote(NovelCommentVote.DOWN) }) {
-                Icon(
-                    imageVector = MaterialSymbols.Rounded.ArrowDownward,
-                    contentDescription = stringResource(MR.strings.leaf_novel_comments_downvote),
-                    tint = if (voted == NovelCommentVote.DOWN) MaterialTheme.colorScheme.error else idle,
-                    modifier = Modifier.size(COMPACT_ICON),
+            if (capabilities.downvotes) {
+                score?.let {
+                    Text(
+                        text = it.toString(),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+                FilterChip(
+                    selected = comment.vote == NovelCommentVote.DOWN,
+                    onClick = { onVote(NovelCommentVote.DOWN) },
+                    enabled = !voting,
+                    label = { Text(stringResource(MR.strings.leaf_novel_comments_downvote)) },
+                    leadingIcon = {
+                        Icon(
+                            MaterialSymbols.Rounded.ArrowDownward,
+                            contentDescription = null,
+                            modifier = Modifier.size(COMPACT_ICON),
+                        )
+                    },
                 )
             }
+        } else if (score != null) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(COMPACT_ICON))
+            Text(
+                text = stringResource(
+                    when {
+                        capabilities.downvotes || kind == NovelCommentPositiveVote.UPVOTE ->
+                            MR.strings.leaf_novel_comments_score
+                        kind == NovelCommentPositiveVote.HEART -> MR.strings.leaf_novel_comments_hearts
+                        kind == NovelCommentPositiveVote.STAR -> MR.strings.leaf_novel_comments_stars
+                        else -> MR.strings.leaf_novel_comments_likes
+                    },
+                    score,
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 16.dp),
+            )
         }
     }
 }
@@ -479,7 +568,7 @@ private fun List<NovelCommentSpan>.toAnnotatedString(
         }
     }
 
-private val AVATAR_SIZE = 20.dp
+private val AVATAR_SIZE = 32.dp
 private val COMPACT_ICON = 18.dp
 private val RAIL_SPACING = 10.dp
 private val RAIL_WIDTH = 2.dp

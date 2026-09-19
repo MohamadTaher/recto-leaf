@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.DropdownMenu
@@ -51,10 +53,9 @@ import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.comments.NovelCommentsState
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.Close
 import mihon.icons.materialsymbols.rounded.ExpandLess
-import mihon.icons.materialsymbols.rounded.ExpandMore
 import mihon.icons.materialsymbols.rounded.MoreVert
-import mihon.icons.materialsymbols.rounded.Refresh
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -87,6 +88,8 @@ fun NovelCommentsSheet(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(comments) { comments.open() }
+
     // Focusing re-roots the list, so it has to start at the top rather than wherever the previous
     // thread happened to be scrolled to.
     LaunchedEffect(state.focus, state.sortKey, state.localSort) {
@@ -94,7 +97,7 @@ fun NovelCommentsSheet(
     }
 
     AdaptiveSheet(onDismissRequest = onDismissRequest) {
-        Column(modifier = Modifier.navigationBarsPadding().imePadding()) {
+        Column(modifier = Modifier.fillMaxHeight(0.9f).navigationBarsPadding().imePadding()) {
             NovelCommentsHeader(
                 state = state,
                 onRefresh = comments::reload,
@@ -103,6 +106,7 @@ fun NovelCommentsSheet(
                 onCollapseAll = comments::collapseAll,
                 onExpandAll = comments::expandAll,
                 onClearFocus = { comments.focus(null) },
+                onDismiss = onDismissRequest,
                 onNextComment = {
                     scope.launch {
                         val from = listState.firstVisibleItemIndex + 1
@@ -115,7 +119,7 @@ fun NovelCommentsSheet(
 
             HorizontalDivider()
 
-            Box(modifier = Modifier.weight(1f, fill = false)) {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 when {
                     state.loading -> Loading()
 
@@ -144,7 +148,7 @@ fun NovelCommentsSheet(
 
                     else -> LazyColumn(
                         state = listState,
-                        modifier = Modifier.heightIn(max = MAX_LIST_HEIGHT),
+                        modifier = Modifier.fillMaxHeight(),
                         contentPadding = ListPadding,
                     ) {
                         items(state.rows, key = { it.key }) { row ->
@@ -158,6 +162,9 @@ fun NovelCommentsSheet(
                                         collapsed = row.collapsed,
                                         hiddenCount = row.hiddenCount,
                                         capabilities = capabilities,
+                                        feedback = comments.feedback(row.comment),
+                                        voting = row.comment.id in state.voting,
+                                        canReply = comments.canReply(row.comment),
                                         showAvatar = showAvatars,
                                         spoilerGuard = spoilerGuard,
                                         onToggleCollapsed = { comments.toggleCollapsed(row.comment.id) },
@@ -231,6 +238,7 @@ private fun NovelCommentsHeader(
     onExpandAll: () -> Unit,
     onClearFocus: () -> Unit,
     onNextComment: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     if (state.capabilities == null) return
     var menuExpanded by remember { mutableStateOf(false) }
@@ -242,42 +250,51 @@ private fun NovelCommentsHeader(
                 .padding(top = MaterialTheme.padding.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(MR.strings.leaf_novel_comments),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (state.loaded) {
-                Spacer(Modifier.width(MaterialTheme.padding.small))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(MR.strings.leaf_novel_comments_count, state.count),
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.secondaryItemAlpha(),
+                    text = stringResource(MR.strings.leaf_novel_comments),
+                    style = MaterialTheme.typography.titleLarge,
                 )
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            if (state.loaded && state.rows.isNotEmpty()) {
-                IconButton(onClick = onNextComment) {
-                    Icon(
-                        imageVector = MaterialSymbols.Rounded.ExpandMore,
-                        contentDescription = stringResource(MR.strings.leaf_novel_comments_next),
+                if (state.loaded) {
+                    Text(
+                        text = stringResource(
+                            if (state.total == null && (state.loadingMore || state.hasMore)) {
+                                MR.strings.leaf_novel_comments_loaded
+                            } else {
+                                MR.strings.leaf_novel_comments_count
+                            },
+                            state.count,
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            IconButton(onClick = onRefresh) {
-                Icon(
-                    imageVector = MaterialSymbols.Rounded.Refresh,
-                    contentDescription = stringResource(MR.strings.action_retry),
-                )
-            }
-
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(imageVector = MaterialSymbols.Rounded.MoreVert, contentDescription = null)
+                    Icon(
+                        imageVector = MaterialSymbols.Rounded.MoreVert,
+                        contentDescription = stringResource(MR.strings.action_menu_overflow_description),
+                    )
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(MR.strings.action_webview_refresh)) },
+                        enabled = !state.loading && !state.posting && state.voting.isEmpty(),
+                        onClick = {
+                            menuExpanded = false
+                            onRefresh()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(MR.strings.leaf_novel_comments_next)) },
+                        enabled = state.rows.isNotEmpty(),
+                        onClick = {
+                            menuExpanded = false
+                            onNextComment()
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text(stringResource(MR.strings.leaf_novel_comments_collapse_all)) },
                         onClick = {
@@ -294,6 +311,19 @@ private fun NovelCommentsHeader(
                     )
                 }
             }
+            IconButton(onClick = onDismiss) {
+                Icon(MaterialSymbols.Rounded.Close, contentDescription = stringResource(MR.strings.action_close))
+            }
+        }
+
+        state.chapterName?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         // The site's own orders where it has any, because it ranks from data it does not
@@ -306,6 +336,7 @@ private fun NovelCommentsHeader(
                         selected = state.sortKey == sort.key ||
                             (state.sortKey == null && sort == state.sorts.first()),
                         onClick = { onSetSort(sort) },
+                        enabled = !state.posting && state.voting.isEmpty(),
                         label = { Text(sort.label) },
                     )
                 }
@@ -322,7 +353,7 @@ private fun NovelCommentsHeader(
 
         // Said out loud, because a local order over a thread that stopped short covers what was
         // fetched rather than what exists, and a reader who is not told will read it as the whole.
-        if (state.sorts.isEmpty() && state.hasMore) {
+        if (state.sorts.isEmpty() && (state.hasMore || state.loadingMore)) {
             Text(
                 text = stringResource(MR.strings.leaf_novel_comments_sort_local),
                 style = MaterialTheme.typography.labelSmall,
@@ -427,15 +458,6 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
  */
 @Composable
 private fun NovelCommentComposer(state: NovelCommentsState, comments: NovelComments) {
-    var draft by remember(state.replyingTo?.id) { mutableStateOf("") }
-
-    // Emptied by a post that landed, never by one that was merely sent. A site can refuse a comment
-    // for a dozen reasons, and losing what someone wrote to any of them is the one outcome a
-    // composer must not have.
-    LaunchedEffect(state.posted) {
-        if (state.posted > 0) draft = ""
-    }
-
     Column(modifier = Modifier.padding(MaterialTheme.padding.medium)) {
         state.replyingTo?.let { parent ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -446,15 +468,15 @@ private fun NovelCommentComposer(state: NovelCommentsState, comments: NovelComme
                         .weight(1f)
                         .secondaryItemAlpha(),
                 )
-                TextButton(onClick = { comments.replyTo(null) }) {
+                TextButton(onClick = { comments.replyTo(null) }, enabled = !state.posting) {
                     Text(stringResource(MR.strings.action_cancel))
                 }
             }
         }
 
         OutlinedTextField(
-            value = draft,
-            onValueChange = { draft = it },
+            value = state.draft,
+            onValueChange = comments::setDraft,
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text(stringResource(MR.strings.leaf_novel_comments_write)) },
             enabled = !state.posting,
@@ -477,19 +499,20 @@ private fun NovelCommentComposer(state: NovelCommentsState, comments: NovelComme
                 Spacer(Modifier.weight(1f))
             }
 
-            TextButton(
-                onClick = { comments.post(draft) },
-                enabled = draft.isNotBlank() && !state.posting,
+            FilledTonalButton(
+                onClick = { comments.post(state.draft) },
+                enabled = state.draft.isNotBlank() && !state.posting && state.loaded,
             ) {
+                if (state.posting) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
                 Text(stringResource(MR.strings.leaf_novel_comments_post))
             }
         }
     }
 }
 
-/** Tall enough to be worth opening, short enough to leave the chapter visible behind it. */
-private val MAX_LIST_HEIGHT = 520.dp
-
 private const val COMPOSER_MAX_LINES = 6
 
-private val ListPadding = PaddingValues(all = 8.dp)
+private val ListPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)

@@ -15,6 +15,9 @@ import kotlinx.coroutines.launch
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentDraft
+import leaf.novel.api.NovelCommentFeedback
+import leaf.novel.api.NovelCommentFeedbackSource
+import leaf.novel.api.NovelCommentPositiveVote
 import leaf.novel.api.NovelCommentRequest
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.api.NovelCommentSort
@@ -106,6 +109,16 @@ class NovelComments(
     val supported: Boolean
         get() = state.value.capabilities?.scopes?.contains(commentScope) == true
 
+    fun feedback(comment: NovelComment): NovelCommentFeedback =
+        (source as? NovelCommentFeedbackSource)?.getCommentFeedback(comment)
+            ?: NovelCommentFeedback(
+                positiveVote = if (state.value.capabilities?.downvotes == true) {
+                    NovelCommentPositiveVote.UPVOTE
+                } else {
+                    NovelCommentPositiveVote.LIKE
+                },
+            )
+
     /**
      * Points this at a novel and its source.
      *
@@ -142,7 +155,7 @@ class NovelComments(
         if (commentScope != NovelCommentScope.CHAPTER || this.chapter?.id == chapter?.id) return
         this.chapter = chapter
         loadJob?.cancel()
-        mutableState.update { it.reset(chapterName = chapter?.name) }
+        mutableState.update { it.reset(chapterName = chapter?.name).copy(draft = "") }
         if (preferences.commentsAutoLoad.get()) show()
     }
 
@@ -177,18 +190,21 @@ class NovelComments(
         if (preferences.commentsAutoLoad.get()) show()
     }
 
-    /** Called as the sheet closes, so a half-written reply does not reopen with the next chapter. */
-    fun close() {
-        mutableState.update { it.copy(replyingTo = null) }
+    /** Draft and reply target survive dismissing the sheet; changing chapters clears both. */
+    fun close() = Unit
+
+    fun setDraft(body: String) {
+        if (!state.value.posting) mutableState.update { it.copy(draft = body) }
     }
 
     /** Throws away everything fetched for the open target and fetches it again. */
     fun reload() {
+        if (state.value.posting || state.value.voting.isNotEmpty()) return
         drains.remove(key(chapter))?.job?.cancel()
         replyPages.clear()
         replyCursors.clear()
         loadJob?.cancel()
-        mutableState.update { it.reset() }
+        mutableState.update { it.reset().copy(replyingTo = it.replyingTo) }
         show()
     }
 
@@ -273,10 +289,11 @@ class NovelComments(
      * already fetched costs nothing.
      */
     fun setSort(sort: NovelCommentSort) {
+        if (state.value.posting || state.value.voting.isNotEmpty()) return
         if (state.value.sortKey == sort.key) return
         preferences.commentsSort.set(sort.key)
         loadJob?.cancel()
-        mutableState.update { it.reset().copy(sortKey = sort.key) }
+        mutableState.update { it.reset().copy(sortKey = sort.key, replyingTo = it.replyingTo) }
         show()
     }
 
@@ -329,26 +346,44 @@ class NovelComments(
     fun vote(comment: NovelComment, vote: NovelCommentVote) {
         val source = source ?: return
         val drain = drains[key(chapter)] ?: return
-        if (state.value.capabilities?.voting != true) return
+        val capabilities = state.value.capabilities ?: return
+        if (!capabilities.voting || comment.deleted || comment.id in drain.pages.value.voting) return
+        if (vote == NovelCommentVote.DOWN && !capabilities.downvotes) return
+        val current = NovelCommentTree.find(state.value.roots, comment.id) ?: return
 
-        val wanted = if (comment.vote == vote) NovelCommentVote.NONE else vote
-        val optimistic = comment.copy(vote = wanted, score = comment.score?.plus(wanted.delta - comment.vote.delta))
+        val wanted = if (current.vote == vote) NovelCommentVote.NONE else vote
+        val optimistic = current.copy(vote = wanted, score = current.score?.plus(wanted.delta - current.vote.delta))
+        drain.pages.update { it.copy(voting = it.voting + comment.id) }
+        mutableState.update { it.copy(voting = it.voting + comment.id) }
         change(drain) { NovelCommentTree.replace(it, optimistic) }
 
         scope.launch {
-            attempt { source.voteComment(comment, wanted) }
+            attempt { source.voteComment(current, wanted) }
                 .onSuccess { updated -> change(drain) { NovelCommentTree.replace(it, updated) } }
                 .onFailure { failure ->
                     logcat(LogPriority.WARN, failure) { "Could not vote on comment ${comment.id}" }
-                    change(drain) { NovelCommentTree.replace(it, comment) }
-                    mutableState.update { it.withFailure(failure) }
+                    change(drain) { NovelCommentTree.replace(it, current) }
+                    if (drains[key(chapter)] === drain) mutableState.update { it.withFailure(failure) }
                 }
+            drain.pages.update { it.copy(voting = it.voting - comment.id) }
+            if (drains[key(chapter)] === drain) {
+                mutableState.update { it.copy(voting = it.voting - comment.id) }
+            }
         }
     }
 
     /** Opens the composer, either for a new comment or as a reply to [comment]. */
     fun replyTo(comment: NovelComment?) {
+        if (state.value.posting) return
+        if (comment != null && !canReply(comment)) return
         mutableState.update { it.copy(replyingTo = comment) }
+    }
+
+    fun canReply(comment: NovelComment): Boolean {
+        val current = state.value
+        val capabilities = current.capabilities ?: return false
+        return capabilities.posting && !comment.deleted &&
+            NovelCommentTree.ancestorsOf(current.roots, comment.id).size + 1 < capabilities.maxDepth
     }
 
     /** Posts what the composer holds, dropping it into the thread where the site put it. */
@@ -356,20 +391,34 @@ class NovelComments(
         val source = source ?: return
         val target = target(chapter) ?: return
         val drain = drains[key(chapter)] ?: return
-        if (state.value.capabilities?.posting != true || body.isBlank()) return
+        if (state.value.capabilities?.posting != true || body.isBlank() || drain.pages.value.posting) return
 
         val parentId = state.value.replyingTo?.id
+        drain.pages.update { it.copy(posting = true) }
         mutableState.update { it.copy(posting = true, error = null) }
 
         scope.launch {
             attempt { source.postComment(NovelCommentDraft(target, body.trim(), parentId)) }
                 .onSuccess { posted ->
                     change(drain) { NovelCommentTree.insert(it, parentId, posted) }
-                    mutableState.update { it.copy(posting = false, replyingTo = null, posted = it.posted + 1) }
+                    drain.pages.update { it.copy(posting = false) }
+                    if (drains[key(chapter)] === drain) {
+                        mutableState.update {
+                            it.copy(
+                                posting = false,
+                                replyingTo = null,
+                                draft = "",
+                                posted = it.posted + 1,
+                            )
+                        }
+                    }
                 }
                 .onFailure { failure ->
                     logcat(LogPriority.WARN, failure) { "Could not post a comment" }
-                    mutableState.update { it.withFailure(failure).copy(posting = false) }
+                    drain.pages.update { it.copy(posting = false) }
+                    if (drains[key(chapter)] === drain) {
+                        mutableState.update { it.withFailure(failure).copy(posting = false) }
+                    }
                 }
         }
     }
@@ -389,7 +438,7 @@ class NovelComments(
      */
     private fun change(drain: Drain, transform: (List<NovelComment>) -> List<NovelComment>) {
         drain.pages.update { it.copy(comments = transform(it.comments)) }
-        mutableState.update { it.withRoots(transform(it.roots)) }
+        if (drains[key(chapter)] === drain) mutableState.update { it.withRoots(transform(it.roots)) }
     }
 
     /** Draws whatever the open target's thread holds, and keeps drawing it as it fills. */

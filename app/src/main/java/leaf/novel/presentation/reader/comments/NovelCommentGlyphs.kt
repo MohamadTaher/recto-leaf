@@ -25,10 +25,45 @@ import androidx.compose.ui.unit.dp
  * are stroked rather than traced as a filled outline because a stroke is a dozen path commands
  * where an outline is fifty, and nothing downstream can tell the difference.
  *
- * Kept to these two on purpose. Votes reuse the arrows, pinning reuses the pin, and opening the
- * thread on the site reuses the globe; all three are already generated.
+ * Stars and likes use the same outline weight; the upstream set does not contain those glyphs.
  */
 object NovelCommentGlyphs {
+
+    val Star: ImageVector by lazy {
+        glyph("CommentStar") {
+            moveTo(12f, 3f)
+            lineTo(14.8f, 8.7f)
+            lineTo(21f, 9.6f)
+            lineTo(16.5f, 14f)
+            lineTo(17.6f, 20.2f)
+            lineTo(12f, 17.3f)
+            lineTo(6.4f, 20.2f)
+            lineTo(7.5f, 14f)
+            lineTo(3f, 9.6f)
+            lineTo(9.2f, 8.7f)
+            close()
+        }
+    }
+
+    val Like: ImageVector by lazy {
+        glyph("CommentLike") {
+            moveTo(7f, 10f)
+            lineTo(12f, 3f)
+            quadTo(15f, 3f, 14f, 7f)
+            lineTo(13.5f, 9f)
+            lineTo(19f, 9f)
+            quadTo(21f, 9f, 20.5f, 11f)
+            lineTo(18.5f, 19f)
+            quadTo(18.2f, 20f, 17f, 20f)
+            lineTo(7f, 20f)
+            close()
+            moveTo(3f, 10f)
+            lineTo(7f, 10f)
+            lineTo(7f, 20f)
+            lineTo(3f, 20f)
+            close()
+        }
+    }
 
     /**
      * One bubble, with a tail at the lower left: the reader's chapter comments.

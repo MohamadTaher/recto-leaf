@@ -129,6 +129,23 @@ So:
 Throwing here is right. An extension that returns the wrong site's comments is worse than one that
 returns none.
 
+## Ratings and reactions
+
+Implement `NovelCommentFeedbackSource` alongside `NovelCommentSource` to supply a review's
+`NovelCommentRating`, the site's positive vote style (`UPVOTE`, `LIKE`, `HEART`, or `STAR`), and
+additional `NovelCommentReaction` labels, emoji, counts and selected states. Return these from the
+cached response in `getCommentFeedback`; it is called during rendering and must not fetch.
+
+Ratings are separate from a comment's net score. Reaction totals are read-only metadata, with
+additional site actions accessible through the comment's permalink. Only the existing `voting`
+capability enables vote buttons, and `downvotes` controls whether a negative vote is offered.
+Unknown counts stay null; never substitute zero for a count the site does not provide.
+
+This optional interface leaves the original API constructors and copy methods unchanged, so
+installed extension APKs remain compatible. The app also recognizes the leading
+`<b>★ 4.5 / 5.0</b><br>` review header emitted by older extensions and renders it as a rating.
+Other comment text is retained as written.
+
 ## Testing one
 
 The app's own `NovelCommentTreeTest` covers the nesting, so an extension does not have to. What is

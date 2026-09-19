@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,9 +17,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
+import leaf.novel.api.NovelCommentDraft
 import leaf.novel.api.NovelCommentPage
+import leaf.novel.api.NovelCommentPositiveVote
 import leaf.novel.api.NovelCommentRequest
 import leaf.novel.api.NovelCommentSource
+import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import org.junit.jupiter.api.Test
 import tachiyomi.core.common.preference.InMemoryPreferenceStore
@@ -34,6 +38,140 @@ import java.util.concurrent.CopyOnWriteArrayList
  * call that is already on its way out — which is exactly what a virtual clock skips.
  */
 class NovelCommentsTest {
+
+    @Test
+    fun `keeps drafts and reply targets when the sheet closes`() = runBlocking<Unit> {
+        val reply = comment("2")
+        val parent = comment("1", replies = listOf(reply))
+        val source = FakeCommentSource(NovelCommentCapabilities(posting = true, maxDepth = 2)) {
+            NovelCommentPage(listOf(parent))
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences())
+            comments.bind(source, Manga.create())
+            comments.setChapter(chapter(1))
+            waitFor("comments") { comments.state.value.loaded }
+            comments.setDraft("Keep this draft")
+            comments.canReply(reply) shouldBe false
+            comments.canReply(parent) shouldBe true
+            comments.replyTo(parent)
+            comments.close()
+            comments.state.value.draft shouldBe "Keep this draft"
+            comments.state.value.replyingTo shouldBe parent
+            comments.reload()
+            waitFor("refreshed comments") { comments.state.value.loaded }
+            comments.state.value.draft shouldBe "Keep this draft"
+            comments.state.value.replyingTo shouldBe parent
+            comments.replyTo(null)
+            comments.state.value.draft shouldBe "Keep this draft"
+            comments.setChapter(chapter(2))
+            comments.state.value.draft shouldBe ""
+            comments.state.value.replyingTo shouldBe null
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `serializes votes and restores the original after rejection`() = runBlocking<Unit> {
+        val original = comment("1").copy(score = 7)
+        val result = CompletableDeferred<NovelComment>()
+        val source = FakeCommentSource(NovelCommentCapabilities(voting = true, scored = true)) {
+            NovelCommentPage(listOf(original))
+        }
+        source.voteResponse = { _, _ -> result.await() }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences())
+            comments.bind(source, Manga.create())
+            comments.setChapter(chapter(1))
+            waitFor("comments") { comments.state.value.loaded }
+            comments.feedback(original).positiveVote shouldBe NovelCommentPositiveVote.LIKE
+            comments.vote(original, NovelCommentVote.DOWN)
+            source.votes.size shouldBe 0
+            comments.vote(original, NovelCommentVote.UP)
+            waitFor("vote") { source.votes.size == 1 }
+            comments.state.value.roots.single().score shouldBe 8
+            comments.vote(original, NovelCommentVote.UP)
+            result.completeExceptionally(IllegalStateException("Sign in to vote"))
+            waitFor("rollback") { comments.state.value.voting.isEmpty() }
+            source.votes.size shouldBe 1
+            comments.state.value.roots.single() shouldBe original
+            comments.state.value.error shouldBe "Sign in to vote"
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a late vote only updates the chapter it belongs to`() = runBlocking<Unit> {
+        val original = comment("same-id").copy(score = 2)
+        val result = CompletableDeferred<NovelComment>()
+        val source = FakeCommentSource(NovelCommentCapabilities(voting = true, downvotes = true)) {
+            NovelCommentPage(listOf(original))
+        }
+        source.voteResponse = { _, _ -> result.await() }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences())
+            comments.bind(source, Manga.create())
+            comments.setChapter(chapter(1))
+            waitFor("first chapter") { comments.state.value.loaded }
+            comments.feedback(original).positiveVote shouldBe NovelCommentPositiveVote.UPVOTE
+            comments.vote(original, NovelCommentVote.UP)
+            waitFor("vote") { source.votes.size == 1 }
+            comments.setChapter(chapter(2))
+            waitFor("second chapter") { comments.state.value.loaded }
+            comments.setChapter(chapter(1))
+            waitFor("pending vote") { original.id in comments.state.value.voting }
+            comments.vote(original, NovelCommentVote.UP)
+            source.votes.size shouldBe 1
+            comments.setChapter(chapter(2))
+            waitFor("second chapter again") { comments.state.value.loaded }
+            result.complete(original.copy(score = 3, vote = NovelCommentVote.UP))
+            delay(SETTLE_MS)
+            comments.state.value.roots.single() shouldBe original
+            comments.setChapter(chapter(1))
+            waitFor("cached vote") { comments.state.value.roots.firstOrNull()?.score == 3 }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `failed posts retain the draft and duplicate submissions are ignored`() = runBlocking<Unit> {
+        val result = CompletableDeferred<NovelComment>()
+        val source = FakeCommentSource(NovelCommentCapabilities(posting = true)) {
+            NovelCommentPage(emptyList())
+        }
+        source.postResponse = { result.await() }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences())
+            comments.bind(source, Manga.create())
+            comments.setChapter(chapter(1))
+            waitFor("comments") { comments.state.value.loaded }
+            comments.replyTo(comment("flat"))
+            comments.state.value.replyingTo shouldBe null
+            comments.setDraft("My review")
+            comments.post(comments.state.value.draft)
+            waitFor("post") { source.posts.size == 1 }
+            comments.post(comments.state.value.draft)
+            result.completeExceptionally(IllegalStateException("Sign in to post"))
+            waitFor("failure") { !comments.state.value.posting }
+            source.posts.size shouldBe 1
+            comments.state.value.draft shouldBe "My review"
+            comments.state.value.error shouldBe "Sign in to post"
+            source.postResponse = { comment("posted") }
+            comments.post(comments.state.value.draft)
+            waitFor("success") { comments.state.value.posted == 1 }
+            comments.state.value.draft shouldBe ""
+            comments.state.value.roots.single().id shouldBe "posted"
+        } finally {
+            scope.cancel()
+        }
+    }
 
     private fun preferences() = NovelReaderPreferences(InMemoryPreferenceStore())
 
@@ -246,6 +384,23 @@ private class FakeCommentSource(
     override val commentCapabilities: NovelCommentCapabilities = NovelCommentCapabilities(),
     private val respond: suspend (NovelCommentRequest) -> NovelCommentPage,
 ) : NovelCommentSource {
+
+    val votes = CopyOnWriteArrayList<NovelCommentVote>()
+    val posts = CopyOnWriteArrayList<NovelCommentDraft>()
+    var voteResponse: suspend (NovelComment, NovelCommentVote) -> NovelComment = { comment, vote ->
+        comment.copy(vote = vote)
+    }
+    var postResponse: suspend (NovelCommentDraft) -> NovelComment = { throw UnsupportedOperationException() }
+
+    override suspend fun voteComment(comment: NovelComment, vote: NovelCommentVote): NovelComment {
+        votes += vote
+        return voteResponse(comment, vote)
+    }
+
+    override suspend fun postComment(draft: NovelCommentDraft): NovelComment {
+        posts += draft
+        return postResponse(draft)
+    }
 
     /** Written from the source's own thread and read from the test's, so not an `ArrayList`. */
     val requests = CopyOnWriteArrayList<NovelCommentRequest>()

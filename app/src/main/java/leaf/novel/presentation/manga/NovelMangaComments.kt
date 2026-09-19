@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import eu.kanade.tachiyomi.source.Source
@@ -46,7 +47,7 @@ fun novelCommentsAction(manga: Manga, source: Source): (() -> Unit)? {
     val comments = remember(manga.id, source.id) {
         NovelComments(scope, preferences, NovelCommentScope.NOVEL).apply { bind(source, manga) }
     }
-    var showing by remember(manga.id) { mutableStateOf(false) }
+    var showing by rememberSaveable(manga.id) { mutableStateOf(false) }
 
     // Every `remember` above runs whatever the answer is, so the slots either side of this stay put.
     if (!enabled || !comments.supported) return null

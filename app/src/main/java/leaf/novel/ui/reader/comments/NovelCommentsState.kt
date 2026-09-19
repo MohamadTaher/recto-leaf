@@ -20,6 +20,8 @@ import leaf.novel.api.NovelCommentSort
  */
 data class NovelCommentThread(
     val comments: List<NovelComment> = emptyList(),
+    val voting: Set<String> = emptySet(),
+    val posting: Boolean = false,
     /** Whatever the site said the thread's size is, which is not always what arrived. */
     val total: Int? = null,
     /** Set once a page has actually come back, so an empty thread is "none" rather than "not yet". */
@@ -76,6 +78,7 @@ data class NovelCommentsState(
     /** Something has arrived and the rest is still being fetched, page by page. */
     val loadingMore: Boolean = false,
     val posting: Boolean = false,
+    val voting: Set<String> = emptySet(),
     /** The fetch stopped with pages still to get; see [NovelCommentThread.hasMore]. */
     val hasMore: Boolean = false,
 
@@ -90,6 +93,7 @@ data class NovelCommentsState(
 
     /** Which comment the composer is answering, or null for a new top-level one. */
     val replyingTo: NovelComment? = null,
+    val draft: String = "",
 
     /**
      * How many comments this session has successfully posted.
@@ -122,6 +126,7 @@ data class NovelCommentsState(
         loading = false,
         loadingMore = false,
         posting = false,
+        voting = emptySet(),
         hasMore = false,
         total = null,
         error = null,
@@ -169,6 +174,8 @@ data class NovelCommentsState(
             }
         }
         return copy(
+            voting = thread.voting,
+            posting = thread.posting,
             loading = !arrived && thread.failure == null,
             loaded = arrived,
             loadingMore = arrived && !thread.done,

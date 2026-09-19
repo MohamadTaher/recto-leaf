@@ -33,6 +33,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -133,7 +134,7 @@ fun NovelReaderScreen(
 
     var additionalOptionsExpanded by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
-    var showComments by remember { mutableStateOf(false) }
+    var showComments by rememberSaveable { mutableStateOf(false) }
     // A look, not a mode: it lasts until it is turned off again and stores nothing.
     var publisherFormatting by remember { mutableStateOf(false) }
     var openImage by remember { mutableStateOf<String?>(null) }

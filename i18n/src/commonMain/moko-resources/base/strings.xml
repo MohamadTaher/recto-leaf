@@ -1328,6 +1328,7 @@
     <string name="leaf_novel_comments">Comments</string>
     <string name="leaf_novel_comments_novel">Discuss</string>
     <string name="leaf_novel_comments_count">%1$d comments</string>
+    <string name="leaf_novel_comments_loaded">%1$d comments loaded</string>
     <string name="leaf_novel_comments_empty">No comments on this chapter yet</string>
     <string name="leaf_novel_comments_empty_novel">No comments on this novel yet</string>
     <string name="leaf_novel_comments_load">Load comments</string>
@@ -1352,6 +1353,16 @@
     <string name="leaf_novel_comments_upvote">Upvote</string>
     <string name="leaf_novel_comments_downvote">Downvote</string>
     <string name="leaf_novel_comments_like">Like</string>
+    <string name="leaf_novel_comments_heart">Heart</string>
+    <string name="leaf_novel_comments_star">Star</string>
+    <string name="leaf_novel_comments_rating">Rated %1$s / %2$s</string>
+    <string name="leaf_novel_comments_score">Score %1$d</string>
+    <string name="leaf_novel_comments_likes">Likes %1$d</string>
+    <string name="leaf_novel_comments_hearts">Hearts %1$d</string>
+    <string name="leaf_novel_comments_stars">Stars %1$d</string>
+    <string name="leaf_novel_comments_your_reaction">(you)</string>
+    <string name="leaf_novel_comments_expand">Expand comment</string>
+    <string name="leaf_novel_comments_collapse">Collapse comment</string>
     <string name="leaf_novel_comments_write">Write a comment</string>
     <string name="leaf_novel_comments_replying_to">Replying to %1$s</string>
     <string name="leaf_novel_comments_post">Post</string>
