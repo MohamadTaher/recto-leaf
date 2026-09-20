@@ -17,7 +17,7 @@ package leaf.novel.ui.reader.comments
  * pages of text — and a count is the one bound that needs no guess at their size.
  */
 class NovelCommentCache(
-    private val capacity: Int = CAPACITY,
+    private val capacity: Int = THREADS,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
@@ -56,9 +56,38 @@ class NovelCommentCache(
     }
 
     companion object {
-        /** The process's own, shared by the reader and the novel screen. */
-        val shared = NovelCommentCache()
+        /**
+         * The process's threads, shared by the reader and the novel screen.
+         *
+         * Sized for the fan-out rather than for one source: the reader prefetches the chapters
+         * either side of the open one, so a chapter turn holds three chapters' worth of every feed
+         * of every source that has the novel. A dozen comment extensions is fifty-odd entries
+         * before the novel screen has asked for anything.
+         */
+        val shared = NovelCommentCache(THREADS)
 
-        private const val CAPACITY = 64
+        /**
+         * Which novel is which on another source.
+         *
+         * An `SManga` each, so they cost nothing to keep, and they are worth keeping far longer
+         * than a thread: nothing about a match goes stale while someone is reading, and losing one
+         * means searching every source again.
+         */
+        val matches = NovelCommentCache(MATCHES)
+
+        /**
+         * Another source's chapter list, by number.
+         *
+         * Thousands of chapters each and the most expensive thing here to fetch again, so they are
+         * kept apart and kept few. Held with the threads they were evicted by, a long novel's table
+         * of contents was refetched every time the fan-out grew.
+         */
+        val chapters = NovelCommentCache(CHAPTER_LISTS)
+
+        private const val THREADS = 128
+
+        private const val MATCHES = 256
+
+        private const val CHAPTER_LISTS = 16
     }
 }

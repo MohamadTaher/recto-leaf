@@ -27,7 +27,7 @@ class NovelCommentMatcherTest {
         }
         // The migration engine takes a search's only result whatever it is called. This must not.
         val lone = FakeCommentSource(id = 3L, respond = empty).apply { search = { listOf(novel("Shadow Slave 2")) } }
-        val matcher = NovelCommentMatcher(NovelCommentCache()) { listOf(own, same, lone) }
+        val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(own, same, lone) }
 
         val found = matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER)
 
@@ -43,7 +43,7 @@ class NovelCommentMatcherTest {
             id = 2L,
             respond = empty,
         ).apply { search = { listOf(novel("Shadow Slave")) } }
-        val matcher = NovelCommentMatcher(NovelCommentCache()) { listOf(own, novelOnly) }
+        val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(own, novelOnly) }
 
         matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER) shouldBe emptyList()
         novelOnly.searches shouldBe emptyList()
@@ -57,7 +57,7 @@ class NovelCommentMatcherTest {
         val other = FakeCommentSource(id = 2L, respond = empty).apply {
             search = { if (failing) error("offline") else emptyList() }
         }
-        val matcher = NovelCommentMatcher(NovelCommentCache()) { listOf(own, other) }
+        val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(own, other) }
 
         matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER) shouldBe emptyList()
         failing = false
@@ -76,7 +76,7 @@ class NovelCommentMatcherTest {
                 listOf(sourceChapter(12f, "/c/12"), sourceChapter(11f, "/c/11"), sourceChapter(10f, "/c/10"))
             }
         }
-        val matcher = NovelCommentMatcher(NovelCommentCache()) { listOf(other) }
+        val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(other) }
         val book = novel("Shadow Slave")
 
         // Three at once, the way the reader's prefetch asks.
@@ -85,6 +85,30 @@ class NovelCommentMatcherTest {
         found shouldBe listOf("/c/11", "/c/12", "/c/10")
         matcher.chapter(other, book, 13.0) shouldBe null
         matcher.chapter(other, book, -1.0) shouldBe null
+        other.chapterFetches.get() shouldBe 1
+    }
+
+    /**
+     * A chapter list is a whole table of contents and a match is one novel's worth of fields, so the
+     * two are not interchangeable entries in one cache: the more comment sources are installed, the
+     * more matches there are to push the expensive thing out.
+     */
+    @Test
+    fun `a crowd of matches does not cost a chapter list already fetched`() = runBlocking<Unit> {
+        val own = FakeCommentSource(id = 1L, respond = empty)
+        val other = FakeCommentSource(id = 2L, respond = empty).apply {
+            search = { query -> listOf(novel(query)) }
+            chapters = { listOf(sourceChapter(1f, "/c/1")) }
+        }
+        val matcher = NovelCommentMatcher(NovelCommentCache(capacity = 2), NovelCommentCache(capacity = 2)) {
+            listOf(own, other)
+        }
+        val book = novel("Shadow Slave")
+
+        matcher.chapter(other, book, 1.0)?.url shouldBe "/c/1"
+        repeat(5) { matcher.find(own, novel("Some Other Novel $it"), NovelCommentScope.CHAPTER) }
+        matcher.chapter(other, book, 1.0)?.url shouldBe "/c/1"
+
         other.chapterFetches.get() shouldBe 1
     }
 }

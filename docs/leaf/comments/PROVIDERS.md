@@ -68,6 +68,11 @@ Throw. The message reaches the sheet, and an extension knows far better than the
 wrong with its own site. An empty `NovelCommentPage` is not an error — it means the chapter has no
 comments, and the sheet says so differently.
 
+Do not, however, rely on the app waiting for ever. Every call into a source — a listing, a search,
+a chapter list, a vote, a post — is given thirty seconds, after which the thread reports a timeout
+against that source's name and stops. A site that needs longer than that needs its own retry inside
+the extension, where it can be done once and cheaply, rather than a request left hanging.
+
 ## Third-party comment systems
 
 Plenty of novel sites do not write their own comments; they embed someone else's. These are
@@ -134,7 +139,9 @@ returns none.
 Implement `NovelCommentFeedbackSource` alongside `NovelCommentSource` to supply a review's
 `NovelCommentRating`, separate `likes` and `dislikes` totals, and additional
 `NovelCommentReaction` labels, emoji, counts and selected states. Return these from the
-cached response in `getCommentFeedback`; it is called during rendering and must not fetch.
+cached response in `getCommentFeedback`; it must not fetch. The app calls it once per comment, as
+that comment's page lands, and keeps the answer for as long as the thread lives — so it has to be a
+lookup into what the source has already parsed, and it has to give the same answer twice.
 
 Ratings are separate from a comment's net score. Reaction totals are read-only metadata, with
 additional site actions accessible through the comment's permalink. Only the existing `voting`
@@ -171,27 +178,64 @@ things about an extension decide how well that works:
 - **Titles.** A match is a search result whose title equals the novel's once case and punctuation
   are ignored — nothing looser, because another novel's discussion is worse than none. Search
   results carrying the site's own full title match best.
-- **Feed keys.** The sheet's review filter reads `NovelCommentFeed.key`: a feed keyed `reviews`
-  is reviews, and every other feed — including the one a source without feeds is taken to have —
-  is comments. So a site whose only listing is reviews should declare a single `reviews` feed, or
-  its reviews are filtered as comments.
+- **Feed keys.** The sheet's review filter reads `NovelCommentFeed.key`, and compares it against
+  `NovelCommentFeed.REVIEWS` and nothing else — not the label, not the scope. Use the constant
+  rather than spelling the string: a feed keyed `review`, `ratings` or `user-reviews` is filed as
+  comments with nothing to say it was. Every other feed — including the one a source without feeds
+  is taken to have, `NovelCommentFeed.COMMENTS` — is comments. A site whose only listing is reviews
+  should declare a single `REVIEWS` feed.
 - **Chapter numbers.** A chapter's comments on another site are found by number: the reader's
   chapter number, looked up in the other source's chapter list. Fill `chapter_number`, or give
   chapters names `ChapterRecognition` can read a number from.
 
 Ids only need to be unique within one feed of one site; the app keeps feeds and sites apart. The
+one exception is `NovelCommentFeedbackSource`, which is handed a comment and nothing else and so
+has only the id to key by: a source whose feeds can both produce an id `1` must make them distinct
+itself, the way a `review:` prefix does. The app reads a page's feedback under the same lock as the
+fetch that produced it, so a source's feeds are asked one at a time and never overwrite each
+other's answers — but only the extension can keep its own map straight. The
 order is always the app's own, since one site's "top" cannot rank another's: each feed is asked for
 the first of its `sorts`, so put the site's default first, and the sheet ranks what arrives
 by likes — the `likes` a `NovelCommentFeedbackSource` gives, or else the comment's `score`.
 Posting is offered only while one feed of one extension is showing.
 
-## Testing one
+## Checking one
 
-The app's own `NovelCommentTreeTest` covers the nesting, so an extension does not have to. What is
-worth checking by hand, once, on a real chapter:
+Most of what goes wrong with a new extension is the shape, not the site, and the shape can be
+checked without a network. `NovelCommentConformance` lives in `:novel-api` and returns what it
+found rather than asserting, so it drops into an extension's own unit tests:
+
+```kotlin
+@Test
+fun `says nothing about itself that is not true`() {
+    NovelCommentConformance.check(SomeSite()) shouldBe emptyList()
+}
+
+@Test
+fun `serves a page the app can draw`() = runBlocking {
+    val page = SomeSite().getComments(request)
+    NovelCommentConformance.check(page, SomeSite().commentCapabilities) shouldBe emptyList()
+}
+```
+
+It holds four things against each other: a source's capabilities against themselves (`downvotes`
+without `voting`, `lazyReplies` on a flat list, a sort key offered twice), the feeds against the
+app's one magic string (a feed that looks like reviews but is not keyed `NovelCommentFeed.REVIEWS`,
+two feeds sharing a key), a real page against the feed that served it (a score on an unscored feed,
+a reply past the declared `maxDepth`, a repeated id, an id carrying a control character, a cursor
+on a last page), and `getCommentFeedback` against its own contract (asked twice, it must answer
+the same).
+
+Debug builds of the app run the page and feedback checks on every page that lands and write what
+they find to logcat under the source and feed name, so an extension being written reports its own
+mistakes without any wiring.
+
+What is still worth checking by hand, once, on a real chapter:
 
 1. A chapter with no comments shows the empty message, not a spinner and not an error.
 2. A chapter with one page shows no "load more".
 3. Opening each reply row reveals its next level; a reply three deep is indented three rails.
 4. The first of the declared `sorts` is the order the site itself defaults to.
 5. Unknown counts remain absent, while real zeros remain visible beside the appropriate thumb.
+6. The novel is actually found on the other installed sources — see **Titles** above. Nothing says
+   so when it is not; the extension filter simply never lists that site.

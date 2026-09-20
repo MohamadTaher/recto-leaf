@@ -35,6 +35,8 @@ import tachiyomi.core.common.preference.InMemoryPreferenceStore
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * The session's comments, against a source that behaves the way a real one does: it takes time to
@@ -599,16 +601,117 @@ class NovelCommentsTest {
         }
     }
 
+    /**
+     * The novel is looked for on the other sources once, and a reload is the one thing that asks
+     * again — so a sheet first opened with no connection is not stuck with one source for ever.
+     */
+    @Test
+    fun `reload looks for the novel again after a search that could not be made`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+        val own = FakeCommentSource(capabilities, id = 1L, name = "Own") { NovelCommentPage(listOf(comment("1"))) }
+        val other = FakeCommentSource(capabilities, id = 2L, name = "Other") {
+            NovelCommentPage(listOf(comment("1").copy(body = "theirs")))
+        }
+        var offline = true
+        other.search = { if (offline) error("offline") else listOf(novel("Shadow Slave")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = shared(scope, own, other)
+            comments.open()
+            waitFor("the novel's own source") { comments.state.value.loaded }
+            comments.state.value.origins.map { it.name } shouldBe listOf("Own")
+
+            offline = false
+            comments.reload()
+            waitFor("the source the second search found") { comments.state.value.roots.size == 2 }
+            comments.state.value.origins.map { it.name } shouldBe listOf("Own", "Other")
+
+            // And a source already found is not listed twice by the search after that.
+            comments.reload()
+            waitFor("the reload after that") { comments.state.value.roots.size == 2 }
+            comments.state.value.origins.map { it.name } shouldBe listOf("Own", "Other")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /**
+     * A site that accepts the connection and then says nothing used to hold the sheet open for ever:
+     * its thread was neither done nor failed, so the spinner never stopped and "load more" — which
+     * only appears once a thread has stopped — never appeared either.
+     */
+    @Test
+    fun `gives up on a source that never answers and keeps the ones that did`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+        val own = FakeCommentSource(capabilities, id = 1L, name = "Own") { NovelCommentPage(listOf(comment("1"))) }
+        val silent = FakeCommentSource(capabilities, id = 2L, name = "Silent") { awaitCancellation() }
+        silent.search = { listOf(novel("Shadow Slave")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = shared(scope, own, silent, timeout = 200.milliseconds)
+            comments.open()
+            waitFor("the thread to stop waiting on the silent source") {
+                comments.state.value.loaded && !comments.state.value.loadingMore
+            }
+
+            comments.state.value.roots.map { it.body } shouldBe listOf("1")
+            // Named as that source's failure rather than passed off as the sheet's.
+            comments.state.value.error shouldBe "Silent: Timed out after 200ms"
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /**
+     * `NovelCommentFeedbackSource` is handed a comment and nothing else, so a source whose feeds can
+     * both number from one cannot tell which of them is being asked about. Reading it as each page
+     * lands settles that: the feed that just produced the comment is the one answering.
+     */
+    @Test
+    fun `reads a source's feedback as its page lands, so one feed cannot answer for another`() =
+        runBlocking<Unit> {
+            val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+            // One map keyed by id alone, which is all the interface gives an extension to key by.
+            val byId = mutableMapOf<String, NovelCommentFeedback>()
+            val source = object :
+                FakeCommentSource(capabilities, id = 1L, name = "Own", respond = { NovelCommentPage(emptyList()) }),
+                NovelCommentFeedbackSource {
+                override fun getCommentFeedback(comment: NovelComment) = byId[comment.id] ?: NovelCommentFeedback()
+            }
+            source.commentFeeds = listOf(
+                NovelCommentFeed("comments", "Comments", capabilities),
+                NovelCommentFeed(NovelCommentFeed.REVIEWS, "Reviews", capabilities),
+            )
+            source.feedResponse = { _, feed ->
+                // Each feed overwrites the other's entry for "1" as it parses, the way a real one does.
+                byId["1"] = NovelCommentFeedback(likes = if (feed.key == NovelCommentFeed.REVIEWS) 99 else 3)
+                NovelCommentPage(listOf(comment("1").copy(body = feed.key)))
+            }
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val comments = shared(scope, source)
+                comments.open()
+                waitFor("both feeds") { comments.state.value.roots.size == 2 }
+
+                val byFeed = comments.state.value.roots.associate { it.body to comments.feedback(it).likes }
+                byFeed shouldBe mapOf("comments" to 3, NovelCommentFeed.REVIEWS to 99)
+            } finally {
+                scope.cancel()
+            }
+        }
+
     /** A controller that also looks for the novel on the [sources] after the first, which is its own. */
     private fun shared(
         scope: CoroutineScope,
         vararg sources: FakeCommentSource,
         commentScope: NovelCommentScope = NovelCommentScope.NOVEL,
+        timeout: Duration = COMMENT_TIMEOUT,
     ) = NovelComments(
         scope = scope,
         preferences = preferences(),
         commentScope = commentScope,
-        matcher = NovelCommentMatcher(NovelCommentCache()) { sources.toList() },
+        matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { sources.toList() },
+        timeout = timeout,
     ).apply { bind(sources.first(), Manga.create().copy(title = "Shadow Slave", url = "/shadow-slave")) }
 
     private fun preferences() = NovelReaderPreferences(InMemoryPreferenceStore())

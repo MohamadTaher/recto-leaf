@@ -20,6 +20,7 @@ import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.service.ChapterRecognition
 import tachiyomi.domain.source.service.SourceManager
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration
 
 /**
  * The same novel on the other installed comment sources, so its comments can be read together.
@@ -34,7 +35,12 @@ import java.util.concurrent.ConcurrentHashMap
  * [ChapterRecognition] the library applies to its own chapters.
  */
 class NovelCommentMatcher(
-    private val cache: NovelCommentCache = NovelCommentCache.shared,
+    /** Small, and kept for far longer than a thread; see [NovelCommentCache.matches]. */
+    private val matches: NovelCommentCache = NovelCommentCache.matches,
+    /** Large and few, and kept away from everything else; see [NovelCommentCache.chapters]. */
+    private val lists: NovelCommentCache = NovelCommentCache.chapters,
+    /** What one call to a source is given before it counts as no match; see `withCommentTimeout`. */
+    private val timeout: Duration = COMMENT_TIMEOUT,
     /** Every source a match may come from. */
     private val sources: suspend () -> List<Source>,
 ) {
@@ -68,34 +74,39 @@ class NovelCommentMatcher(
         if (number < 0) return null
         val key = ChaptersKey(source.id, novel.url)
         val chapters = locks.getOrPut(key) { Mutex() }.withLock {
-            cache.get<Map<Double, SChapter>>(key) ?: source
-                .getMangaUpdate(novel, emptyList(), fetchDetails = false, fetchChapters = true)
-                .chapters
-                .fold(mutableMapOf<Double, SChapter>()) { byNumber, chapter ->
-                    val parsed = ChapterRecognition.parseChapterNumber(
-                        novel.title,
-                        chapter.name,
-                        chapter.chapter_number.toDouble(),
-                    )
-                    // The first of a repeated number wins, which is the site's own newest copy.
-                    byNumber.apply { putIfAbsent(parsed, chapter) }
-                }
-                .also { cache.put(key, it) }
+            lists.get<Map<Double, SChapter>>(key) ?: fetchChapters(source, novel).also { lists.put(key, it) }
         }
         return chapters[number]
     }
 
+    private suspend fun fetchChapters(source: Source, novel: SManga): Map<Double, SChapter> =
+        withCommentTimeout(timeout) {
+            source.getMangaUpdate(novel, emptyList(), fetchDetails = false, fetchChapters = true)
+        }
+            .chapters
+            .fold(mutableMapOf<Double, SChapter>()) { byNumber, chapter ->
+                val parsed = ChapterRecognition.parseChapterNumber(
+                    novel.title,
+                    chapter.name,
+                    chapter.chapter_number.toDouble(),
+                )
+                // The first of a repeated number wins, which is the site's own newest copy.
+                byNumber.apply { putIfAbsent(parsed, chapter) }
+            }
+
     private suspend fun match(source: NovelCommentSource, title: String): SManga? {
         val key = MatchKey(source.id, normalize(title))
-        cache.get<Match>(key)?.let { return it.novel }
+        matches.get<Match>(key)?.let { return it.novel }
         val found = try {
-            search.regularSearch(source, title)?.takeIf { sameTitle(it.title, title) }?.toSManga()
+            withCommentTimeout(timeout) { search.regularSearch(source, title) }
+                ?.takeIf { sameTitle(it.title, title) }
+                ?.toSManga()
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             logcat(LogPriority.WARN, e) { "Could not search ${source.name} for $title" }
             return null
         }
-        cache.put(key, Match(found))
+        matches.put(key, Match(found))
         return found
     }
 

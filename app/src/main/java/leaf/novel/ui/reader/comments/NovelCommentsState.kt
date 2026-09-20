@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentFeed
+import leaf.novel.api.NovelCommentFeedback
+import leaf.novel.api.NovelCommentFeedbackSource
 import leaf.novel.api.NovelCommentScope
 
 /**
@@ -20,6 +22,18 @@ import leaf.novel.api.NovelCommentScope
  */
 data class NovelCommentThread(
     val comments: List<NovelComment> = emptyList(),
+    /**
+     * What the source said about each comment, read once as its page landed and kept.
+     *
+     * Keyed by the source's own id, never the merged thread's. [NovelCommentFeedbackSource] is
+     * documented as a lookup into whatever the source parsed rather than a second request, which
+     * left it with no way to say *which* feed a comment came from: a source whose reviews and
+     * comments can carry the same id answered for whichever of them parsed last. Reading it as the
+     * page arrives settles that — the feed that just produced the comment is the one being asked —
+     * and it also takes the call off the drawing path, where it ran once per visible row per
+     * recomposition.
+     */
+    val feedback: Map<String, NovelCommentFeedback> = emptyMap(),
     val voting: Set<String> = emptySet(),
     val loadingReplies: Set<String> = emptySet(),
     val posting: Boolean = false,
@@ -66,17 +80,12 @@ enum class NovelCommentKind {
     /** Whether a feed belongs to this kind. A feed is a review feed by its key, and nothing else. */
     fun admits(feed: NovelCommentFeed): Boolean = when (this) {
         ALL -> true
-        REVIEWS -> feed.key == REVIEWS_FEED
-        COMMENTS -> feed.key != REVIEWS_FEED
+        REVIEWS -> feed.key == NovelCommentFeed.REVIEWS
+        COMMENTS -> feed.key != NovelCommentFeed.REVIEWS
     }
 
     /** The next in the toggle's cycle: all, then reviews, then comments, then all again. */
     val next: NovelCommentKind get() = entries[(ordinal + 1) % entries.size]
-
-    companion object {
-        /** The key every source files its reviews under; see `docs/leaf/comments/PROVIDERS.md`. */
-        const val REVIEWS_FEED = "reviews"
-    }
 }
 
 /** One source in the sheet's extension filter, with however many comments it has brought so far. */

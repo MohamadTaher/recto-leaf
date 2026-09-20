@@ -2,11 +2,13 @@ package leaf.novel.ui.reader.comments
 
 import eu.kanade.domain.chapter.model.toSChapter
 import eu.kanade.domain.manga.model.toSManga
+import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,8 +16,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
+import leaf.novel.api.NovelCommentConformance
 import leaf.novel.api.NovelCommentDraft
 import leaf.novel.api.NovelCommentFeed
 import leaf.novel.api.NovelCommentFeedSource
@@ -36,7 +42,9 @@ import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * One novel's comments, for as long as something is looking at them.
@@ -68,6 +76,12 @@ import kotlin.time.Duration.Companion.minutes
  * rate limiting. `commentsAutoLoad` turns the whole of that off for a metered connection, and then
  * nothing is fetched until the sheet is opened.
  *
+ * Two bounds hold whatever a site does. One source is asked one thing at a time ([Origin.lock]),
+ * so the number of installed extensions decides how many sites are in flight and never how many
+ * requests one site is handling. And every call into a source is given [timeout], after which its
+ * thread reports the timeout against that source's name and stops — without which a site that
+ * accepts a connection and then says nothing leaves the sheet loading for ever.
+ *
  * ### One thread from every source and every feed
  *
  * The novel's own source is only one of the places its readers talk. [matcher] finds the same novel
@@ -98,6 +112,8 @@ class NovelComments(
      * second fetch of them is a request the site did not need to serve.
      */
     private val cache: NovelCommentCache = NovelCommentCache(),
+    /** What one call to a source is given before its thread gives up on it. */
+    private val timeout: Duration = COMMENT_TIMEOUT,
 ) {
 
     private val mutableState = MutableStateFlow(NovelCommentsState(scope = commentScope))
@@ -140,9 +156,16 @@ class NovelComments(
     val supported: Boolean
         get() = state.value.capabilities?.scopes?.contains(commentScope) == true
 
+    /**
+     * What the source said about a comment, as it said it when the comment arrived.
+     *
+     * A lookup and nothing more. It is called from the row being drawn, so every recomposition of
+     * a scrolling thread would otherwise be a call per visible row into extension code — and worse,
+     * a call that could no longer tell which feed the row came from.
+     */
     fun feedback(comment: NovelComment): NovelCommentFeedback {
         val drain = drainOf(comment.id)
-        return (drain?.origin?.source as? NovelCommentFeedbackSource)?.getCommentFeedback(drain.untag(comment))
+        return drain?.pages?.value?.feedback?.get(drain.untagged(comment.id))
             ?: NovelCommentFeedback(
                 positiveVote = if (capabilities(comment)?.downvotes == true) {
                     NovelCommentPositiveVote.UPVOTE
@@ -238,7 +261,15 @@ class NovelComments(
         if (!state.value.posting) mutableState.update { it.copy(draft = body) }
     }
 
-    /** Throws away everything fetched for what is on screen, from every source, and fetches it again. */
+    /**
+     * Throws away everything fetched for what is on screen, from every source, and fetches it again.
+     *
+     * Including the search for the novel on the other sources, which is otherwise done once and
+     * never again. A reader who opened the sheet with no connection got their own source's comments
+     * and an error, and then reload fetched that one source again for ever: the search had already
+     * been attempted, and [match] asks only whether it has been. A search that completed and found
+     * nothing is remembered by the matcher, so asking again costs a lookup rather than a request.
+     */
     fun reload() {
         if (state.value.posting || state.value.voting.isNotEmpty()) return
         contributors().forEach { (origin, feed) ->
@@ -248,6 +279,8 @@ class NovelComments(
             }
         }
         loadJob?.cancel()
+        matchJob?.cancel()
+        matchJob = null
         mutableState.update { it.reset().copy(replyingTo = it.replyingTo) }
         show()
     }
@@ -292,8 +325,9 @@ class NovelComments(
                 cursor = drain.pages.value.replyCursors[id],
                 parent = parent,
             )
-            attempt { drain.origin.getComments(request, drain.feed) }
-                .onSuccess { result ->
+            attempt { drain.fetch(request) }
+                .onSuccess { fetched ->
+                    val result = fetched.page
                     // A page that brought nothing new is the end of the replies whatever the site
                     // says about there being more, or the row would offer them again for ever.
                     val known = NovelCommentTree.find(NovelCommentTree.build(drain.pages.value.comments), id)
@@ -308,6 +342,7 @@ class NovelComments(
                     change(drain) {
                         it.copy(
                             comments = NovelCommentTree.addReplies(it.comments, id, result.comments, complete),
+                            feedback = it.feedback + fetched.feedback,
                             loadingReplies = it.loadingReplies - id,
                             replyPages = it.replyPages + (id to next),
                             replyCursors = it.replyCursors + (id to result.nextCursor),
@@ -470,8 +505,13 @@ class NovelComments(
         scope.launch {
             attempt { drain.origin.source.postComment(NovelCommentDraft(target, body.trim(), parentId)) }
                 .onSuccess { posted ->
+                    val feedback = attempt { drain.feedbackFor(posted) }.getOrDefault(emptyMap())
                     drain.update {
-                        it.copy(comments = NovelCommentTree.insert(it.comments, parentId, posted), posting = false)
+                        it.copy(
+                            comments = NovelCommentTree.insert(it.comments, parentId, posted),
+                            feedback = it.feedback + feedback,
+                            posting = false,
+                        )
                     }
                     if (drain in shown) {
                         publish {
@@ -555,7 +595,7 @@ class NovelComments(
         val failed = threads.firstOrNull { (_, thread) -> thread.failure != null }
         val likes = HashMap<String, Int>()
         val presented = threads.flatMap { (drain, thread) ->
-            drain.present(thread.comments, settle = merged && !drain.feed.capabilities.lazyReplies, likes)
+            drain.present(thread, settle = merged && !drain.feed.capabilities.lazyReplies, likes)
         }
         val counts = threads.filter { (_, thread) -> thread.loaded }.groupBy(
             keySelector = { (drain, _) -> NovelCommentKind.REVIEWS.admits(drain.feed) },
@@ -650,7 +690,9 @@ class NovelComments(
         mutableState.update { it.copy(searching = true) }
         matchJob = scope.launch {
             val found = attempt { matcher.find(own.source, own.novel, commentScope) }.getOrElse { emptyList() }
-            origins = origins + found.map { (source, novel) -> Origin(source, novel, own = false) }
+            // Rebuilt from the novel's own source rather than appended to, so a second search — which
+            // is what reload is — does not list every source it finds again twice.
+            origins = origins.filter { it.own } + found.map { (source, novel) -> Origin(source, novel, own = false) }
             mutableState.update { it.copy(searching = false).configured() }
             if (loadJob?.isActive == true) show()
         }
@@ -716,17 +758,19 @@ class NovelComments(
                 page = thread.nextPage,
                 cursor = thread.nextCursor,
             )
-            val page = attempt { drain.origin.getComments(request, drain.feed) }.getOrElse { failure ->
+            val fetched = attempt { drain.fetch(request) }.getOrElse { failure ->
                 logcat(LogPriority.WARN, failure) {
                     "Could not load comments for ${target.novel.title} from ${drain.origin.source.name}"
                 }
                 drain.update { it.copy(done = true, hasMore = it.loaded, failure = failure) }
                 return
             }
+            val page = fetched.page
 
             // A page that repeats what is already here is the end of the thread whatever the site
             // says about there being more, or this would ask for the same page until the cap.
             val known = NovelCommentTree.ids(thread.comments)
+            drain.audit(page, known)
             val added = page.comments.filterNot { it.id in known }
             val exhausted = added.isEmpty() || !page.hasNextPage || !paginated
             val capped = !exhausted && thread.nextPage >= stopAfter
@@ -734,6 +778,8 @@ class NovelComments(
             drain.update {
                 it.copy(
                     comments = it.comments + added,
+                    // Read under the same lock as the fetch that produced them; see [Origin.lock].
+                    feedback = it.feedback + fetched.feedback,
                     total = page.total ?: it.total,
                     loaded = true,
                     done = exhausted || capped,
@@ -761,7 +807,7 @@ class NovelComments(
      * with it is let it through.
      */
     private suspend fun <T> attempt(block: suspend () -> T): Result<T> = try {
-        Result.success(withIOContext { block() })
+        Result.success(withCommentTimeout(timeout) { withIOContext { block() } })
     } catch (e: Throwable) {
         if (e is CancellationException) throw e
         Result.failure(e)
@@ -793,13 +839,28 @@ class NovelComments(
     /** One source's copy of the novel. [own] is the novel's own source, whose first feed keeps its ids. */
     private inner class Origin(val source: NovelCommentSource, val novel: SManga, val own: Boolean) {
 
+        /**
+         * One request to this source at a time, however many feeds and chapters are being filled.
+         *
+         * [NovelCommentFeedbackSource] is handed a comment and nothing else, so an extension keys
+         * whatever it parsed by comment id alone — and a source whose reviews and comments can both
+         * number from one overwrites its own answer when the two feeds are parsed at once. Reading
+         * the feedback under the same lock as the fetch that produced it is what makes "the feed
+         * that just answered" a true statement rather than a likely one.
+         *
+         * It costs a source with several feeds their overlap, which is a fetch's worth of latency
+         * on one site and no requests at all. A site seeing one comment request from us at a time
+         * is the better shape anyway, and more so the more extensions are installed.
+         */
+        val lock = Mutex()
+
         private val declared = (source as? NovelCommentFeedSource)?.commentFeeds.orEmpty()
             .filter { commentScope in it.capabilities.scopes }
 
         /** A source that declares no feeds has one all the same, and it counts as comments. */
         val feeds: List<NovelCommentFeed> = declared.ifEmpty {
             listOfNotNull(
-                NovelCommentFeed(COMMENTS, "", source.commentCapabilities)
+                NovelCommentFeed(NovelCommentFeed.COMMENTS, "", source.commentCapabilities)
                     .takeIf { commentScope in source.commentCapabilities.scopes },
             )
         }
@@ -857,13 +918,6 @@ class NovelComments(
 
         fun untagged(id: String) = id.removePrefix(tag)
 
-        /** The comment as its own source knows it, as far as the source reads it back. */
-        fun untag(comment: NovelComment) = if (tag.isEmpty()) {
-            comment
-        } else {
-            comment.copy(id = untagged(comment.id), parentId = comment.parentId?.let(::untagged))
-        }
-
         /**
          * The comments as the sheet sees them: prefixed, and with [settle], counted at what arrived.
          *
@@ -871,30 +925,93 @@ class NovelComments(
          * only it draws exactly what the source sent. Each comment's likes go into [likes] under the
          * id the sheet will know it by, read while the source's own copy is still in hand.
          */
-        fun present(comments: List<NovelComment>, settle: Boolean, likes: MutableMap<String, Int>): List<NovelComment> =
-            comments.map {
-                likes[tagged(it.id)] = likes(it)
-                if (tag.isEmpty() && !settle) {
-                    it.also { comment -> present(comment.replies, settle = false, likes) }
-                } else {
-                    it.copy(
-                        id = tagged(it.id),
-                        parentId = it.parentId?.let(::tagged),
-                        replies = present(it.replies, settle, likes),
-                        replyCount = if (settle) it.replies.size else it.replyCount,
-                    )
-                }
+        fun present(thread: NovelCommentThread, settle: Boolean, likes: MutableMap<String, Int>): List<NovelComment> =
+            present(thread.comments, thread.feedback, settle, likes)
+
+        private fun present(
+            comments: List<NovelComment>,
+            feedback: Map<String, NovelCommentFeedback>,
+            settle: Boolean,
+            likes: MutableMap<String, Int>,
+        ): List<NovelComment> = comments.map {
+            likes[tagged(it.id)] = likes(it, feedback)
+            if (tag.isEmpty() && !settle) {
+                it.also { comment -> present(comment.replies, feedback, settle = false, likes) }
+            } else {
+                it.copy(
+                    id = tagged(it.id),
+                    parentId = it.parentId?.let(::tagged),
+                    replies = present(it.replies, feedback, settle, likes),
+                    replyCount = if (settle) it.replies.size else it.replyCount,
+                )
             }
+        }
+
+        /**
+         * Holds a page against the contract, and says so in the log when it breaks it.
+         *
+         * Debug builds only, and for one reason: an extension that gets the shape wrong does not
+         * fail, it produces a sheet that is quietly missing something — a score that is never drawn
+         * because the feed did not claim to be scored, a reply past a maxDepth of one, an id that
+         * cannot survive the merge. Whoever is writing the extension is the only person who can fix
+         * any of it, and this is the build they are running.
+         *
+         * [NovelCommentConformance] is in `:novel-api`, so the same checks run from an extension's
+         * own unit tests without a device; see `docs/leaf/comments/PROVIDERS.md`.
+         */
+        fun audit(page: NovelCommentPage, known: Set<String>) {
+            if (!BuildConfig.DEBUG) return
+            val violations = NovelCommentConformance.check(page, feed.capabilities, known) +
+                (origin.source as? NovelCommentFeedbackSource)
+                    ?.let { NovelCommentConformance.check(it, page.comments) }
+                    .orEmpty()
+            violations.forEach { logcat(LogPriority.WARN) { "${origin.source.name} [${feed.key}]: $it" } }
+        }
+
+        /**
+         * A page, and what the source says about the comments on it, with nothing else asked of
+         * that source in between; see [Origin.lock].
+         */
+        suspend fun fetch(request: NovelCommentRequest): Fetched = origin.lock.withLock {
+            val page = origin.getComments(request, feed)
+            Fetched(page, snapshot(page.comments))
+        }
+
+        /** The same, for a comment that arrived by itself — one this reader has just posted. */
+        suspend fun feedbackFor(comment: NovelComment): Map<String, NovelCommentFeedback> =
+            origin.lock.withLock { snapshot(listOf(comment)) }
+
+        /**
+         * What the source says about each of [comments] and their replies, asked once, now.
+         *
+         * Empty for a source that has nothing extra to say, which is most of them; the sheet's
+         * fallback covers that case without an entry per comment.
+         */
+        private fun snapshot(comments: List<NovelComment>): Map<String, NovelCommentFeedback> {
+            val source = origin.source as? NovelCommentFeedbackSource ?: return emptyMap()
+            return buildMap { collect(source, comments) }
+        }
+
+        private fun MutableMap<String, NovelCommentFeedback>.collect(
+            source: NovelCommentFeedbackSource,
+            comments: List<NovelComment>,
+        ) {
+            comments.forEach {
+                put(it.id, source.getCommentFeedback(it))
+                collect(source, it.replies)
+            }
+        }
 
         /**
          * How liked a comment is: the site's own like count where it gives one apart from dislikes,
          * or else its score, which on a site with no downvote is the same thing.
          */
-        private fun likes(comment: NovelComment): Int =
-            (origin.source as? NovelCommentFeedbackSource)?.getCommentFeedback(comment)?.likes
-                ?: comment.score
-                ?: 0
+        private fun likes(comment: NovelComment, feedback: Map<String, NovelCommentFeedback>): Int =
+            feedback[comment.id]?.likes ?: comment.score ?: 0
     }
+
+    /** One page and the source's own word on what is in it, read together. */
+    private class Fetched(val page: NovelCommentPage, val feedback: Map<String, NovelCommentFeedback>)
 
     private data class Key(val source: Long, val chapterId: Long?, val feed: String)
 
@@ -914,15 +1031,35 @@ class NovelComments(
         /** Long enough not to look like a scraper, short enough that a long thread still finishes. */
         const val PAGE_DELAY_MS = 350L
 
-        /** The feed a source without feeds of its own is taken to have. Anything but reviews is comments. */
-        const val COMMENTS = "comments"
-
         /** Opens and closes a thread's prefix. No site puts a unit separator in an id. */
         const val TAG = '\u001f'
 
         /** How long a thread fetched by an earlier screen is shown rather than fetched again. */
         val THREAD_MAX_AGE = 30.minutes.inWholeMilliseconds
     }
+}
+
+/** How long one call to a site may take before whatever is waiting on it gives up. */
+internal val COMMENT_TIMEOUT = 30.seconds
+
+/**
+ * [block], with the budget every call into an extension gets.
+ *
+ * Nothing here used to have one, so a site that accepted a connection and then said nothing left
+ * its thread neither finished nor failed for ever: the sheet went on saying it was still loading,
+ * that source's filter chip went on spinning, and "load more" — which only appears once a thread
+ * has stopped — never came back. With a dozen extensions installed that is no longer an unlikely
+ * site, it is a weekly one.
+ *
+ * The timeout is turned into an ordinary exception on the way out. `withTimeout` throws a
+ * [TimeoutCancellationException], which is a [CancellationException], and everything in this
+ * package reads one of those as the caller having gone away and rethrows it untouched — so left as
+ * it is, a timeout would silently kill the fetch instead of reporting it.
+ */
+internal suspend fun <T> withCommentTimeout(timeout: Duration = COMMENT_TIMEOUT, block: suspend () -> T): T = try {
+    withTimeout(timeout) { block() }
+} catch (e: TimeoutCancellationException) {
+    throw Exception("Timed out after $timeout", e)
 }
 
 /** How much a vote moves a score, for the optimistic update. */
