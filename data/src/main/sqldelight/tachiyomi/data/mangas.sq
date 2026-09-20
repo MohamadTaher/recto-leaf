@@ -295,6 +295,6 @@ insertNetworkManga {
     LIMIT 1;
 }
 
--- [recto-leaf] drives the library content-type selector
+-- [recto-leaf] drives the library's Novels filter, which hides itself without one
 hasNovelInLibrary:
 SELECT EXISTS(SELECT 1 FROM mangas WHERE is_novel = 1 AND favorite = 1);

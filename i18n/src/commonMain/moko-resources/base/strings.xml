@@ -1113,9 +1113,7 @@
     <string name="leaf_novel_import_error_empty_spine">This EPUB contains no readable chapters</string>
     <string name="leaf_novel_import_error_drm">This EPUB is DRM-protected and cannot be imported</string>
     <string name="leaf_novel_import_error_write">The EPUB could not be copied. Nothing was added to your library</string>
-    <string name="leaf_label_content_type_all">All</string>
-    <string name="leaf_label_content_type_manga">Manga</string>
-    <string name="leaf_label_content_type_novels">Novels</string>
+    <string name="leaf_action_filter_novels">Novels</string>
     <string name="leaf_novel_reader_tab_visual">Visual</string>
     <string name="leaf_novel_reader_tab_control">Control</string>
     <string name="leaf_novel_reader_tab_misc">Misc</string>

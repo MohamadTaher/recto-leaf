@@ -42,7 +42,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import leaf.novel.library.LibraryContentTypeFilter
+import leaf.novel.library.NovelLibraryFilter
 import mihon.core.common.utils.mutate
 import mihon.domain.library.model.search.QueryNode
 import mihon.feature.library.matches
@@ -94,8 +94,8 @@ class LibraryViewModel(
     private val downloadManager: DownloadManager,
     private val downloadCache: DownloadCache,
     private val trackerManager: TrackerManager,
-    // [recto-leaf] narrows the library to the selected content type
-    private val libraryContentTypeFilter: LibraryContentTypeFilter,
+    // [recto-leaf] applies the fork's "Novels" library filter
+    private val novelLibraryFilter: NovelLibraryFilter,
 ) : ViewModel() {
 
     private val searchQuery = MutableStateFlow<String?>(null)
@@ -116,8 +116,11 @@ class LibraryViewModel(
     private val hasActiveFilters = combine(
         getLibraryItemPreferencesFlow(),
         getTrackingFiltersFlow(),
-    ) { prefs, trackFilters ->
+        // [recto-leaf] the novel filter counts towards the toolbar's filter indicator
+        novelLibraryFilter.filter,
+    ) { prefs, trackFilters, novelFilter ->
         listOf(
+            novelFilter,
             prefs.filterDownloaded,
             prefs.filterUnread,
             prefs.filterStarted,
@@ -135,8 +138,8 @@ class LibraryViewModel(
     private val library = combine(
         searchQuery.debounce(0.25.seconds),
         getCategories.subscribe(),
-        // [recto-leaf] Narrow to the selected content type before anything else runs.
-        libraryContentTypeFilter.apply(getFavoritesFlow()),
+        // [recto-leaf] Apply the novel filter before anything else runs.
+        novelLibraryFilter.apply(getFavoritesFlow()),
         combine(getTracksPerManga.subscribe(), getTrackingFiltersFlow(), ::Pair),
         getLibraryItemPreferencesFlow(),
     ) { searchQuery, categories, favorites, (tracksMap, trackingFilters), itemPreferences ->
@@ -194,10 +197,10 @@ class LibraryViewModel(
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5.seconds), State())
 
-    // [recto-leaf] Maintains the content-type selector's cached flag, which the toolbar reads
-    // before the library flow first emits.
+    // [recto-leaf] Maintains the novel filter's cached flag, which the filter sheet reads before
+    // the library flow first emits.
     init {
-        libraryContentTypeFilter.keepPreferencesCurrent(viewModelScope)
+        novelLibraryFilter.keepPreferencesCurrent(viewModelScope)
     }
 
     private data class DisplayPreferences(

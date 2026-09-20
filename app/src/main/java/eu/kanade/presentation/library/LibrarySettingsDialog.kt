@@ -19,6 +19,7 @@ import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.library.LibrarySettingsViewModel
 import eu.kanade.tachiyomi.util.system.isReleaseBuildType
+import leaf.novel.presentation.library.NovelFilterItem
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Refresh
 import tachiyomi.core.common.preference.TriState
@@ -124,6 +125,9 @@ private fun ColumnScope.FilterPage(
             onClick = { viewModel.toggleFilter(LibraryPreferences::filterIntervalCustom) },
         )
     }
+
+    // [recto-leaf] Novels as an ordinary filter; renders nothing until the library holds one.
+    NovelFilterItem()
 
     val trackers by viewModel.trackersFlow.collectAsState()
     when (trackers.size) {
