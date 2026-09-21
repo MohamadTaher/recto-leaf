@@ -37,4 +37,21 @@ data class NovelCommentReaction(
     val count: Int? = null,
     val emoji: String? = null,
     val selected: Boolean = false,
+    /**
+     * Whether this reaction is the site saying something good or something bad.
+     *
+     * Stated by the source rather than read off [label], because the label is the site's own word
+     * and the app has no business deciding that "Recommended" is praise and "Mid" is not. A source
+     * that sets anything but [NovelCommentSentiment.NEUTRAL] is drawn where a star rating would go,
+     * in green or red, which is the whole reason this exists: a site that judges a review instead
+     * of scoring it has nothing to put in that slot otherwise.
+     */
+    val sentiment: NovelCommentSentiment = NovelCommentSentiment.NEUTRAL,
 )
+
+/** What a reaction means, for a site whose verdict is a word rather than a number of stars. */
+enum class NovelCommentSentiment {
+    POSITIVE,
+    NEUTRAL,
+    NEGATIVE,
+}

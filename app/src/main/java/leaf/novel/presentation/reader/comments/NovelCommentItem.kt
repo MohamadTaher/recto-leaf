@@ -40,6 +40,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -65,6 +66,7 @@ import eu.kanade.tachiyomi.util.system.copyToClipboard
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentFeedback
+import leaf.novel.api.NovelCommentSentiment
 import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.comments.NovelCommentMarkup
 import leaf.novel.ui.reader.comments.NovelCommentReview
@@ -130,6 +132,11 @@ fun NovelCommentItem(
     var menuExpanded by remember { mutableStateOf(false) }
     val hidden = (spoilerGuard || hasSpoilers) && !revealed
     val rating = (feedback.rating ?: review.rating).takeUnless { comment.deleted || hidden }
+    // A site that judges a review rather than scoring it puts its verdict where the stars would be.
+    // Only one, and only a reaction that took a side: the rest stay at the foot of the comment.
+    val verdict = feedback.reactions
+        .firstOrNull { it.sentiment != NovelCommentSentiment.NEUTRAL }
+        .takeUnless { comment.deleted || hidden || rating != null }
     val avatar = avatarSize(depth)
     val lineColor = MaterialTheme.colorScheme.outlineVariant
     val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
@@ -201,10 +208,12 @@ fun NovelCommentItem(
                         },
                     )
                 },
-                // The rating's place, taken by the extension when there is no rating.
-                topEnd = rating?.let { { NovelCommentRatingRow(it) } } ?: source,
+                // The rating's place: the stars, else the site's verdict, else the extension.
+                topEnd = rating?.let { { NovelCommentRatingRow(it) } }
+                    ?: verdict?.let { { NovelCommentReactionRow(it) } }
+                    ?: source,
                 bottomStart = details.takeIf { it.isNotEmpty() }?.let { { HeaderLabel(it.joinToString(" · ")) } },
-                bottomEnd = source.takeIf { rating != null },
+                bottomEnd = source.takeIf { rating != null || verdict != null },
             )
             Box {
                 IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
@@ -339,9 +348,11 @@ fun NovelCommentItem(
                 }
                 if (!comment.deleted) {
                     NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
-                    if (feedback.reactions.isNotEmpty()) {
+                    // Whatever was promoted to the header is not repeated down here.
+                    val remaining = feedback.reactions.filter { it !== verdict }
+                    if (remaining.isNotEmpty()) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            feedback.reactions.forEach { reaction ->
+                            remaining.forEach { reaction ->
                                 Badge(
                                     listOfNotNull(
                                         reaction.emoji,
@@ -505,31 +516,36 @@ private fun HeaderLabel(text: String) {
 @Composable
 private fun CommentAvatar(comment: NovelComment, size: Dp, showImage: Boolean) {
     var failed by remember(comment.avatarUrl) { mutableStateOf(false) }
-    if (showImage && !comment.deleted && comment.avatarUrl != null && !failed) {
-        AsyncImage(
-            model = comment.avatarUrl,
-            contentDescription = null,
-            onError = { failed = true },
-            modifier = Modifier.size(size).clip(CircleShape),
-        )
-    } else {
-        Box(
-            modifier = Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (!comment.deleted) {
-                Text(
-                    comment.author.take(1).uppercase(),
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    style = if (size <
-                        32.dp
-                    ) {
-                        MaterialTheme.typography.labelSmall
-                    } else {
-                        MaterialTheme.typography.labelLarge
-                    },
-                )
-            }
+    val url = comment.avatarUrl?.takeIf { showImage && !comment.deleted && !failed }
+    Box(
+        modifier = Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        // The initial sits *under* the picture rather than instead of it. A portrait that is still
+        // arriving — or that never arrives and never says so — then leaves a letter rather than a
+        // hole, which is what an empty circle in a thread actually looked like.
+        if (!comment.deleted) {
+            Text(
+                comment.author.take(1).uppercase(),
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                style = if (size <
+                    32.dp
+                ) {
+                    MaterialTheme.typography.labelSmall
+                } else {
+                    MaterialTheme.typography.labelLarge
+                },
+            )
+        }
+        if (url != null) {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                // Avatars are not all square, and fitting one into a circle leaves bare edges.
+                contentScale = ContentScale.Crop,
+                onError = { failed = true },
+                modifier = Modifier.matchParentSize(),
+            )
         }
     }
 }

@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader.comments
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -26,6 +28,8 @@ import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentFeedback
 import leaf.novel.api.NovelCommentRating
+import leaf.novel.api.NovelCommentReaction
+import leaf.novel.api.NovelCommentSentiment
 import leaf.novel.api.NovelCommentVote
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -69,6 +73,56 @@ fun NovelCommentRatingRow(rating: NovelCommentRating, modifier: Modifier = Modif
         )
     }
 }
+
+/**
+ * A verdict in the rating's place.
+ *
+ * Some sites do not score a review at all; they ask only whether the reader recommends the novel,
+ * and the star slot would otherwise sit empty. The colour comes from the source's own
+ * [NovelCommentSentiment] rather than from reading the label, so a site whose words are
+ * "Recommended" and a site whose words are something else both land the same way.
+ */
+@Composable
+fun NovelCommentReactionRow(reaction: NovelCommentReaction, modifier: Modifier = Modifier) {
+    val colour = when (reaction.sentiment) {
+        NovelCommentSentiment.POSITIVE -> if (isSystemInDarkTheme()) POSITIVE_DARK else POSITIVE_LIGHT
+        NovelCommentSentiment.NEGATIVE -> MaterialTheme.colorScheme.error
+        NovelCommentSentiment.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val label = listOfNotNull(reaction.label, reaction.count?.toString()).joinToString(" ")
+    Row(
+        modifier = modifier.semantics(mergeDescendants = true) { contentDescription = label },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        val emoji = reaction.emoji
+        if (emoji != null) {
+            Text(emoji, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        } else if (reaction.sentiment != NovelCommentSentiment.NEUTRAL) {
+            Icon(
+                NovelCommentGlyphs.Like,
+                null,
+                tint = colour,
+                // The same thumb the vote row uses, turned over for a verdict against.
+                modifier = Modifier.size(12.dp)
+                    .then(
+                        if (reaction.sentiment ==
+                            NovelCommentSentiment.NEGATIVE
+                        ) {
+                            Modifier.rotate(180f)
+                        } else {
+                            Modifier
+                        },
+                    ),
+            )
+        }
+        Text(label, style = MaterialTheme.typography.labelSmall, color = colour, maxLines = 1)
+    }
+}
+
+/** Green reads as approval in both themes only if it is darkened for light backgrounds. */
+private val POSITIVE_LIGHT = Color(0xFF1B873F)
+private val POSITIVE_DARK = Color(0xFF6FD08C)
 
 /** One compact, consistent pair. Site votes use the same thumbs as likes and dislikes. */
 @Composable
