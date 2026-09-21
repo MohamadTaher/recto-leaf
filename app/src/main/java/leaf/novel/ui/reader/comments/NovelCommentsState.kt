@@ -84,6 +84,24 @@ enum class NovelCommentKind {
         COMMENTS -> feed.key != NovelCommentFeed.REVIEWS
     }
 
+    /**
+     * Whether one comment belongs to this kind.
+     *
+     * A feed keyed for reviews holds nothing but reviews, and that settles those. A comment feed is
+     * the case worth checking: some sites return their reviews through the ordinary listing and
+     * mark them only by writing a rating into the comment itself, leaving the extension no separate
+     * feed to declare. A comment carrying stars is filed as the review it plainly is, rather than
+     * being counted among the comments because of where it happened to arrive.
+     */
+    fun admits(feed: NovelCommentFeed, comment: NovelComment): Boolean = when (this) {
+        ALL -> true
+        REVIEWS -> isReview(feed, comment)
+        COMMENTS -> !isReview(feed, comment)
+    }
+
+    private fun isReview(feed: NovelCommentFeed, comment: NovelComment): Boolean =
+        feed.key == NovelCommentFeed.REVIEWS || NovelCommentReview.parse(comment.body).rating != null
+
     /** The next in the toggle's cycle: all, then reviews, then comments, then all again. */
     val next: NovelCommentKind get() = entries[(ordinal + 1) % entries.size]
 }
@@ -276,3 +294,11 @@ data class NovelCommentsState(
 
 private fun Throwable.text(): String =
     message?.takeIf { it.isNotBlank() } ?: this::class.simpleName.orEmpty()
+
+/**
+ * A site the reader can open themselves when it will not answer this app.
+ *
+ * Carries the source id as well as the address because the WebView has to browse as that
+ * extension: a check is only cleared for whoever holds the cookies, and those are the source's.
+ */
+data class NovelCommentVerification(val sourceId: Long, val name: String, val url: String)

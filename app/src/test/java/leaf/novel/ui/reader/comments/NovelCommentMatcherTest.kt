@@ -4,6 +4,7 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentPage
@@ -29,9 +30,9 @@ class NovelCommentMatcherTest {
         val lone = FakeCommentSource(id = 3L, respond = empty).apply { search = { listOf(novel("Shadow Slave 2")) } }
         val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(own, same, lone) }
 
-        val found = matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER)
+        val found = matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER).toList()
 
-        found.map { (source, match) -> source.id to match.url } shouldBe listOf(2L to "/found")
+        found.map { it.source.id to it.novel.url } shouldBe listOf(2L to "/found")
         own.searches shouldBe emptyList()
     }
 
@@ -45,9 +46,10 @@ class NovelCommentMatcherTest {
         ).apply { search = { listOf(novel("Shadow Slave")) } }
         val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(own, novelOnly) }
 
-        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER) shouldBe emptyList()
+        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER).toList() shouldBe emptyList()
         novelOnly.searches shouldBe emptyList()
-        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.NOVEL).map { it.first.id } shouldBe listOf(2L)
+        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.NOVEL).toList()
+            .map { it.source.id } shouldBe listOf(2L)
     }
 
     @Test
@@ -59,13 +61,45 @@ class NovelCommentMatcherTest {
         }
         val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(own, other) }
 
-        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER) shouldBe emptyList()
+        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER).toList() shouldBe emptyList()
         failing = false
-        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER) shouldBe emptyList()
-        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER) shouldBe emptyList()
+        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER).toList() shouldBe emptyList()
+        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER).toList() shouldBe emptyList()
 
         // The failure was asked again; the empty answer that followed it was not.
         other.searches.size shouldBe 2
+    }
+
+    /**
+     * Why this emits instead of returning a list. A site that paces itself to one request every few
+     * seconds is slow by design, and gathering every answer before handing any of them over meant
+     * one such site kept every other site's comments off the screen.
+     */
+    @Test
+    fun `a source that answers quickly is handed over while a slow one is still being asked`() = runBlocking<Unit> {
+        val own = FakeCommentSource(id = 1L, respond = empty)
+        val quick = FakeCommentSource(id = 2L, respond = empty).apply {
+            search = { listOf(novel("Shadow Slave", url = "/quick")) }
+        }
+        val slow = FakeCommentSource(id = 3L, respond = empty).apply {
+            search = {
+                delay(300)
+                listOf(novel("Shadow Slave", url = "/slow"))
+            }
+        }
+        val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(own, quick, slow) }
+
+        val started = System.currentTimeMillis()
+        val arrivals = mutableListOf<Pair<Long, Long>>()
+        matcher.find(own, novel("Shadow Slave"), NovelCommentScope.CHAPTER).collect {
+            arrivals += it.source.id to (System.currentTimeMillis() - started)
+        }
+
+        // Both are found, the quick one first — and in hand well before the slow one answered,
+        // which is exactly what waiting for the whole set could not do.
+        arrivals.map { it.first } shouldBe listOf(2L, 3L)
+        (arrivals.first().second < 150) shouldBe true
+        (arrivals.last().second >= 300) shouldBe true
     }
 
     @Test
@@ -106,7 +140,7 @@ class NovelCommentMatcherTest {
         val book = novel("Shadow Slave")
 
         matcher.chapter(other, book, 1.0)?.url shouldBe "/c/1"
-        repeat(5) { matcher.find(own, novel("Some Other Novel $it"), NovelCommentScope.CHAPTER) }
+        repeat(5) { matcher.find(own, novel("Some Other Novel $it"), NovelCommentScope.CHAPTER).toList() }
         matcher.chapter(other, book, 1.0)?.url shouldBe "/c/1"
 
         other.chapterFetches.get() shouldBe 1

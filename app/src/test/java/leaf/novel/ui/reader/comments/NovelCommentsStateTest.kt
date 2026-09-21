@@ -3,6 +3,7 @@ package leaf.novel.ui.reader.comments
 import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
+import leaf.novel.api.NovelCommentFeed
 import org.junit.jupiter.api.Test
 
 /**
@@ -26,6 +27,33 @@ class NovelCommentsStateTest {
         replies = replies,
         replyCount = replies.size,
     )
+
+    /**
+     * A feed's key settles what it holds, except where it does not: a site whose reviews come back
+     * through the ordinary listing marks them by writing a rating into the comment, and nothing
+     * about the feed says so.
+     */
+    @Test
+    fun `a comment carrying stars is a review wherever it arrived`() {
+        val discussion = NovelCommentFeed("comments", "Comments", NovelCommentCapabilities())
+        val reviews = NovelCommentFeed(NovelCommentFeed.REVIEWS, "Reviews", NovelCommentCapabilities())
+        val plain = comment("plain")
+        val starred = comment("starred").copy(body = "<b>★ 4.5 / 5.0</b><br>Worth every chapter")
+
+        // A review feed holds reviews whatever its comments happen to look like.
+        NovelCommentKind.REVIEWS.admits(reviews, plain) shouldBe true
+        NovelCommentKind.COMMENTS.admits(reviews, plain) shouldBe false
+
+        // A comments feed holds comments, until one of them turns out to carry a rating.
+        NovelCommentKind.COMMENTS.admits(discussion, plain) shouldBe true
+        NovelCommentKind.REVIEWS.admits(discussion, plain) shouldBe false
+        NovelCommentKind.REVIEWS.admits(discussion, starred) shouldBe true
+        NovelCommentKind.COMMENTS.admits(discussion, starred) shouldBe false
+
+        // And neither filter is the unfiltered sheet, which shows both.
+        NovelCommentKind.ALL.admits(discussion, starred) shouldBe true
+        NovelCommentKind.ALL.admits(discussion, plain) shouldBe true
+    }
 
     private fun state() = NovelCommentsState(capabilities = NovelCommentCapabilities())
 

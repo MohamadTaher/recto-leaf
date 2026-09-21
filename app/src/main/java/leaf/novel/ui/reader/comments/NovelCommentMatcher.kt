@@ -6,9 +6,9 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import leaf.novel.api.NovelCommentFeedSource
@@ -51,22 +51,33 @@ class NovelCommentMatcher(
     private val locks = ConcurrentHashMap<ChaptersKey, Mutex>()
 
     /**
-     * [novel] on every other source that serves [scope], searched in parallel.
+     * [novel] on every other source that serves [scope], searched in parallel and **emitted as each
+     * one answers** rather than gathered up and handed over at the end.
+     *
+     * The difference is the whole point. These searches are as slow as the slowest site, and a site
+     * that paces itself to one request every few seconds is slow by design — so waiting for all of
+     * them meant a source that had answered in half a second sat unread until the slowest finished.
+     * Emitting one at a time lets the sheet show each site's comments the moment it has them.
      *
      * A source that fails to answer has no match this time rather than failing the rest; its
-     * failure is not remembered, so the next visit asks it again.
+     * failure is not remembered, so the next visit asks it again. Each search carries its own
+     * timeout, so one that never answers holds up nothing but itself.
+     *
+     * Each match carries the place its source held in the list, because arriving first is not a
+     * reason to be listed first: which site answers soonest is a matter of how fast its server is
+     * that second, and a sheet whose sources reshuffle between openings would be the result.
      */
-    suspend fun find(
+    fun find(
         primary: Source,
         novel: SManga,
         scope: NovelCommentScope,
-    ): List<Pair<NovelCommentSource, SManga>> = coroutineScope {
+    ): Flow<NovelCommentMatch> = channelFlow {
         sources()
             .filterIsInstance<NovelCommentSource>()
             .filter { it.id != primary.id && it.serves(scope) }
-            .map { source -> async { match(source, novel.title)?.let { source to it } } }
-            .awaitAll()
-            .filterNotNull()
+            .forEachIndexed { order, source ->
+                launch { match(source, novel.title)?.let { send(NovelCommentMatch(order, source, it)) } }
+            }
     }
 
     /** [source]'s chapter numbered [number], or null when it has none or the number is unknown. */
@@ -133,6 +144,14 @@ class NovelCommentMatcher(
         private val NOT_WORD = Regex("""[^\p{L}\p{N}]+""")
     }
 }
+
+/**
+ * One novel found on one other source, and where that source stood in the list it was found from.
+ *
+ * [order] is the sheet's, not the search's: matches arrive in whatever order the sites answer, and
+ * the sheet puts them back into the order the sources are listed in so it reads the same each time.
+ */
+data class NovelCommentMatch(val order: Int, val source: NovelCommentSource, val novel: SManga)
 
 /** Whether this source can serve [scope] at all, through its own capabilities or any of its feeds. */
 private fun NovelCommentSource.serves(scope: NovelCommentScope): Boolean =

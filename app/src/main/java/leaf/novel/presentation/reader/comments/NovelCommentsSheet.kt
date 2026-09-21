@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader.comments
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -39,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -47,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.DropdownMenu
+import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import kotlinx.coroutines.launch
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentScope
@@ -156,11 +159,26 @@ fun NovelCommentsSheet(
                         onAction = comments::reload,
                     )
 
-                    state.error != null && state.rows.isEmpty() -> Message(
-                        text = state.error.orEmpty(),
-                        action = stringResource(MR.strings.action_retry),
-                        onAction = comments::reload,
-                    )
+                    state.error != null && state.rows.isEmpty() -> {
+                        // A site that will not answer is worth looking at by hand: some guard
+                        // themselves with a check only a person can pass, and the WebView carries
+                        // the same cookies, so clearing it there clears it for the extension too.
+                        val context = LocalContext.current
+                        val verification = remember(state.error) { comments.verification() }
+                        Message(
+                            text = state.error.orEmpty(),
+                            action = stringResource(MR.strings.action_retry),
+                            onAction = comments::reload,
+                            secondary = verification?.let { stringResource(MR.strings.action_open_in_web_view) },
+                            onSecondary = verification?.let { target ->
+                                {
+                                    context.startActivity(
+                                        WebViewActivity.newIntent(context, target.url, target.sourceId, target.name),
+                                    )
+                                }
+                            },
+                        )
+                    }
 
                     state.isEmpty -> Message(
                         text = stringResource(
@@ -572,9 +590,16 @@ private fun Loading() {
     }
 }
 
-/** An empty thread, an unloaded one or a failure. All three are one line and at most one button. */
+/** An empty thread, an unloaded one or a failure: one line, and the way out of it. */
 @Composable
-private fun Message(text: String?, action: String? = null, onAction: (() -> Unit)? = null) {
+private fun Message(
+    text: String?,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+    /** Offered beside [action] where there is something the reader can do about it themselves. */
+    secondary: String? = null,
+    onSecondary: (() -> Unit)? = null,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -591,8 +616,13 @@ private fun Message(text: String?, action: String? = null, onAction: (() -> Unit
                 modifier = Modifier.secondaryItemAlpha(),
             )
         }
-        if (action != null && onAction != null) {
-            TextButton(onClick = onAction) { Text(action) }
+        Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            if (secondary != null && onSecondary != null) {
+                TextButton(onClick = onSecondary) { Text(secondary) }
+            }
+            if (action != null && onAction != null) {
+                TextButton(onClick = onAction) { Text(action) }
+            }
         }
     }
 }

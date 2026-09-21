@@ -5,6 +5,7 @@ import eu.kanade.domain.manga.model.toSManga
 import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.SManga
+import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -123,6 +124,10 @@ class NovelComments(
     @Volatile
     private var origins: List<Origin> = emptyList()
     private var chapter: Chapter? = null
+
+    /** Whose thread failed last, so [verification] knows which site to offer. */
+    @Volatile
+    private var failedOrigin: Origin? = null
 
     /** Watches the threads on screen. Cancelled and restarted whenever what is on screen changes. */
     private var loadJob: Job? = null
@@ -594,16 +599,28 @@ class NovelComments(
         val done = threads.all { (_, thread) -> thread.done }
         val failed = threads.firstOrNull { (_, thread) -> thread.failure != null }
         val likes = HashMap<String, Int>()
+        // Filtered per comment rather than per feed, because a comments feed can be carrying
+        // reviews: see NovelCommentKind.admits(feed, comment).
+        val kind = state.value.kind
         val presented = threads.flatMap { (drain, thread) ->
             drain.present(thread, settle = merged && !drain.feed.capabilities.lazyReplies, likes)
+                .filter { kind.admits(drain.feed, it) }
         }
-        val counts = threads.filter { (_, thread) -> thread.loaded }.groupBy(
-            keySelector = { (drain, _) -> NovelCommentKind.REVIEWS.admits(drain.feed) },
-            valueTransform = { (_, thread) ->
-                thread.total
-                    ?: NovelCommentTree.count(NovelCommentTree.build(thread.comments))
-            },
-        )
+        var reviewCount = 0
+        var commentCount = 0
+        threads.filter { (_, thread) -> thread.loaded }.forEach { (drain, thread) ->
+            val roots = NovelCommentTree.build(thread.comments)
+            val total = thread.total ?: NovelCommentTree.count(roots)
+            if (NovelCommentKind.REVIEWS.admits(drain.feed)) {
+                reviewCount += total
+            } else {
+                // The site's own total counts everything the feed holds, so the reviews found
+                // inside it come off the comment tally rather than being added on top of it.
+                val reviews = roots.count { NovelCommentKind.REVIEWS.admits(drain.feed, it) }
+                reviewCount += reviews
+                commentCount += (total - reviews).coerceAtLeast(0)
+            }
+        }
         val thread = NovelCommentThread(
             comments = NovelCommentTree.sortedBy(presented, state.value.sort.comparator { likes[it.id] ?: 0 }),
             voting = threads.flatMapTo(mutableSetOf()) { (drain, thread) -> thread.voting.map(drain::tagged) },
@@ -624,8 +641,8 @@ class NovelComments(
             if (current != generation) return@update it
             val counted = it.copy(
                 origins = described,
-                reviewCount = counts[true].orEmpty().sum(),
-                commentCount = counts[false].orEmpty().sum(),
+                reviewCount = reviewCount,
+                commentCount = commentCount,
             )
             then(counted.withThread(thread, collapseNew))
         }
@@ -673,6 +690,10 @@ class NovelComments(
         val current = state.value
         return origins
             .filter { current.origin == null || it.source.id == current.origin }
+            // Still by feed. Letting every feed through so the reviews filter could reach the
+            // reviews hiding in a comments feed also keeps that feed's pending replies alive while
+            // it is filtered away, which is a documented invariant and a worse thing to break than
+            // this is to gain. What a starred comment gets instead is in NovelCommentKind.
             .flatMap { origin -> origin.feeds.filter(current.kind::admits).map { origin to it } }
     }
 
@@ -689,10 +710,27 @@ class NovelComments(
         if (matchJob != null) return
         mutableState.update { it.copy(searching = true) }
         matchJob = scope.launch {
-            val found = attempt { matcher.find(own.source, own.novel, commentScope) }.getOrElse { emptyList() }
-            // Rebuilt from the novel's own source rather than appended to, so a second search — which
-            // is what reload is — does not list every source it finds again twice.
-            origins = origins.filter { it.own } + found.map { (source, novel) -> Origin(source, novel, own = false) }
+            // Cleared before the search rather than rebuilt after it, so a second search — which is
+            // what reload is — does not list every source it finds again twice, and so each match
+            // below can simply be appended as it lands.
+            origins = origins.filter { it.own }
+            // Kept by the place its source had in the list rather than by when it answered, so the
+            // sheet reads the same each time it is opened however fast the sites happen to be.
+            val found = sortedMapOf<Int, Origin>()
+            try {
+                matcher.find(own.source, own.novel, commentScope).collect { match ->
+                    // Brought in one at a time: a site that answered quickly is read while the slow
+                    // ones are still being asked, instead of every site waiting for the last.
+                    found[match.order] = Origin(match.source, match.novel, own = false)
+                    origins = origins.filter { it.own } + found.values
+                    mutableState.update { it.configured() }
+                    if (loadJob?.isActive == true) show()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                logcat(LogPriority.WARN, e) { "Could not look for ${own.novel.title} on the other sources" }
+            }
             mutableState.update { it.copy(searching = false).configured() }
             if (loadJob?.isActive == true) show()
         }
@@ -813,11 +851,36 @@ class NovelComments(
         Result.failure(e)
     }
 
-    /** A failure as the sheet reports it: with several threads showing, prefixed by whose it was. */
+    /**
+     * A failure as the sheet reports it: with several threads showing, prefixed by whose it was.
+     *
+     * Also the one place every failure passes through, so it is where the site that produced it is
+     * remembered for [verification].
+     */
     private fun failureOf(drain: Drain, failure: Throwable): Throwable {
+        failedOrigin = drain.origin
         if (shown.size < 2) return failure
         val message = failure.message?.takeIf { it.isNotBlank() } ?: failure::class.simpleName
         return Exception("${drain.origin.source.name}: $message", failure)
+    }
+
+    /**
+     * The site to open by hand, and the novel's page on it.
+     *
+     * Some sites guard themselves with a check no request can answer — a form served with an
+     * ordinary success, asking whoever is on the other end to prove they are a person. An
+     * extension can try to clear one, but trying is all it can do: a check that wants a human gets
+     * one only if the reader is given somewhere to go. This is that somewhere, and it is worth
+     * offering whatever the failure was, because a site that will not answer is a site worth
+     * looking at.
+     *
+     * The failing source where one is known, the novel's own otherwise.
+     */
+    fun verification(): NovelCommentVerification? {
+        val origin = failedOrigin ?: origins.firstOrNull() ?: return null
+        val source = origin.source as? HttpSource ?: return null
+        val url = runCatching { source.getMangaUrl(origin.novel) }.getOrNull() ?: source.baseUrl
+        return NovelCommentVerification(sourceId = source.id, name = source.name, url = url)
     }
 
     /** The thread on screen a comment belongs to, read off its id's tag. */
