@@ -700,6 +700,44 @@ class NovelCommentsTest {
             }
         }
 
+    /**
+     * A site that hands its reviews back through the ordinary listing, marked only by a rating
+     * written into the comment, has no review feed to declare. The sheet files those by what they
+     * are rather than by where they arrived, and both filters have to agree with the counts.
+     */
+    @Test
+    fun `a comment carrying stars is filed and filtered as a review`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+        val source = FakeCommentSource(capabilities, id = 1L, name = "Own") {
+            NovelCommentPage(
+                listOf(
+                    comment("plain"),
+                    comment("starred").copy(body = "<b>★ 4.5 / 5.0</b><br>Worth every chapter"),
+                ),
+            )
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
+            comments.bind(source, Manga.create())
+            comments.open()
+            waitFor("both") { comments.state.value.roots.size == 2 }
+
+            // One of the two is a review, and it is not counted twice.
+            comments.state.value.reviewCount shouldBe 1
+            comments.state.value.commentCount shouldBe 1
+            comments.state.value.kinds shouldBe setOf(NovelCommentKind.REVIEWS, NovelCommentKind.COMMENTS)
+
+            comments.setKind(NovelCommentKind.REVIEWS)
+            waitFor("the starred one alone") { comments.state.value.roots.singleOrNull()?.id == "starred" }
+
+            comments.setKind(NovelCommentKind.COMMENTS)
+            waitFor("the plain one alone") { comments.state.value.roots.singleOrNull()?.id == "plain" }
+        } finally {
+            scope.cancel()
+        }
+    }
+
     /** A controller that also looks for the novel on the [sources] after the first, which is its own. */
     private fun shared(
         scope: CoroutineScope,

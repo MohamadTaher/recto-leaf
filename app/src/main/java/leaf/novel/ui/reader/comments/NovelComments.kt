@@ -606,26 +606,20 @@ class NovelComments(
             drain.present(thread, settle = merged && !drain.feed.capabilities.lazyReplies, likes)
                 .filter { kind.admits(drain.feed, it) }
         }
-        var reviewCount = 0
-        var commentCount = 0
-        threads.filter { (_, thread) -> thread.loaded }.forEach { (drain, thread) ->
-            val roots = NovelCommentTree.build(thread.comments)
-            val total = thread.total ?: NovelCommentTree.count(roots)
-            if (NovelCommentKind.REVIEWS.admits(drain.feed)) {
-                reviewCount += total
-            } else {
-                // The site's own total counts everything the feed holds, so the reviews found
-                // inside it come off the comment tally rather than being added on top of it.
-                val reviews = roots.count { NovelCommentKind.REVIEWS.admits(drain.feed, it) }
-                reviewCount += reviews
-                commentCount += (total - reviews).coerceAtLeast(0)
-            }
-        }
+        val loaded = threads.filter { (_, thread) -> thread.loaded }
+        val reviewCount = loaded.sumOf { (drain, thread) -> count(NovelCommentKind.REVIEWS, drain.feed, thread) }
+        val commentCount = loaded.sumOf { (drain, thread) -> count(NovelCommentKind.COMMENTS, drain.feed, thread) }
+        // Votes and reply loads follow what is on screen, not what was fetched. A feed the filter
+        // has hidden must not report a reply still arriving in it, and one whose reviews are
+        // showing must: both fall out of asking which ids survived the filter above.
+        val visible = NovelCommentTree.ids(presented)
         val thread = NovelCommentThread(
             comments = NovelCommentTree.sortedBy(presented, state.value.sort.comparator { likes[it.id] ?: 0 }),
-            voting = threads.flatMapTo(mutableSetOf()) { (drain, thread) -> thread.voting.map(drain::tagged) },
+            voting = threads.flatMapTo(mutableSetOf()) { (drain, thread) ->
+                thread.voting.map(drain::tagged).filter { it in visible }
+            },
             loadingReplies = threads.flatMapTo(mutableSetOf()) { (drain, thread) ->
-                thread.loadingReplies.map(drain::tagged)
+                thread.loadingReplies.map(drain::tagged).filter { it in visible }
             },
             posting = threads.any { (_, thread) -> thread.posting },
             total = threads.map { (_, thread) -> thread.total }.takeIf { null !in it }?.sumOf { it ?: 0 },
@@ -637,10 +631,14 @@ class NovelComments(
             failure = failed?.takeIf { arrived || done }?.let { (drain, thread) -> failureOf(drain, thread.failure!!) },
         )
         val described = describe()
+        // Asked again now the page has landed: a comments feed only reveals that it is carrying
+        // reviews once some have arrived, and the filter it offers has to appear with them.
+        val kinds = kindsOf(origins.filter { state.value.origin == null || it.source.id == state.value.origin })
         mutableState.update {
             if (current != generation) return@update it
             val counted = it.copy(
                 origins = described,
+                kinds = kinds,
                 reviewCount = reviewCount,
                 commentCount = commentCount,
             )
@@ -659,11 +657,12 @@ class NovelComments(
     private fun NovelCommentsState.configured(): NovelCommentsState {
         val filter = origin
         val visible = this@NovelComments.origins.filter { filter == null || it.source.id == filter }
-        val kinds = visible.flatMap { it.feeds }.mapTo(mutableSetOf()) {
-            if (NovelCommentKind.REVIEWS.admits(it)) NovelCommentKind.REVIEWS else NovelCommentKind.COMMENTS
-        }
+        val kinds = kindsOf(visible)
         val kind = kind.takeIf { it == NovelCommentKind.ALL || it in kinds } ?: NovelCommentKind.ALL
+        // Falls back to every feed where the filter leaves none, so a sheet showing only the
+        // reviews found inside a comments feed still has capabilities to draw itself with.
         val feeds = visible.flatMap { it.feeds.filter(kind::admits) }
+            .ifEmpty { visible.flatMap { it.feeds } }
         val capabilities = feeds.singleOrNull()?.capabilities
             ?: feeds.map { it.capabilities }.let { all ->
                 all.firstOrNull()?.copy(posting = false, lazyReplies = all.any { it.lazyReplies })
@@ -671,17 +670,58 @@ class NovelComments(
         return copy(capabilities = capabilities, kind = kind, kinds = kinds, origins = describe(kind))
     }
 
+    /**
+     * Which filters these sources have anything to put behind them.
+     *
+     * A review feed offers reviews and a comments feed offers comments, but a comments feed that
+     * turns out to be carrying reviews offers that filter too — and only once its comments have
+     * arrived, since until then there is nothing to tell. So this is asked again as each page
+     * lands rather than settled when the sheet is first configured.
+     */
+    private fun kindsOf(sources: List<Origin>): Set<NovelCommentKind> =
+        sources.flatMapTo(mutableSetOf()) { origin ->
+            origin.feeds.flatMap { feed ->
+                if (NovelCommentKind.REVIEWS.admits(feed)) {
+                    listOf(NovelCommentKind.REVIEWS)
+                } else {
+                    val thread = keyFor(origin, feed, chapter)?.let { drains[it] }?.pages?.value
+                    val reviews = thread != null && count(NovelCommentKind.REVIEWS, feed, thread) > 0
+                    listOfNotNull(NovelCommentKind.COMMENTS, NovelCommentKind.REVIEWS.takeIf { reviews })
+                }
+            }
+        }
+
+    /**
+     * How much of one feed's thread [kind] admits.
+     *
+     * By comment rather than by feed, because a comments feed can be carrying reviews. The site's
+     * own total counts everything the feed holds, so the reviews found inside it come off the
+     * comment tally rather than being added on top of it.
+     */
+    private fun count(kind: NovelCommentKind, feed: NovelCommentFeed, thread: NovelCommentThread): Int {
+        val roots = NovelCommentTree.build(thread.comments)
+        val total = thread.total ?: NovelCommentTree.count(roots)
+        if (kind == NovelCommentKind.ALL) return total
+        if (NovelCommentKind.REVIEWS.admits(feed)) {
+            return if (kind == NovelCommentKind.REVIEWS) total else 0
+        }
+        val reviews = roots.count { NovelCommentKind.REVIEWS.admits(feed, it) }
+        return if (kind == NovelCommentKind.REVIEWS) reviews else (total - reviews).coerceAtLeast(0)
+    }
+
     /** Each source as the filter shows it, counted over its threads for whatever is open now. */
     private fun describe(kind: NovelCommentKind = state.value.kind): List<NovelCommentOrigin> = origins.map { origin ->
-        val threads = origin.feeds.filter(kind::admits)
-            .mapNotNull { feed -> keyFor(origin, feed, chapter)?.let { drains[it] }?.pages?.value }
+        // Every feed, then counted by what the filter admits of it: a comments feed contributes its
+        // reviews to a reviews filter, so it cannot be dropped before it is counted.
+        val threads = origin.feeds.mapNotNull { feed ->
+            keyFor(origin, feed, chapter)?.let { drains[it] }?.pages?.value?.let { feed to it }
+        }
+        val counted = threads.filter { (_, thread) -> thread.loaded }
         NovelCommentOrigin(
             id = origin.source.id,
             name = origin.source.name,
-            count = threads.filter { it.loaded }.takeIf { it.isNotEmpty() }?.sumOf {
-                it.total ?: NovelCommentTree.count(NovelCommentTree.build(it.comments))
-            },
-            loading = threads.any { !it.done },
+            count = counted.takeIf { it.isNotEmpty() }?.sumOf { (feed, thread) -> count(kind, feed, thread) },
+            loading = threads.any { (_, thread) -> !thread.done },
         )
     }
 
@@ -690,11 +730,12 @@ class NovelComments(
         val current = state.value
         return origins
             .filter { current.origin == null || it.source.id == current.origin }
-            // Still by feed. Letting every feed through so the reviews filter could reach the
-            // reviews hiding in a comments feed also keeps that feed's pending replies alive while
-            // it is filtered away, which is a documented invariant and a worse thing to break than
-            // this is to gain. What a starred comment gets instead is in NovelCommentKind.
-            .flatMap { origin -> origin.feeds.filter(current.kind::admits).map { origin to it } }
+            // Every feed, whatever the kind filter says, because a comments feed can be holding
+            // reviews and dropping it here would put them out of the reviews filter's reach. The
+            // filter belongs on what arrives rather than on what is asked for; a feed the filter
+            // hides contributes no rows, and with them none of its votes or pending replies.
+            // Threads are kept once fetched, so this asks for nothing the unfiltered sheet does not.
+            .flatMap { origin -> origin.feeds.map { origin to it } }
     }
 
     /**
