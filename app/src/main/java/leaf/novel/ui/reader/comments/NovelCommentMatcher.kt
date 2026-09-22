@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import leaf.novel.api.NovelCommentChapterSource
 import leaf.novel.api.NovelCommentFeedSource
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.api.NovelCommentSource
@@ -80,9 +81,19 @@ class NovelCommentMatcher(
             }
     }
 
-    /** [source]'s chapter numbered [number], or null when it has none or the number is unknown. */
+    /**
+     * [source]'s chapter numbered [number], or null when it has none or the number is unknown.
+     *
+     * Asked of the source directly when it can answer, and otherwise read off its chapter list.
+     */
     suspend fun chapter(source: Source, novel: SManga, number: Double): SChapter? {
         if (number < 0) return null
+        if (source is NovelCommentChapterSource) {
+            val key = ChapterKey(source.id, novel.url, number)
+            matches.get<Found>(key)?.let { return it.chapter }
+            return withCommentTimeout(timeout) { source.getCommentChapter(novel, number) }
+                .also { matches.put(key, Found(it)) }
+        }
         val key = ChaptersKey(source.id, novel.url)
         val chapters = locks.getOrPut(key) { Mutex() }.withLock {
             lists.get<Map<Double, SChapter>>(key) ?: fetchChapters(source, novel).also { lists.put(key, it) }
@@ -127,6 +138,11 @@ class NovelCommentMatcher(
     private data class MatchKey(val source: Long, val title: String)
 
     private data class ChaptersKey(val source: Long, val url: String)
+
+    /** One chapter a source looked up itself, including one it does not have. */
+    private class Found(val chapter: SChapter?)
+
+    private data class ChapterKey(val source: Long, val url: String, val number: Double)
 
     companion object {
 

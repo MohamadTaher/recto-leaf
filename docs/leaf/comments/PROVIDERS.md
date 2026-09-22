@@ -186,7 +186,8 @@ things about an extension decide how well that works:
   should declare a single `REVIEWS` feed.
 - **Chapter numbers.** A chapter's comments on another site are found by number: the reader's
   chapter number, looked up in the other source's chapter list. Fill `chapter_number`, or give
-  chapters names `ChapterRecognition` can read a number from.
+  chapters names `ChapterRecognition` can read a number from. A site whose chapter list takes many
+  requests to fetch should implement `NovelCommentChapterSource` and find the one chapter itself.
 
 Ids only need to be unique within one feed of one site; the app keeps feeds and sites apart. The
 one exception is `NovelCommentFeedbackSource`, which is handed a comment and nothing else and so

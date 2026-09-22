@@ -1,5 +1,7 @@
 package leaf.novel.ui.reader.comments
 
+import eu.kanade.tachiyomi.source.model.SChapter
+import eu.kanade.tachiyomi.source.model.SManga
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -7,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import leaf.novel.api.NovelCommentCapabilities
+import leaf.novel.api.NovelCommentChapterSource
 import leaf.novel.api.NovelCommentPage
 import leaf.novel.api.NovelCommentRequest
 import leaf.novel.api.NovelCommentScope
@@ -120,6 +123,32 @@ class NovelCommentMatcherTest {
         matcher.chapter(other, book, 13.0) shouldBe null
         matcher.chapter(other, book, -1.0) shouldBe null
         other.chapterFetches.get() shouldBe 1
+    }
+
+    /**
+     * A site that pages its table of contents would otherwise be walked end to end — over a hundred
+     * requests for a long novel — to find one chapter.
+     */
+    @Test
+    fun `asks a source that can find a chapter itself instead of fetching its list`() = runBlocking<Unit> {
+        val asked = mutableListOf<Double>()
+        val other = object : FakeCommentSource(id = 2L, respond = empty), NovelCommentChapterSource {
+            override suspend fun getCommentChapter(novel: SManga, number: Double): SChapter? {
+                asked += number
+                return if (number == 12.0) sourceChapter(12f, "/c/12") else null
+            }
+        }.apply { chapters = { listOf(sourceChapter(12f, "/listed/12")) } }
+        val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(other) }
+        val book = novel("Shadow Slave")
+
+        matcher.chapter(other, book, 12.0)?.url shouldBe "/c/12"
+        matcher.chapter(other, book, 13.0) shouldBe null
+        matcher.chapter(other, book, 12.0)?.url shouldBe "/c/12"
+        matcher.chapter(other, book, 13.0) shouldBe null
+
+        // Each answer is remembered, the missing chapter included, and the list is never fetched.
+        asked shouldBe listOf(12.0, 13.0)
+        other.chapterFetches.get() shouldBe 0
     }
 
     /**
