@@ -52,6 +52,52 @@ class NovelCommentMarkupTest {
     }
 
     @Test
+    fun `keeps an image as its own span, not as text`() {
+        val spans = NovelCommentMarkup.parse("""look <img src="https://example.com/cat.gif"> here""")
+
+        spans.mapNotNull { it.image } shouldBe listOf("https://example.com/cat.gif")
+        text("""look <img src="https://example.com/cat.gif"> here""") shouldBe "look  here"
+    }
+
+    @Test
+    fun `keeps a comment that is only an image`() {
+        NovelCommentMarkup.parse("""<p><img src="https://example.com/cat.gif"></p>""")
+            .mapNotNull { it.image } shouldBe listOf("https://example.com/cat.gif")
+    }
+
+    @Test
+    fun `leaves no blank line where a picture stood at the end`() {
+        val spans = NovelCommentMarkup.parse("""so true<br><img src="https://example.com/cat.gif">""")
+
+        spans.filter { it.image == null }.joinToString("") { it.text } shouldBe "so true"
+        spans.mapNotNull { it.image } shouldBe listOf("https://example.com/cat.gif")
+    }
+
+    @Test
+    fun `keeps a video GIF the same way as a picture`() {
+        NovelCommentMarkup.parse("""<video src="https://example.com/clip.mp4"></video>""")
+            .mapNotNull { it.image } shouldBe listOf("https://example.com/clip.mp4")
+    }
+
+    @Test
+    fun `resolves a relative image and refuses one that is not http`() {
+        NovelCommentMarkup.parse(
+            """<img src="/a.png"><img src="data:image/png;base64,AAAA">""",
+            "https://site.test/c/1",
+        )
+            .mapNotNull { it.image } shouldBe listOf("https://site.test/a.png")
+    }
+
+    @Test
+    fun `takes a lazy image's real address over its placeholder`() {
+        NovelCommentMarkup.parse(
+            """<img src="/blank.gif" data-src="https://example.com/real.png">""",
+            "https://site.test/",
+        )
+            .mapNotNull { it.image } shouldBe listOf("https://example.com/real.png")
+    }
+
+    @Test
     fun `drops a stylesheet outright`() {
         text("<style>p{color:red}</style><p>hi</p>") shouldBe "hi"
     }

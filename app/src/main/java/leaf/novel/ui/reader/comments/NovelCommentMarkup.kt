@@ -51,7 +51,7 @@ object NovelCommentMarkup {
 
         val merged = mutableListOf<NovelCommentSpan>()
         spans.forEach { span ->
-            if (span.text.isEmpty()) return@forEach
+            if (span.text.isEmpty() && span.image == null) return@forEach
             val last = merged.lastOrNull()
             if (last != null && last.sameStyleAs(span)) {
                 merged[merged.lastIndex] = last.copy(text = last.text + span.text)
@@ -62,9 +62,17 @@ object NovelCommentMarkup {
 
         // A fragment that opens or closes with an empty <p> is common enough to be worth trimming;
         // left alone it draws a blank line above or below every one of those comments.
-        while (merged.isNotEmpty() && merged.first().text.isBlank()) merged.removeAt(0)
-        while (merged.isNotEmpty() && merged.last().text.isBlank()) merged.removeAt(merged.lastIndex)
-        return merged
+        while (merged.isNotEmpty() && merged.first().isBlank()) merged.removeAt(0)
+        // Pictures are drawn beneath the words, so text is trimmed as if they were not there: a line
+        // break that only led up to a picture would otherwise leave a blank line above it.
+        val lastWords = merged.indexOfLast { it.image == null && it.text.isNotBlank() }
+        return merged.mapIndexedNotNull { index, span ->
+            when {
+                span.image != null || index < lastWords -> span
+                index == lastWords -> span.copy(text = span.text.trimEnd())
+                else -> null
+            }
+        }
     }
 
     /** The comment as one string, for copying, sharing and searching. */
@@ -81,6 +89,11 @@ object NovelCommentMarkup {
                 val tag = node.normalName()
                 if (tag == "br") {
                     out += style.span("\n")
+                    return
+                }
+                // A GIF from a picker is a short video now as often as it is a GIF.
+                if (tag == "img" || tag == "video") {
+                    node.imageSource()?.let { out += style.span("").copy(image = it) }
                     return
                 }
 
@@ -153,6 +166,18 @@ private fun Element.linkTarget(): String? {
 private val SAFE_SCHEMES = listOf("http://", "https://", "mailto:")
 
 /**
+ * The absolute address of an `<img>`, or null when there is no web address to load.
+ *
+ * `data-src` first: a lazy-loading comment system puts a placeholder in `src` and the picture there.
+ */
+private fun Element.imageSource(): String? =
+    sequenceOf("data-src", "data-lazy-src", "src")
+        .map { absUrl(it) }
+        .firstOrNull { url -> IMAGE_SCHEMES.any { url.startsWith(it, ignoreCase = true) } }
+
+private val IMAGE_SCHEMES = listOf("http://", "https://")
+
+/**
  * A run of comment text and how it is drawn.
  *
  * Flags rather than a nested tree: a comment's formatting does not nest meaningfully past the
@@ -169,9 +194,21 @@ data class NovelCommentSpan(
     val spoiler: Boolean = false,
     /** Absolute, and only ever `http`, `https` or `mailto`. */
     val link: String? = null,
+    /**
+     * A picture or a video GIF rather than text, with an empty [text]: absolute, and only ever
+     * `http` or `https`.
+     *
+     * The sheet draws a comment's pictures beneath its words, since a picture cannot sit inside a
+     * line of an `AnnotatedString` without knowing its size first.
+     */
+    val image: String? = null,
 ) {
+    fun isBlank(): Boolean = image == null && text.isBlank()
+
     fun sameStyleAs(other: NovelCommentSpan): Boolean =
-        bold == other.bold &&
+        image == null &&
+            other.image == null &&
+            bold == other.bold &&
             italic == other.italic &&
             strikethrough == other.strikethrough &&
             code == other.code &&

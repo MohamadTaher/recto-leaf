@@ -344,6 +344,7 @@ fun NovelCommentItem(
                                     .padding(vertical = 10.dp),
                             )
                         }
+                        NovelCommentImages(remember(spans) { spans.mapNotNull { it.image } })
                     }
                 }
                 if (!comment.deleted) {

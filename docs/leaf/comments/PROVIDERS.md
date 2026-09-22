@@ -56,6 +56,14 @@ A site that returns replies inside their parent fills `replies`. A site that ret
 fills `parentId` on each comment and `NovelCommentTree` nests it. Doing both for the same comment
 doubles it, so pick whichever the site's own response shape makes cheaper.
 
+### Pictures and GIFs
+
+Send them as `<img src>`, or `<video src>` for a GIF a picker hands out as a short `.mp4` or
+`.webm`. The sheet draws them beneath the comment's words, GIFs and videos moving, and a tap opens
+the file. It cannot put one inside a line of text, so an emoji that is a picture reads better as its
+`:name:`. A site whose plain-text field flattens pictures away usually has a richer one beside it;
+use that, or a comment that is only a GIF arrives empty.
+
 ### Dates
 
 `postedAt` is epoch milliseconds. A site that only says "3 days ago" should leave it at zero rather
@@ -92,8 +100,14 @@ is per-application. An extension that goes this way should treat the key as a
 `ConfigurableSource` preference rather than shipping one.
 
 Neither of these has been checked against any site this fork has an extension for. Treat the field
-names above as a starting point to verify, not as something already known to work here. The sites
-this fork does have extensions for use neither — both serve their own JSON.
+names above as a starting point to verify, not as something already known to work here.
+
+**wpDiscuz** is a WordPress plugin that often has the REST route above closed. It answers its own
+AJAX actions on `admin-ajax.php` instead: `wpdLoadMoreComments` for a page of top-level comments,
+with the page's `postId` (in the page's `wc_post_id` setting), `sorting`, a zero-based `offset` and
+the previous page's `last_parent_id` as `lastParentId`; and `wpdShowReplies` with a `commentId` for
+one thread's replies, nested as child elements. Sites customise it — one keys each chapter's thread
+by a `chapterId` of its own — so capture what the site's "load more" button actually sends.
 
 ## Reading a site's own API
 
