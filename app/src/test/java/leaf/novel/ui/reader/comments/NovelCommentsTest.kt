@@ -1,7 +1,9 @@
 package leaf.novel.ui.reader.comments
 
+import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
+import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
@@ -24,6 +26,7 @@ import leaf.novel.api.NovelCommentFeedback
 import leaf.novel.api.NovelCommentFeedbackSource
 import leaf.novel.api.NovelCommentPage
 import leaf.novel.api.NovelCommentPositiveVote
+import leaf.novel.api.NovelCommentRating
 import leaf.novel.api.NovelCommentRequest
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.api.NovelCommentSort
@@ -61,15 +64,15 @@ class NovelCommentsTest {
             comments.bind(source, Manga.create())
             comments.setChapter(chapter(1))
             waitFor("parent") { comments.state.value.loaded }
-            comments.state.value.rows.map { it.key } shouldBe listOf("parent")
+            comments.state.value.rows.map { it.key } shouldBe listOf("body:parent")
             comments.toggleReplies(parent)
             waitFor("reply request") { source.replyRequests() == 1 }
             comments.toggleReplies(parent)
             response.complete(NovelCommentPage(listOf(comment("reply"))))
             waitFor("cached response") { comments.state.value.roots.single().replies.size == 1 }
-            comments.state.value.rows.map { it.key } shouldBe listOf("parent")
+            comments.state.value.rows.map { it.key } shouldBe listOf("body:parent")
             comments.toggleReplies(parent)
-            comments.state.value.rows.map { it.key } shouldBe listOf("parent", "reply", "hide:parent")
+            comments.state.value.rows.map { it.key } shouldBe listOf("body:parent", "body:reply", "hide:parent")
             source.replyRequests() shouldBe 1
         } finally {
             scope.cancel()
@@ -661,10 +664,11 @@ class NovelCommentsTest {
             val comments = shared(scope, own, silent, timeout = 200.milliseconds)
             comments.open()
             waitFor("the thread to stop waiting on the silent source") {
-                comments.state.value.loaded && !comments.state.value.loadingMore
+                comments.state.value.error == "Silent: Timed out after 200ms"
             }
 
             comments.state.value.roots.map { it.body } shouldBe listOf("1")
+            comments.state.value.loadingMore shouldBe false
             // Named as that source's failure rather than passed off as the sheet's.
             comments.state.value.error shouldBe "Silent: Timed out after 200ms"
         } finally {
@@ -743,6 +747,96 @@ class NovelCommentsTest {
 
             comments.setKind(NovelCommentKind.COMMENTS)
             waitFor("the plain one alone") { comments.state.value.roots.singleOrNull()?.id == "plain" }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a feedback rating files a plain comment as a review`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+        val source = object :
+            FakeCommentSource(capabilities, respond = {
+                NovelCommentPage(listOf(comment("plain"), comment("rated")))
+            }),
+            NovelCommentFeedbackSource {
+            override fun getCommentFeedback(comment: NovelComment) =
+                NovelCommentFeedback(rating = NovelCommentRating(4.5).takeIf { comment.id == "rated" })
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
+            comments.bind(source, Manga.create())
+            comments.open()
+            waitFor("both comments") { comments.state.value.roots.size == 2 }
+
+            comments.state.value.reviewCount shouldBe 1
+            comments.state.value.commentCount shouldBe 1
+            comments.setKind(NovelCommentKind.REVIEWS)
+            waitFor("rated review") { comments.state.value.roots.singleOrNull()?.id == "rated" }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `finds novel comments elsewhere when the current source has no comment interface`() = runBlocking<Unit> {
+        val primary = object : Source {
+            override val id = 1L
+            override val name = "Primary"
+            override val supportsLatest = false
+            override suspend fun getPopularManga(page: Int): MangasPage = error("unused")
+            override suspend fun getLatestUpdates(page: Int): MangasPage = error("unused")
+            override suspend fun getSearchManga(
+                page: Int,
+                query: String,
+                filters: FilterList,
+            ): MangasPage = error("unused")
+            override suspend fun getMangaUpdate(
+                manga: SManga,
+                chapters: List<SChapter>,
+                fetchDetails: Boolean,
+                fetchChapters: Boolean,
+            ): SMangaUpdate = error("unused")
+            override suspend fun getPageList(chapter: SChapter): List<Page> = error("unused")
+        }
+        val other = FakeCommentSource(
+            NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL)),
+            id = 2L,
+        ) { NovelCommentPage(listOf(comment("elsewhere"))) }
+        other.search = { listOf(novel("Shadow Slave")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(
+                scope = scope,
+                preferences = preferences(),
+                commentScope = NovelCommentScope.NOVEL,
+                matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(primary, other) },
+                allowCrossSourceOnly = true,
+            )
+            comments.bind(primary, Manga.create().copy(title = "Shadow Slave"))
+            comments.supported shouldBe true
+            comments.open()
+            waitFor("other source") { comments.state.value.roots.singleOrNull()?.body == "elsewhere" }
+            comments.state.value.origins.map { it.id } shouldBe listOf(2L)
+
+            val unmatched = FakeCommentSource(
+                NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL)),
+                id = 3L,
+            ) { error("no match") }
+            unmatched.search = { emptyList() }
+            val empty = NovelComments(
+                scope = scope,
+                preferences = preferences(),
+                commentScope = NovelCommentScope.NOVEL,
+                matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(primary, unmatched) },
+                allowCrossSourceOnly = true,
+            )
+            empty.bind(primary, Manga.create().copy(title = "Shadow Slave"))
+            empty.open()
+            waitFor("no cross-site match") { empty.state.value.loaded && !empty.state.value.searching }
+            empty.state.value.isEmpty shouldBe true
+            empty.state.value.loading shouldBe false
         } finally {
             scope.cancel()
         }

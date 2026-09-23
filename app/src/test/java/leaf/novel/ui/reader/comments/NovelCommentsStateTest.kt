@@ -4,6 +4,8 @@ import io.kotest.matchers.shouldBe
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentFeed
+import leaf.novel.api.NovelCommentFeedback
+import leaf.novel.api.NovelCommentRating
 import org.junit.jupiter.api.Test
 
 /**
@@ -49,6 +51,12 @@ class NovelCommentsStateTest {
         NovelCommentKind.REVIEWS.admits(discussion, plain) shouldBe false
         NovelCommentKind.REVIEWS.admits(discussion, starred) shouldBe true
         NovelCommentKind.COMMENTS.admits(discussion, starred) shouldBe false
+        NovelCommentKind.REVIEWS.admits(
+            discussion,
+            plain,
+            NovelCommentFeedback(rating = NovelCommentRating(4.5)),
+        ) shouldBe
+            true
 
         // And neither filter is the unfiltered sheet, which shows both.
         NovelCommentKind.ALL.admits(discussion, starred) shouldBe true
@@ -57,8 +65,8 @@ class NovelCommentsStateTest {
 
     private fun state() = NovelCommentsState(capabilities = NovelCommentCapabilities())
 
-    private fun thread(vararg comments: NovelComment, done: Boolean = false) =
-        NovelCommentThread(comments = comments.toList(), loaded = true, done = done)
+    private fun thread(vararg comments: NovelComment, done: Boolean = false, localPosts: Set<String> = emptySet()) =
+        NovelCommentThread(comments = comments.toList(), loaded = true, done = done, localPosts = localPosts)
 
     /** Two rows under one key is one comment drawn twice and one row's state shared with it. */
     @Test
@@ -73,7 +81,7 @@ class NovelCommentsStateTest {
             ),
         )
 
-        state.rows.map { it.key } shouldBe listOf("1", "1a", "hide:1", "2")
+        state.rows.map { it.key } shouldBe listOf("body:1", "body:1a", "hide:1", "body:2")
         state.count shouldBe 3
     }
 
@@ -96,7 +104,7 @@ class NovelCommentsStateTest {
         )
 
         second.collapsed shouldBe setOf("2")
-        second.rows.map { it.key } shouldBe listOf("1", "1a", "hide:1", "2")
+        second.rows.map { it.key } shouldBe listOf("body:1", "body:1a", "hide:1", "body:2")
     }
 
     @Test
@@ -106,18 +114,31 @@ class NovelCommentsStateTest {
         )
 
         state.collapsed shouldBe emptySet()
-        state.rows.map { it.key } shouldBe listOf("1", "2")
+        state.rows.map { it.key } shouldBe listOf("body:1", "body:2")
         state.expandedReplies shouldBe emptySet()
     }
 
-    /**
-     * A comment arriving once the fetch is over is the reader's own, and folding what someone just
-     * posted is the one case where "start threads collapsed" is plainly the wrong answer.
-     */
+    @Test
+    fun `folds initial and final pages even when the fetch is already done`() {
+        val first = state().withThread(thread(comment("1"), done = true), collapseNew = true)
+        first.collapsed shouldBe setOf("1")
+
+        val loading = state().withThread(thread(comment("1")), collapseNew = true)
+        val final = loading.withThread(thread(comment("1"), comment("2"), done = true), collapseNew = true)
+        final.collapsed shouldBe setOf("1", "2")
+    }
+
+    /** A locally posted root stays open even when the fetch collector redraws a completed thread. */
     @Test
     fun `does not fold a comment that arrives after the fetch has finished`() {
-        val state = state().withThread(
-            thread(comment("1"), comment("posted", replies = listOf(comment("reply"))), done = true),
+        val loaded = state().withThread(thread(comment("1"), done = true))
+        val state = loaded.withThread(
+            thread(
+                comment("1"),
+                comment("posted", replies = listOf(comment("reply"))),
+                done = true,
+                localPosts = setOf("posted"),
+            ),
             collapseNew = true,
         )
 

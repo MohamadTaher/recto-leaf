@@ -382,7 +382,7 @@ sealed interface NovelCommentRow {
         /** How many comments the fold is hiding, for the badge on a collapsed byline. */
         val hiddenCount: Int,
     ) : NovelCommentRow {
-        override val key: String get() = comment.id
+        override val key: String get() = "body:${comment.id}"
     }
 
     /** Replies the site has but has not sent yet. */

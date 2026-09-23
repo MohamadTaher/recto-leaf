@@ -38,6 +38,8 @@ data class NovelCommentThread(
     val voting: Set<String> = emptySet(),
     val loadingReplies: Set<String> = emptySet(),
     val posting: Boolean = false,
+    /** Top-level comments posted locally should stay open even when new fetched roots are folded. */
+    val localPosts: Set<String> = emptySet(),
     /** Whatever the site said the thread's size is, which is not always what arrived. */
     val total: Int? = null,
     /** Set once a page has actually come back, so an empty thread is "none" rather than "not yet". */
@@ -88,20 +90,22 @@ enum class NovelCommentKind {
     /**
      * Whether one comment belongs to this kind.
      *
-     * A feed keyed for reviews holds nothing but reviews, and that settles those. A comment feed is
-     * the case worth checking: some sites return their reviews through the ordinary listing and
-     * mark them only by writing a rating into the comment itself, leaving the extension no separate
-     * feed to declare. A comment carrying stars is filed as the review it plainly is, rather than
-     * being counted among the comments because of where it happened to arrive.
+     * A feed keyed for reviews holds nothing but reviews. A comment feed can also carry a review,
+     * identified by feedback metadata or the legacy rating header in its body.
      */
-    fun admits(feed: NovelCommentFeed, comment: NovelComment): Boolean = when (this) {
+    fun admits(
+        feed: NovelCommentFeed,
+        comment: NovelComment,
+        feedback: NovelCommentFeedback? = null,
+    ): Boolean = when (this) {
         ALL -> true
-        REVIEWS -> isReview(feed, comment)
-        COMMENTS -> !isReview(feed, comment)
+        REVIEWS -> isReview(feed, comment, feedback)
+        COMMENTS -> !isReview(feed, comment, feedback)
     }
 
-    private fun isReview(feed: NovelCommentFeed, comment: NovelComment): Boolean =
-        feed.key == NovelCommentFeed.REVIEWS || NovelCommentReview.parse(comment.body).rating != null
+    private fun isReview(feed: NovelCommentFeed, comment: NovelComment, feedback: NovelCommentFeedback?): Boolean =
+        feed.key == NovelCommentFeed.REVIEWS || feedback?.rating != null ||
+            NovelCommentReview.parse(comment.body).rating != null
 
     /** The next in the toggle's cycle: all, then reviews, then comments, then all again. */
     val next: NovelCommentKind get() = entries[(ordinal + 1) % entries.size]
@@ -259,18 +263,17 @@ data class NovelCommentsState(
      * [roots] and [rows] from ever disagreeing with what was fetched.
      *
      * @param collapseNew folds the top-level comments that have just arrived, for the reader who
-     * asked for threads to start collapsed. Only while the fetch is still running, and only the new
-     * ones: whatever they have opened since stays open, because a page of comments arriving is no
-     * reason to undo it, and neither is their own comment landing at the top.
+     * asked for threads to start collapsed. Only new fetched roots are folded: whatever they have
+     * opened since stays open, and their own posts are excluded by [NovelCommentThread.localPosts].
      */
     fun withThread(thread: NovelCommentThread, collapseNew: Boolean = false): NovelCommentsState {
         val built = NovelCommentTree.build(thread.comments)
         val arrived = thread.loaded || built.isNotEmpty()
         val folds = when {
-            !collapseNew || thread.done -> collapsed
+            !collapseNew -> collapsed
             else -> {
                 val known = roots.mapTo(mutableSetOf()) { it.id }
-                collapsed + built.filterNot { it.id in known }.map { it.id }
+                collapsed + built.filterNot { it.id in known || it.id in thread.localPosts }.map { it.id }
             }
         }
         return copy(

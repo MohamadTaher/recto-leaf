@@ -45,7 +45,11 @@ internal fun NovelCommentAvatarDialog(url: String, author: String, onDismissRequ
         onShareClick = {
             scope.launch {
                 try {
-                    val uri = save(context, manga, temp = true) ?: return@launch
+                    val uri = save(context, manga, temp = true)
+                    if (uri == null) {
+                        snackbarHostState.showSnackbar(context.stringResource(MR.strings.error_sharing_cover))
+                        return@launch
+                    }
                     context.startActivity(uri.toShareIntent(context))
                 } catch (e: Throwable) {
                     logcat(LogPriority.ERROR, e)
@@ -56,8 +60,12 @@ internal fun NovelCommentAvatarDialog(url: String, author: String, onDismissRequ
         onSaveClick = {
             scope.launch {
                 val message = try {
-                    save(context, manga, temp = false)
-                    MR.strings.cover_saved
+                    val saved = save(context, manga, temp = false)
+                    if (saved != null) {
+                        MR.strings.cover_saved
+                    } else {
+                        MR.strings.error_saving_cover
+                    }
                 } catch (e: Throwable) {
                     logcat(LogPriority.ERROR, e)
                     MR.strings.error_saving_cover

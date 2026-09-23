@@ -19,7 +19,7 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.presentation.core.util.collectAsState
 
 /**
- * The novel's own comments, on the screen that describes the novel.
+ * The novel's comments from its own source and other installed sources, on its detail screen.
  *
  * A chapter's comments are about that chapter and belong in the reader. A novel's are about the
  * book, and a tab in the reader was the wrong home for them: it asked someone mid-chapter to leave
@@ -34,8 +34,8 @@ import tachiyomi.presentation.core.util.collectAsState
  * merge for ever. This way the seam is a nullable lambda: upstream gains one parameter with a
  * default and one guarded button, and everything else lives here.
  *
- * Returns null — which is what withdraws the button — when the reader has turned comments off, when
- * the source serves none, or when it serves only a chapter's.
+ * Returns null — which is what withdraws the button — on manga and when the reader has turned
+ * comments off. A novel whose own source has no novel feed can still have comments elsewhere.
  */
 @Composable
 fun novelCommentsAction(manga: Manga, source: Source): (() -> Unit)? {
@@ -53,13 +53,14 @@ fun novelCommentsAction(manga: Manga, source: Source): (() -> Unit)? {
             preferences = preferences,
             commentScope = NovelCommentScope.NOVEL,
             matcher = NovelCommentMatcher.installed(graph.sourceManager, graph.sourcePreferences),
+            allowCrossSourceOnly = true,
             cache = NovelCommentCache.shared,
         ).apply { bind(source, manga) }
     }
     var showing by rememberSaveable(manga.id) { mutableStateOf(false) }
 
     // Every `remember` above runs whatever the answer is, so the slots either side of this stay put.
-    if (!enabled || !comments.supported) return null
+    if (!enabled || !manga.isNovel || !comments.supported) return null
 
     if (showing) {
         NovelCommentsSheet(

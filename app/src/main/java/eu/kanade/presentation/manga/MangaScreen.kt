@@ -261,9 +261,7 @@ private fun MangaScreenSmallImpl(
 ) {
     val chapterListState = rememberLazyListState()
 
-    // [recto-leaf] the novel's own comments. Everything behind the button — its controller, its
-    // sheet and what it fetches — is fork-owned; this returns null on any source that does not
-    // serve novel-wide comments, which is what withdraws the button again.
+    // [recto-leaf] The novel discussion, including matches on other extensions.
     val onNovelCommentsClicked = novelCommentsAction(state.manga, state.source)
 
     val (chapters, listItem, isAnySelected) = remember(state) {
@@ -510,9 +508,7 @@ fun MangaScreenLargeImpl(
     val layoutDirection = LocalLayoutDirection.current
     val density = LocalDensity.current
 
-    // [recto-leaf] the novel's own comments. Everything behind the button — its controller, its
-    // sheet and what it fetches — is fork-owned; this returns null on any source that does not
-    // serve novel-wide comments, which is what withdraws the button again.
+    // [recto-leaf] The novel discussion, including matches on other extensions.
     val onNovelCommentsClicked = novelCommentsAction(state.manga, state.source)
 
     val (chapters, listItem, isAnySelected) = remember(state) {

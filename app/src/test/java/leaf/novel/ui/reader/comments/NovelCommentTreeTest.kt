@@ -131,7 +131,7 @@ class NovelCommentTreeTest {
 
         val roots = NovelCommentTree.build(nested)
 
-        NovelCommentTree.flatten(roots).map { it.key } shouldBe listOf("1", "dupe", "hide:1", "2")
+        NovelCommentTree.flatten(roots).map { it.key } shouldBe listOf("body:1", "body:dupe", "hide:1", "body:2")
     }
 
     // endregion
@@ -163,14 +163,24 @@ class NovelCommentTreeTest {
     // region flatten
 
     @Test
+    fun `a site id cannot collide with a reply control key`() {
+        val roots = listOf(comment("1", replies = listOf(comment("reply"))), comment("hide:1"))
+
+        val keys = NovelCommentTree.flatten(roots, expandedReplies = setOf("1")).map { it.key }
+
+        keys shouldBe listOf("body:1", "body:reply", "hide:1", "body:hide:1")
+        keys.distinct() shouldBe keys
+    }
+
+    @Test
     fun `reply expansion keeps the parent visible and opens each nesting level independently`() {
         val roots = listOf(comment("1", replies = listOf(comment("1a", replies = listOf(comment("1b"))))))
 
-        NovelCommentTree.flatten(roots, expandedReplies = emptySet()).map { it.key } shouldBe listOf("1")
+        NovelCommentTree.flatten(roots, expandedReplies = emptySet()).map { it.key } shouldBe listOf("body:1")
         NovelCommentTree.flatten(roots, expandedReplies = setOf("1")).map { it.key } shouldBe
-            listOf("1", "1a", "hide:1")
+            listOf("body:1", "body:1a", "hide:1")
         NovelCommentTree.flatten(roots, expandedReplies = setOf("1", "1a")).map { it.key } shouldBe
-            listOf("1", "1a", "1b", "hide:1a", "hide:1")
+            listOf("body:1", "body:1a", "body:1b", "hide:1a", "hide:1")
     }
 
     /**
@@ -184,7 +194,7 @@ class NovelCommentTreeTest {
 
         val rows = NovelCommentTree.flatten(roots, lazyReplies = true, expandedReplies = setOf("1"))
 
-        rows.map { it.key } shouldBe listOf("1", "1a", "more:1", "hide:1", "2")
+        rows.map { it.key } shouldBe listOf("body:1", "body:1a", "more:1", "hide:1", "body:2")
         rows[1].ancestors shouldBe listOf("1")
         rows[3].ancestors shouldBe emptyList()
     }
@@ -194,7 +204,7 @@ class NovelCommentTreeTest {
         val roots = listOf(comment("1", replyCount = 12))
 
         NovelCommentTree.flatten(roots, lazyReplies = true, expandedReplies = emptySet())
-            .map { it.key } shouldBe listOf("1")
+            .map { it.key } shouldBe listOf("body:1")
         NovelCommentTree.flatten(roots, lazyReplies = true, expandedReplies = setOf("1"))
             .filterIsInstance<NovelCommentRow.MoreReplies>().single().count shouldBe 12
     }
@@ -208,7 +218,7 @@ class NovelCommentTreeTest {
 
         val rows = NovelCommentTree.flatten(roots)
 
-        rows.map { it.key } shouldBe listOf("1", "1a", "1b", "hide:1", "2")
+        rows.map { it.key } shouldBe listOf("body:1", "body:1a", "body:1b", "hide:1", "body:2")
         rows[1].ancestors shouldBe listOf("1")
     }
 
@@ -220,7 +230,7 @@ class NovelCommentTreeTest {
 
         val rows = NovelCommentTree.flatten(roots, collapsed = setOf("1"))
 
-        rows.map { it.key } shouldBe listOf("1")
+        rows.map { it.key } shouldBe listOf("body:1")
         (rows[0] as NovelCommentRow.Body).hiddenCount shouldBe 2
     }
 
@@ -248,7 +258,7 @@ class NovelCommentTreeTest {
 
         val rows = NovelCommentTree.flatten(listOf(deepest), root = "d1")
 
-        rows.first().key shouldBe "d1"
+        rows.first().key shouldBe "body:d1"
         rows.none { it is NovelCommentRow.ContinueThread } shouldBe true
     }
 
@@ -356,7 +366,7 @@ class NovelCommentTreeTest {
         val merged = NovelCommentTree.merge(roots, listOf(comment("1a", parentId = "1"), comment("2")))
 
         merged.map { it.id } shouldBe listOf("1", "2")
-        NovelCommentTree.flatten(merged).map { it.key } shouldBe listOf("1", "1a", "hide:1", "2")
+        NovelCommentTree.flatten(merged).map { it.key } shouldBe listOf("body:1", "body:1a", "hide:1", "body:2")
     }
 
     @Test

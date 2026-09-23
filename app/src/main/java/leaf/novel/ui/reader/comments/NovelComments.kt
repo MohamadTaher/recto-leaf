@@ -106,6 +106,8 @@ class NovelComments(
     private val commentScope: NovelCommentScope = NovelCommentScope.CHAPTER,
     /** Finds the novel on the other sources. Null keeps to the novel's own. */
     private val matcher: NovelCommentMatcher? = null,
+    /** Allows the novel screen to find comments elsewhere when this source has no novel feed. */
+    private val allowCrossSourceOnly: Boolean = false,
     /**
      * Where fetched threads outlive this instance — [NovelCommentCache.shared] outside tests.
      *
@@ -124,6 +126,8 @@ class NovelComments(
     /** The novel's own source first, then whatever [matcher] found. */
     @Volatile
     private var origins: List<Origin> = emptyList()
+    private var primarySource: Source? = null
+    private var primaryNovel: SManga? = null
     private var chapter: Chapter? = null
 
     /** Whose thread failed last, so [verification] knows which site to offer. */
@@ -152,12 +156,8 @@ class NovelComments(
     private var generation = 0
 
     /**
-     * Whether this novel has the comments this instance is for.
-     *
-     * Read by whoever draws the button, to decide whether the button exists. A button that opens a
-     * sheet saying "this source has none of these" is worse than no button: it is one of six slots
-     * in the reader and one of four in the novel's action row, and the answer is the same every
-     * time.
+     * Whether the button can open this scope. The novel screen may search other sources even when
+     * its own source has no comments; the chapter reader still needs its own source to serve them.
      */
     val supported: Boolean
         get() = state.value.capabilities?.scopes?.contains(commentScope) == true
@@ -197,13 +197,19 @@ class NovelComments(
     /**
      * Points this at a novel and its source.
      *
-     * Called once. A source that does not implement [NovelCommentSource] leaves [supported] false
-     * and nothing else here ever runs — the other sources are only ever looked for on behalf of a
-     * novel whose own source has comments.
+     * Called once. Chapter comments still require this source's own feed; the novel screen may
+     * search other sources even when this one has none.
      */
     fun bind(source: Source?, manga: Manga?) {
+        primarySource = source
+        primaryNovel = manga?.toSManga()
         val own = source as? NovelCommentSource
-        origins = if (own != null && manga != null) listOf(Origin(own, manga.toSManga(), own = true)) else emptyList()
+        val ownNovel = primaryNovel
+        origins = if (own != null && ownNovel != null) {
+            listOf(Origin(own, ownNovel, own = true)).filter { it.feeds.isNotEmpty() }
+        } else {
+            emptyList()
+        }
         mutableState.update { it.copy(sort = preferences.commentsLocalSort.get()).configured() }
     }
 
@@ -534,6 +540,7 @@ class NovelComments(
                             comments = NovelCommentTree.insert(it.comments, parentId, posted),
                             feedback = it.feedback + feedback,
                             posting = false,
+                            localPosts = if (parentId == null) it.localPosts + posted.id else it.localPosts,
                         )
                     }
                     if (drain in shown) {
@@ -584,7 +591,10 @@ class NovelComments(
         val chapter = chapter
         shown = contributors().mapNotNull { (origin, feed) -> drainFor(origin, feed, chapter) }
         val current = ++generation
-        if (shown.isEmpty()) return
+        if (shown.isEmpty()) {
+            if (state.value.searching) mutableState.update { it.copy(loading = true) }
+            return
+        }
         // Read once rather than inside the collector, which runs for every page.
         val collapseNew = preferences.commentsCollapseReplies.get()
         loadJob = scope.launch {
@@ -618,11 +628,11 @@ class NovelComments(
         val failed = threads.firstOrNull { (_, thread) -> thread.failure != null }
         val likes = HashMap<String, Int>()
         // Filtered per comment rather than per feed, because a comments feed can be carrying
-        // reviews: see NovelCommentKind.admits(feed, comment).
+        // reviews identified by its captured feedback or legacy rating header.
         val kind = state.value.kind
         val presented = threads.flatMap { (drain, thread) ->
             drain.present(thread, settle = merged && !drain.feed.capabilities.lazyReplies, likes)
-                .filter { kind.admits(drain.feed, it) }
+                .filter { kind.admits(drain.feed, it, thread.feedback[drain.untagged(it.id)]) }
         }
         val loaded = threads.filter { (_, thread) -> thread.loaded }
         val reviewCount = loaded.sumOf { (drain, thread) -> count(NovelCommentKind.REVIEWS, drain.feed, thread) }
@@ -640,6 +650,7 @@ class NovelComments(
                 thread.loadingReplies.map(drain::tagged).filter { it in visible }
             },
             posting = threads.any { (_, thread) -> thread.posting },
+            localPosts = threads.flatMapTo(mutableSetOf()) { (drain, thread) -> thread.localPosts.map(drain::tagged) },
             total = threads.map { (_, thread) -> thread.total }.takeIf { null !in it }?.sumOf { it ?: 0 },
             loaded = arrived,
             done = done,
@@ -684,6 +695,8 @@ class NovelComments(
             ?: feeds.map { it.capabilities }.let { all ->
                 all.firstOrNull()?.copy(posting = false, lazyReplies = all.any { it.lazyReplies })
             }
+            ?: NovelCommentCapabilities(scopes = setOf(commentScope))
+                .takeIf { allowCrossSourceOnly && primaryNovel != null && matcher != null }
         return copy(capabilities = capabilities, kind = kind, kinds = kinds, origins = describe(kind))
     }
 
@@ -691,9 +704,7 @@ class NovelComments(
      * Which filters these sources have anything to put behind them.
      *
      * A review feed offers reviews and a comments feed offers comments, but a comments feed that
-     * turns out to be carrying reviews offers that filter too — and only once its comments have
-     * arrived, since until then there is nothing to tell. So this is asked again as each page
-     * lands rather than settled when the sheet is first configured.
+     * turns out to be carrying rated reviews offers that filter too once its page has arrived.
      */
     private fun kindsOf(sources: List<Origin>): Set<NovelCommentKind> =
         sources.flatMapTo(mutableSetOf()) { origin ->
@@ -722,7 +733,7 @@ class NovelComments(
         if (NovelCommentKind.REVIEWS.admits(feed)) {
             return if (kind == NovelCommentKind.REVIEWS) total else 0
         }
-        val reviews = roots.count { NovelCommentKind.REVIEWS.admits(feed, it) }
+        val reviews = roots.count { NovelCommentKind.REVIEWS.admits(feed, it, thread.feedback[it.id]) }
         return if (kind == NovelCommentKind.REVIEWS) reviews else (total - reviews).coerceAtLeast(0)
     }
 
@@ -764,7 +775,9 @@ class NovelComments(
      */
     private fun match() {
         val matcher = matcher ?: return
-        val own = origins.firstOrNull() ?: return
+        val source = primarySource ?: return
+        val novel = primaryNovel ?: return
+        if (origins.isEmpty() && !allowCrossSourceOnly) return
         if (matchJob != null) return
         mutableState.update { it.copy(searching = true) }
         matchJob = scope.launch {
@@ -776,21 +789,25 @@ class NovelComments(
             // sheet reads the same each time it is opened however fast the sites happen to be.
             val found = sortedMapOf<Int, Origin>()
             try {
-                matcher.find(own.source, own.novel, commentScope).collect { match ->
+                matcher.find(source, novel, commentScope).collect { match ->
                     // Brought in one at a time: a site that answered quickly is read while the slow
                     // ones are still being asked, instead of every site waiting for the last.
                     found[match.order] = Origin(match.source, match.novel, own = false)
                     origins = origins.filter { it.own } + found.values
                     mutableState.update { it.configured() }
-                    if (loadJob?.isActive == true) show()
+                    if (loadJob?.isActive == true || shown.isEmpty()) show()
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                logcat(LogPriority.WARN, e) { "Could not look for ${own.novel.title} on the other sources" }
+                logcat(LogPriority.WARN, e) { "Could not look for ${novel.title} on the other sources" }
             }
             mutableState.update { it.copy(searching = false).configured() }
-            if (loadJob?.isActive == true) show()
+            if (shown.isEmpty()) {
+                mutableState.update { it.withThread(NovelCommentThread(loaded = true, done = true)) }
+            } else if (loadJob?.isActive == true) {
+                show()
+            }
         }
     }
 

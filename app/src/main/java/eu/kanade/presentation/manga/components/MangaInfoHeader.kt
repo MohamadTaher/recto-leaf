@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -184,8 +185,7 @@ fun MangaActionRow(
     onTrackingClicked: () -> Unit,
     onEditIntervalClicked: (() -> Unit)?,
     onEditCategory: (() -> Unit)?,
-    // [recto-leaf] the novel's own comments; null on anything that does not serve them, which is
-    // every manga source and most novel ones. See leaf.novel.presentation.manga.
+    // [recto-leaf] Novel discussions; null for manga or when the reader disables comments.
     onNovelCommentsClicked: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -212,6 +212,7 @@ fun MangaActionRow(
             color = if (favorite) MaterialTheme.colorScheme.primary else defaultActionButtonColor,
             onClick = onAddToLibraryClicked,
             onLongClick = onEditCategory,
+            compact = onNovelCommentsClicked != null,
         )
         MangaActionButton(
             title = when (nextUpdateDays) {
@@ -226,6 +227,7 @@ fun MangaActionRow(
             icon = MaterialSymbols.Rounded.HourglassEmpty,
             color = if (isUserIntervalMode) MaterialTheme.colorScheme.primary else defaultActionButtonColor,
             onClick = { onEditIntervalClicked?.invoke() },
+            compact = onNovelCommentsClicked != null,
         )
         MangaActionButton(
             title = if (trackingCount == 0) {
@@ -236,6 +238,7 @@ fun MangaActionRow(
             icon = if (trackingCount == 0) MaterialSymbols.Rounded.Sync else MaterialSymbols.Rounded.Done,
             color = if (trackingCount == 0) defaultActionButtonColor else MaterialTheme.colorScheme.primary,
             onClick = onTrackingClicked,
+            compact = onNovelCommentsClicked != null,
         )
         if (onWebViewClicked != null) {
             MangaActionButton(
@@ -244,6 +247,7 @@ fun MangaActionRow(
                 color = defaultActionButtonColor,
                 onClick = onWebViewClicked,
                 onLongClick = onWebViewLongClicked,
+                compact = onNovelCommentsClicked != null,
             )
         }
         // [recto-leaf] last, so that the row upstream draws is the row upstream drew.
@@ -253,6 +257,7 @@ fun MangaActionRow(
                 icon = NovelCommentGlyphs.Comments,
                 color = defaultActionButtonColor,
                 onClick = onNovelCommentsClicked,
+                compact = true,
             )
         }
     }
@@ -742,14 +747,14 @@ private fun RowScope.MangaActionButton(
     color: Color,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    compact: Boolean = false,
 ) {
     TextButton(
         onClick = onClick,
         modifier = Modifier.weight(1f),
         onLongClick = onLongClick,
-        // [recto-leaf] the row carries a fifth button on a novel that has comments, and at a fifth
-        // of a phone's width the default padding is what breaks "Tracking" across two lines.
-        contentPadding = PaddingValues(vertical = 8.dp),
+        // [recto-leaf] Preserve upstream padding unless a novel adds the fifth action.
+        contentPadding = if (compact) PaddingValues(vertical = 8.dp) else ButtonDefaults.TextButtonContentPadding,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
