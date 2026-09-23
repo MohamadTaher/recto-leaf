@@ -47,8 +47,11 @@ object NovelCommentGlyphs {
             close()
         }
 
-    val Like: ImageVector by lazy {
-        glyph("CommentLike") {
+    val Like: ImageVector by lazy { like(false) }
+    val FilledLike: ImageVector by lazy { like(true) }
+
+    private fun like(filled: Boolean): ImageVector =
+        glyph("CommentLike", filled) {
             moveTo(7f, 10f)
             lineTo(12f, 3f)
             quadTo(15f, 3f, 14f, 7f)
@@ -65,7 +68,6 @@ object NovelCommentGlyphs {
             lineTo(3f, 20f)
             close()
         }
-    }
 
     /**
      * One bubble, with a tail at the lower left: the reader's chapter comments.

@@ -3,9 +3,11 @@ package leaf.novel.presentation.reader.comments
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ButtonDefaults
@@ -14,6 +16,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -31,9 +37,11 @@ import leaf.novel.api.NovelCommentRating
 import leaf.novel.api.NovelCommentReaction
 import leaf.novel.api.NovelCommentSentiment
 import leaf.novel.api.NovelCommentVote
+import leaf.novel.ui.reader.comments.outOfFive
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
+/** Always on five stars, whatever scale the site rates on, so every source reads the same. */
 @Composable
 fun NovelCommentRatingRow(rating: NovelCommentRating, modifier: Modifier = Modifier) {
     if (!rating.value.isFinite() || !rating.maximum.isFinite() || rating.maximum <= 0 ||
@@ -41,9 +49,9 @@ fun NovelCommentRatingRow(rating: NovelCommentRating, modifier: Modifier = Modif
     ) {
         return
     }
-    val value = rating.value.toString().removeSuffix(".0")
-    val maximum = rating.maximum.toString().removeSuffix(".0")
-    val description = stringResource(MR.strings.leaf_novel_comments_rating, value, maximum)
+    val stars = rating.outOfFive().value
+    val value = stars.toString().removeSuffix(".0")
+    val description = stringResource(MR.strings.leaf_novel_comments_rating, value, "5")
     Row(
         modifier = modifier.semantics(mergeDescendants = true) {
             contentDescription = description
@@ -52,7 +60,7 @@ fun NovelCommentRatingRow(rating: NovelCommentRating, modifier: Modifier = Modif
         horizontalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         repeat(5) { index ->
-            val fraction = (rating.value / rating.maximum * 5 - index).toFloat().coerceIn(0f, 1f)
+            val fraction = (stars - index).toFloat().coerceIn(0f, 1f)
             Box(Modifier.size(12.dp)) {
                 Icon(NovelCommentGlyphs.Star, null, tint = MaterialTheme.colorScheme.outlineVariant)
                 Icon(
@@ -67,7 +75,7 @@ fun NovelCommentRatingRow(rating: NovelCommentRating, modifier: Modifier = Modif
         }
         Spacer(Modifier.width(4.dp))
         Text(
-            if (rating.maximum == 5.0) value else "$value / $maximum",
+            value,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
         )
@@ -120,11 +128,19 @@ fun NovelCommentReactionRow(reaction: NovelCommentReaction, modifier: Modifier =
     }
 }
 
+private val VOTE_PADDING = 8.dp
+private val VOTE_HEIGHT = 32.dp
+
 /** Green reads as approval in both themes only if it is darkened for light backgrounds. */
 private val POSITIVE_LIGHT = Color(0xFF1B873F)
 private val POSITIVE_DARK = Color(0xFF6FD08C)
 
-/** One compact, consistent pair. Site votes use the same thumbs as likes and dislikes. */
+/**
+ * One compact, consistent pair. Site votes use the same thumbs as likes and dislikes.
+ *
+ * Where the source cannot vote, the thumbs still answer a tap the way a site's do — the count moves
+ * and the thumb lights — but the vote stays in this sheet and nothing is sent anywhere.
+ */
 @Composable
 fun NovelCommentFeedbackRow(
     comment: NovelComment,
@@ -133,12 +149,16 @@ fun NovelCommentFeedbackRow(
     voting: Boolean,
     onVote: (NovelCommentVote) -> Unit,
 ) {
+    var localVote by rememberSaveable(comment.id) { mutableStateOf(NovelCommentVote.NONE) }
+    val chosen = if (capabilities.voting) comment.vote else localVote
     val likes = feedback.likes ?: comment.score.takeIf { capabilities.scored && !capabilities.downvotes }
     val dislikes = feedback.dislikes
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        listOf(NovelCommentVote.UP to likes, NovelCommentVote.DOWN to dislikes).forEach { (vote, count) ->
-            if (vote == NovelCommentVote.DOWN && !capabilities.downvotes && count == null) return@forEach
-            if (count == null && !capabilities.voting) return@forEach
+    // Pulled back by the buttons' own padding, so the first thumb lines up with the text above it.
+    Row(modifier = Modifier.offset(x = -VOTE_PADDING), verticalAlignment = Alignment.CenterVertically) {
+        listOf(NovelCommentVote.UP to likes, NovelCommentVote.DOWN to dislikes).forEach { (vote, siteCount) ->
+            if (vote == NovelCommentVote.DOWN && !capabilities.downvotes && siteCount == null) return@forEach
+            if (siteCount == null && !capabilities.voting) return@forEach
+            val count = siteCount?.plus(if (!capabilities.voting && localVote == vote) 1 else 0)
             val label = stringResource(
                 if (vote ==
                     NovelCommentVote.UP
@@ -149,10 +169,32 @@ fun NovelCommentFeedbackRow(
                 },
             )
             val description = if (count != null) "$label: $count" else label
-            val active = comment.vote == vote
-            val content: @Composable () -> Unit = {
+            val active = chosen == vote
+            TextButton(
+                onClick = {
+                    if (capabilities.voting) {
+                        onVote(vote)
+                    } else {
+                        localVote = if (localVote == vote) NovelCommentVote.NONE else vote
+                    }
+                },
+                enabled = !voting,
+                contentPadding = PaddingValues(horizontal = VOTE_PADDING),
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = if (active) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                ),
+                // Shorter than a button's usual 40dp, so the row does not open a gap under the text.
+                modifier = Modifier.height(VOTE_HEIGHT).semantics {
+                    contentDescription = description
+                    selected = active
+                },
+            ) {
                 Icon(
-                    NovelCommentGlyphs.Like,
+                    if (active) NovelCommentGlyphs.FilledLike else NovelCommentGlyphs.Like,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp).rotate(if (vote == NovelCommentVote.DOWN) 180f else 0f),
                 )
@@ -160,29 +202,6 @@ fun NovelCommentFeedbackRow(
                     Spacer(Modifier.width(6.dp))
                     Text(count.toString(), style = MaterialTheme.typography.labelMedium)
                 }
-            }
-            if (capabilities.voting) {
-                TextButton(
-                    onClick = { onVote(vote) },
-                    enabled = !voting,
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = if (active) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    ),
-                    modifier = Modifier.semantics {
-                        contentDescription = description
-                        selected = active
-                    },
-                ) { content() }
-            } else {
-                Row(
-                    modifier = Modifier.padding(end = 20.dp, top = 10.dp, bottom = 10.dp)
-                        .semantics(mergeDescendants = true) { contentDescription = description },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) { content() }
             }
         }
         // Old extensions may supply only a net total. Keep it without inventing either count.

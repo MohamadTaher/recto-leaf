@@ -32,6 +32,7 @@ import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import org.junit.jupiter.api.Test
 import tachiyomi.core.common.preference.InMemoryPreferenceStore
+import tachiyomi.core.common.preference.TriState
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.util.concurrent.CopyOnWriteArrayList
@@ -346,14 +347,23 @@ class NovelCommentsTest {
             // No one site can take a post written into a thread gathered from several.
             state.capabilities?.posting shouldBe false
 
-            comments.setOrigin(2L)
+            comments.setOriginFilter(2L, TriState.ENABLED_IS)
             waitFor("one source") { comments.state.value.roots.size == 1 }
             comments.state.value.roots.single().body shouldBe "theirs"
             comments.sourceName(comments.state.value.roots.single()) shouldBe null
             comments.state.value.capabilities?.posting shouldBe true
 
-            comments.setOrigin(null)
+            comments.clearOriginFilter()
             waitFor("both again") { comments.state.value.roots.size == 2 }
+
+            // Hiding a source is the other half of the same filter.
+            comments.setOriginFilter(1L, TriState.ENABLED_NOT)
+            waitFor("all but the hidden") { comments.state.value.roots.map { it.body } == listOf("theirs") }
+            // A filter that would leave nothing to show is refused rather than emptying the sheet.
+            comments.setOriginFilter(2L, TriState.ENABLED_NOT)
+            comments.state.value.originFilter shouldBe mapOf(1L to TriState.ENABLED_NOT)
+            comments.clearOriginFilter()
+            waitFor("both once more") { comments.state.value.roots.size == 2 }
             // Filtering redraws what was fetched rather than fetching it again.
             own.requests.size shouldBe 1
             other.requests.size shouldBe 1
@@ -445,7 +455,7 @@ class NovelCommentsTest {
                 }
 
                 // A source with reviews alone has nothing for the comments filter, which gives way.
-                comments.setOrigin(3L)
+                comments.setOriginFilter(3L, TriState.ENABLED_IS)
                 waitFor("the reviewer") { comments.state.value.roots.map { it.body } == listOf("their-review") }
                 comments.state.value.kind shouldBe NovelCommentKind.ALL
                 comments.state.value.kinds shouldBe setOf(NovelCommentKind.REVIEWS)

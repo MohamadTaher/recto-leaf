@@ -72,10 +72,24 @@ class NovelCommentMatcher(
         primary: Source,
         novel: SManga,
         scope: NovelCommentScope,
-    ): Flow<NovelCommentMatch> = channelFlow {
+    ): Flow<NovelCommentMatch<NovelCommentSource>> =
+        find(primary, novel) { (it as? NovelCommentSource)?.takeIf { source -> source.serves(scope) } }
+
+    /**
+     * [novel] on every other source [pick] keeps, with everything [find] above says about how.
+     *
+     * The same search serves anything else that has to find a novel on the other sites — the rating
+     * across sites is the other — and shares its remembered matches, so a novel found for one is
+     * never searched for again for the other.
+     */
+    fun <S : Source> find(
+        primary: Source?,
+        novel: SManga,
+        pick: (Source) -> S?,
+    ): Flow<NovelCommentMatch<S>> = channelFlow {
         sources()
-            .filterIsInstance<NovelCommentSource>()
-            .filter { it.id != primary.id && it.serves(scope) }
+            .mapNotNull(pick)
+            .filter { it.id != primary?.id }
             .forEachIndexed { order, source ->
                 launch { match(source, novel.title)?.let { send(NovelCommentMatch(order, source, it)) } }
             }
@@ -116,7 +130,7 @@ class NovelCommentMatcher(
                 byNumber.apply { putIfAbsent(parsed, chapter) }
             }
 
-    private suspend fun match(source: NovelCommentSource, title: String): SManga? {
+    private suspend fun match(source: Source, title: String): SManga? {
         val key = MatchKey(source.id, normalize(title))
         matches.get<Match>(key)?.let { return it.novel }
         val found = try {
@@ -167,7 +181,7 @@ class NovelCommentMatcher(
  * [order] is the sheet's, not the search's: matches arrive in whatever order the sites answer, and
  * the sheet puts them back into the order the sources are listed in so it reads the same each time.
  */
-data class NovelCommentMatch(val order: Int, val source: NovelCommentSource, val novel: SManga)
+data class NovelCommentMatch<out S : Source>(val order: Int, val source: S, val novel: SManga)
 
 /** Whether this source can serve [scope] at all, through its own capabilities or any of its feeds. */
 private fun NovelCommentSource.serves(scope: NovelCommentScope): Boolean =

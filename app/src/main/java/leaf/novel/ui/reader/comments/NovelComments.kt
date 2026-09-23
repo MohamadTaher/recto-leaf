@@ -38,6 +38,7 @@ import leaf.novel.api.NovelCommentTarget
 import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import logcat.LogPriority
+import tachiyomi.core.common.preference.TriState
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
@@ -89,7 +90,7 @@ import kotlin.time.Duration.Companion.seconds
  * on the other installed comment sources, and every feed of every one of them — its comments, its
  * reviews — is fetched, paged and kept as a thread of its own, exactly as a lone feed always was.
  * Only what reaches the sheet is merged, and two filters narrow it: [setKind] to reviews or to
- * comments, [setOrigin] to one source. Merging costs two things, each settled here so the sheet
+ * comments, [setOriginFilter] to some sources or away from others. Merging costs two things, each settled here so the sheet
  * never has to know:
  *
  *  - **Ids.** A comment id is unique only within its own feed on its own site, so every other
@@ -187,8 +188,11 @@ class NovelComments(
      * The source a comment came from, named on every row unless the sheet is filtered to one source
      * — then the filter already says it, and every row saying it again is noise.
      */
-    fun sourceName(comment: NovelComment): String? =
-        if (state.value.origin == null) drainOf(comment.id)?.origin?.source?.name else null
+    fun sourceName(comment: NovelComment): String? {
+        val current = state.value
+        val filteredToOne = current.originFilter.isNotEmpty() && origins.count { current.shows(it.source.id) } == 1
+        return if (filteredToOne) null else drainOf(comment.id)?.origin?.source?.name
+    }
 
     /**
      * Points this at a novel and its source.
@@ -380,13 +384,27 @@ class NovelComments(
         show()
     }
 
-    /** Shows one source's comments, or with null every source's together. */
-    fun setOrigin(id: Long?) {
+    /**
+     * Shows only the sources set to [TriState.ENABLED_IS], hides those set to [TriState.ENABLED_NOT],
+     * and with [TriState.DISABLED] takes a source's setting back off.
+     */
+    fun setOriginFilter(id: Long, filter: TriState) {
+        if (origins.none { it.source.id == id }) return
+        val current = state.value.originFilter
+        filterOrigins(if (filter == TriState.DISABLED) current - id else current + (id to filter))
+    }
+
+    /** Every source's comments together again. */
+    fun clearOriginFilter() = filterOrigins(emptyMap())
+
+    /** Refused where it would leave no source to show, which would leave the sheet with nothing to be. */
+    private fun filterOrigins(filter: Map<Long, TriState>) {
         val current = state.value
-        if (id == current.origin || (id != null && origins.none { it.source.id == id })) return
+        if (filter == current.originFilter) return
+        if (origins.none { current.copy(originFilter = filter).shows(it.source.id) }) return
         if (current.posting || current.voting.isNotEmpty() || current.draft.isNotBlank()) return
         loadJob?.cancel()
-        mutableState.update { it.reset().copy(origin = id).configured() }
+        mutableState.update { it.reset().copy(originFilter = filter).configured() }
         show()
     }
 
@@ -633,7 +651,7 @@ class NovelComments(
         val described = describe()
         // Asked again now the page has landed: a comments feed only reveals that it is carrying
         // reviews once some have arrived, and the filter it offers has to appear with them.
-        val kinds = kindsOf(origins.filter { state.value.origin == null || it.source.id == state.value.origin })
+        val kinds = kindsOf(origins.filter { state.value.shows(it.source.id) })
         mutableState.update {
             if (current != generation) return@update it
             val counted = it.copy(
@@ -655,8 +673,7 @@ class NovelComments(
      * withdrawn and lazy replies claimed for whichever of them has them.
      */
     private fun NovelCommentsState.configured(): NovelCommentsState {
-        val filter = origin
-        val visible = this@NovelComments.origins.filter { filter == null || it.source.id == filter }
+        val visible = this@NovelComments.origins.filter { shows(it.source.id) }
         val kinds = kindsOf(visible)
         val kind = kind.takeIf { it == NovelCommentKind.ALL || it in kinds } ?: NovelCommentKind.ALL
         // Falls back to every feed where the filter leaves none, so a sheet showing only the
@@ -729,7 +746,7 @@ class NovelComments(
     private fun contributors(): List<Pair<Origin, NovelCommentFeed>> {
         val current = state.value
         return origins
-            .filter { current.origin == null || it.source.id == current.origin }
+            .filter { current.shows(it.source.id) }
             // Every feed, whatever the kind filter says, because a comments feed can be holding
             // reviews and dropping it here would put them out of the reviews filter's reach. The
             // filter belongs on what arrives rather than on what is asked for; a feed the filter

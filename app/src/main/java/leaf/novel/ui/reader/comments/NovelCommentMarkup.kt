@@ -12,8 +12,8 @@ import org.jsoup.nodes.TextNode
  * styling to honour. A comment is three lines someone typed, and forty WebViews in a scrolling list
  * would be absurd — so this produces a plain model that Compose draws as an `AnnotatedString`.
  *
- * What survives is what people write comments in: emphasis, links, quotes, code, strikethrough,
- * lists and spoilers. Everything else is unwrapped to its text, which is the safe direction to
+ * What survives is what people write comments in: emphasis, headings, links, quotes, code,
+ * strikethrough, underline, lists and spoilers. Everything else is unwrapped to its text, which is the safe direction to
  * fail: an unknown tag loses its formatting, never its words.
  *
  * Nothing here trusts the source. It is jsoup parsing into a model with nothing executable in it,
@@ -59,6 +59,7 @@ object NovelCommentMarkup {
                 merged += span
             }
         }
+        merged.collapseBlankLines()
 
         // A fragment that opens or closes with an empty <p> is common enough to be worth trimming;
         // left alone it draws a blank line above or below every one of those comments.
@@ -106,6 +107,9 @@ object NovelCommentMarkup {
                 val nested = style.with(node)
                 if (tag == "li") out += nested.span(BULLET)
                 node.childNodes().forEach { walk(it, nested, out) }
+                // And ends its line, so what follows a heading does not run on from it. A block
+                // that closes where another opens gives two breaks, which the collapse makes one.
+                if (tag in BLOCKS) out += style.span("\n")
             }
             else -> Unit
         }
@@ -115,8 +119,10 @@ object NovelCommentMarkup {
         val bold: Boolean = false,
         val italic: Boolean = false,
         val strikethrough: Boolean = false,
+        val underline: Boolean = false,
         val code: Boolean = false,
         val quote: Boolean = false,
+        val heading: Boolean = false,
         val spoiler: Boolean = false,
         val link: String? = null,
     ) {
@@ -125,8 +131,10 @@ object NovelCommentMarkup {
             bold = bold,
             italic = italic,
             strikethrough = strikethrough,
+            underline = underline,
             code = code,
             quote = quote,
+            heading = heading,
             spoiler = spoiler,
             link = link,
         )
@@ -137,6 +145,8 @@ object NovelCommentMarkup {
                 "b", "strong" -> inherited.copy(bold = true)
                 "i", "em", "cite" -> inherited.copy(italic = true)
                 "s", "del", "strike" -> inherited.copy(strikethrough = true)
+                "u", "ins" -> inherited.copy(underline = true)
+                "h1", "h2", "h3", "h4", "h5", "h6" -> inherited.copy(heading = true)
                 "code", "kbd", "samp", "tt", "pre" -> inherited.copy(code = true)
                 "blockquote", "q" -> inherited.copy(quote = true)
                 "a" -> inherited.copy(link = element.linkTarget())
@@ -145,6 +155,49 @@ object NovelCommentMarkup {
         }
     }
 }
+
+/**
+ * Leaves at most one blank line between two lines of text, and no indent at the start of a line.
+ *
+ * A line break and a blank line are both kept: they are how people lay a comment out. Only a run of
+ * them is cut down — sites pad comments with `<br><br><br>`, empty paragraphs and the newlines
+ * between their own tags, and the sheet drew every one of them. Code is left as it was written: its
+ * blank lines and indents are part of it.
+ */
+private fun MutableList<NovelCommentSpan>.collapseBlankLines() {
+    // Line breaks since the last visible character; starting full drops any at the very top.
+    var breaks = MAX_BREAKS
+    val iterator = listIterator()
+    while (iterator.hasNext()) {
+        val span = iterator.next()
+        if (span.image != null) continue
+        if (span.code) {
+            breaks = if (span.text.endsWith(NEWLINE)) 1 else 0
+            continue
+        }
+        val text = buildString {
+            span.text.forEach { char ->
+                when {
+                    char == NEWLINE -> if (breaks < MAX_BREAKS) {
+                        while (endsWith(' ') || endsWith('\t')) setLength(length - 1)
+                        append(char)
+                        breaks++
+                    }
+                    char.isWhitespace() && breaks > 0 -> Unit
+                    else -> {
+                        append(char)
+                        breaks = 0
+                    }
+                }
+            }
+        }
+        if (text.isEmpty()) iterator.remove() else iterator.set(span.copy(text = text))
+    }
+}
+
+/** A line break, then one blank line; a third in a row is padding. */
+private const val MAX_BREAKS = 2
+private const val NEWLINE = '\n'
 
 /**
  * Whether an element marks a spoiler.
@@ -188,8 +241,11 @@ data class NovelCommentSpan(
     val bold: Boolean = false,
     val italic: Boolean = false,
     val strikethrough: Boolean = false,
+    val underline: Boolean = false,
     val code: Boolean = false,
     val quote: Boolean = false,
+    /** A heading, drawn a step larger and bold. */
+    val heading: Boolean = false,
     /** Drawn hidden until tapped. */
     val spoiler: Boolean = false,
     /** Absolute, and only ever `http`, `https` or `mailto`. */
@@ -211,8 +267,10 @@ data class NovelCommentSpan(
             bold == other.bold &&
             italic == other.italic &&
             strikethrough == other.strikethrough &&
+            underline == other.underline &&
             code == other.code &&
             quote == other.quote &&
+            heading == other.heading &&
             spoiler == other.spoiler &&
             link == other.link
 }

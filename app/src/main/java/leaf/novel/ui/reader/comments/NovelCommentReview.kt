@@ -18,3 +18,10 @@ data class NovelCommentReview(val body: String, val rating: NovelCommentRating?)
         }
     }
 }
+
+/**
+ * The rating on five stars, whatever scale the site gave it, so a 7/10 and a 3.5/5 read the same
+ * everywhere in the app. Rounded to one decimal, since that is all the sheet shows.
+ */
+fun NovelCommentRating.outOfFive(): NovelCommentRating =
+    NovelCommentRating(Math.round(value / maximum * 50) / 10.0, 5.0)

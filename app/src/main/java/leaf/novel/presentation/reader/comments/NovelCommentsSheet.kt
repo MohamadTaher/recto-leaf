@@ -1,5 +1,6 @@
 package leaf.novel.presentation.reader.comments
 
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,7 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
@@ -25,6 +28,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -44,11 +48,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.DropdownMenu
+import eu.kanade.presentation.components.TabbedDialog
+import eu.kanade.presentation.components.TabbedDialogPaddings
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import kotlinx.coroutines.launch
 import leaf.novel.api.NovelComment
@@ -61,15 +68,20 @@ import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.comments.NovelCommentsState
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.Check
 import mihon.icons.materialsymbols.rounded.Close
 import mihon.icons.materialsymbols.rounded.ExpandLess
 import mihon.icons.materialsymbols.rounded.ExpandMore
+import mihon.icons.materialsymbols.rounded.FilterList
 import mihon.icons.materialsymbols.rounded.MoreVert
+import tachiyomi.core.common.preference.TriState
 import tachiyomi.i18n.MR
+import tachiyomi.presentation.core.components.BaseSortItem
+import tachiyomi.presentation.core.components.HeadingItem
+import tachiyomi.presentation.core.components.TriStateItem
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
+import tachiyomi.presentation.core.theme.active
 import tachiyomi.presentation.core.util.collectAsState
 import tachiyomi.presentation.core.util.secondaryItemAlpha
 
@@ -103,7 +115,7 @@ fun NovelCommentsSheet(
 
     // Focusing re-roots the list, so it has to start at the top rather than wherever the previous
     // thread happened to be scrolled to.
-    LaunchedEffect(state.focus, state.sort, state.kind, state.origin) {
+    LaunchedEffect(state.focus, state.sort, state.kind, state.originFilter) {
         listState.scrollToItem(0)
     }
 
@@ -132,7 +144,7 @@ fun NovelCommentsSheet(
                 state = state,
                 onRefresh = comments::reload,
                 onSetKind = comments::setKind,
-                onSetOrigin = comments::setOrigin,
+                onSetOriginFilter = comments::setOriginFilter,
                 onSetSort = comments::setSort,
                 onCollapseAll = comments::collapseAll,
                 onExpandAll = comments::expandAll,
@@ -286,13 +298,19 @@ fun NovelCommentsSheet(
     }
 }
 
-/** The title, the counts, and everything that changes what the list below is. */
+/**
+ * The title, then the review star, the filter and sort settings, the thread actions, and close.
+ *
+ * The extension filter and the order live behind one button in the library's own settings dialog,
+ * laid out the way the library lays them out, so the row stays uncrowded however many extensions
+ * have the novel.
+ */
 @Composable
 private fun NovelCommentsHeader(
     state: NovelCommentsState,
     onRefresh: () -> Unit,
     onSetKind: (NovelCommentKind) -> Unit,
-    onSetOrigin: (Long?) -> Unit,
+    onSetOriginFilter: (Long, TriState) -> Unit,
     onSetSort: (NovelCommentLocalSort) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
@@ -301,9 +319,10 @@ private fun NovelCommentsHeader(
     onDismiss: () -> Unit,
 ) {
     if (state.capabilities == null) return
-    var menuExpanded by remember { mutableStateOf(false) }
+    val enabled = !state.posting && state.voting.isEmpty() && state.draft.isBlank()
+    var settingsOpen by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.padding(horizontal = MaterialTheme.padding.medium)) {
+    Column(modifier = Modifier.padding(start = MaterialTheme.padding.medium, end = MaterialTheme.padding.extraSmall)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -316,6 +335,17 @@ private fun NovelCommentsHeader(
                 NovelCommentKind.REVIEWS in state.kinds && NovelCommentKind.COMMENTS in state.kinds
             val reviews = !mixed &&
                 (state.kind == NovelCommentKind.REVIEWS || state.kinds == setOf(NovelCommentKind.REVIEWS))
+            val count = if (state.loaded) {
+                val reviewCount = stringResource(MR.strings.leaf_novel_comments_review_count, state.reviewCount)
+                val commentCount = stringResource(MR.strings.leaf_novel_comments_count, state.commentCount)
+                when {
+                    mixed -> "$reviewCount · $commentCount"
+                    reviews -> reviewCount
+                    else -> commentCount
+                }
+            } else {
+                null
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(
@@ -326,78 +356,53 @@ private fun NovelCommentsHeader(
                         },
                     ),
                     style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                if (state.loaded) {
-                    val reviewCount = stringResource(MR.strings.leaf_novel_comments_review_count, state.reviewCount)
-                    val commentCount = stringResource(MR.strings.leaf_novel_comments_count, state.commentCount)
+                // The chapter and the count on one line, scrolling when it does not fit, the way
+                // Mihon's app bar scrolls the reader's chapter title.
+                listOfNotNull(state.chapterName, count).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
                     Text(
-                        text = when {
-                            mixed -> "$reviewCount · $commentCount"
-                            reviews -> reviewCount
-                            else -> commentCount
-                        },
+                        text = it,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.basicMarquee(repeatDelayMillis = 2_000),
                     )
                 }
             }
 
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        imageVector = MaterialSymbols.Rounded.MoreVert,
-                        contentDescription = stringResource(MR.strings.action_menu_overflow_description),
-                    )
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(MR.strings.action_webview_refresh)) },
-                        enabled = !state.loading && !state.posting && state.voting.isEmpty(),
-                        onClick = {
-                            menuExpanded = false
-                            onRefresh()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(MR.strings.leaf_novel_comments_next)) },
-                        enabled = state.rows.isNotEmpty(),
-                        onClick = {
-                            menuExpanded = false
-                            onNextComment()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(MR.strings.leaf_novel_comments_collapse_all)) },
-                        onClick = {
-                            menuExpanded = false
-                            onCollapseAll()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(MR.strings.leaf_novel_comments_expand_all)) },
-                        onClick = {
-                            menuExpanded = false
-                            onExpandAll()
-                        },
-                    )
-                }
+            if (state.searching) {
+                val searching = stringResource(MR.strings.leaf_novel_comments_searching)
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(horizontal = MaterialTheme.padding.small)
+                        .size(16.dp)
+                        .semantics { contentDescription = searching },
+                    strokeWidth = 2.dp,
+                )
             }
+            if (NovelCommentKind.REVIEWS in state.kinds && NovelCommentKind.COMMENTS in state.kinds) {
+                NovelCommentKindToggle(state.kind, enabled) { onSetKind(state.kind.next) }
+            }
+            // Tinted while an extension is filtered, as the library's own filter button is.
+            IconButton(onClick = { settingsOpen = true }, enabled = enabled) {
+                Icon(
+                    MaterialSymbols.Rounded.FilterList,
+                    stringResource(MR.strings.action_filter),
+                    tint = if (state.originFilter.isNotEmpty()) {
+                        MaterialTheme.colorScheme.active
+                    } else {
+                        LocalContentColor.current
+                    },
+                )
+            }
+            NovelCommentsMenu(state, onRefresh, onNextComment, onCollapseAll, onExpandAll)
             IconButton(onClick = onDismiss) {
                 Icon(MaterialSymbols.Rounded.Close, contentDescription = stringResource(MR.strings.action_close))
             }
         }
-
-        state.chapterName?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        NovelCommentFilters(state, onSetKind, onSetOrigin, onSetSort)
 
         if (state.focus != null) {
             TextButton(
@@ -414,111 +419,115 @@ private fun NovelCommentsHeader(
             }
         }
     }
+
+    if (settingsOpen) {
+        NovelCommentsSettingsDialog(
+            state = state,
+            onSetOriginFilter = onSetOriginFilter,
+            onSetSort = onSetSort,
+            onDismissRequest = { settingsOpen = false },
+        )
+    }
 }
 
 /**
- * The order, then the two filters, nested: reviews or comments, and within that which extension.
- *
- * One row whatever the sources are, so the sheet looks the same on every novel. The review toggle
- * appears only where there are both reviews and comments to choose between, the extension picker
- * only once a second extension has the novel, and a spinner sits beside it while the others are
- * still being searched.
+ * Filter and sort, in the dialog the library uses for its own: each extension a tri-state row,
+ * shown only or hidden, exactly as the library filters by tracker.
  */
 @Composable
-private fun NovelCommentFilters(
+private fun NovelCommentsSettingsDialog(
     state: NovelCommentsState,
-    onSetKind: (NovelCommentKind) -> Unit,
-    onSetOrigin: (Long?) -> Unit,
+    onSetOriginFilter: (Long, TriState) -> Unit,
     onSetSort: (NovelCommentLocalSort) -> Unit,
+    onDismissRequest: () -> Unit,
 ) {
-    val enabled = !state.posting && state.voting.isEmpty() && state.draft.isBlank()
-    var sortExpanded by remember { mutableStateOf(false) }
-    var originExpanded by remember { mutableStateOf(false) }
-
-    Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box {
-            IconButton(onClick = { sortExpanded = true }) {
-                Icon(MaterialSymbols.AutoMirroredRounded.Sort, stringResource(MR.strings.action_sort))
-            }
-            DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
-                NovelCommentLocalSort.entries.forEach { sort ->
-                    DropdownMenuItem(
-                        text = { Text(stringResource(sort.titleRes)) },
-                        trailingIcon = { if (sort == state.sort) Icon(MaterialSymbols.Rounded.Check, null) },
-                        onClick = {
-                            sortExpanded = false
-                            onSetSort(sort)
-                        },
-                    )
-                }
-            }
-        }
-
-        if (NovelCommentKind.REVIEWS in state.kinds && NovelCommentKind.COMMENTS in state.kinds) {
-            NovelCommentKindToggle(state.kind, enabled) { onSetKind(state.kind.next) }
-        }
-
-        Spacer(Modifier.weight(1f))
-
-        if (state.searching) {
-            val searching = stringResource(MR.strings.leaf_novel_comments_searching)
-            CircularProgressIndicator(
-                modifier = Modifier
-                    .padding(horizontal = MaterialTheme.padding.small)
-                    .size(16.dp)
-                    .semantics { contentDescription = searching },
-                strokeWidth = 2.dp,
-            )
-        }
-
-        if (state.origins.size > 1) {
-            Box {
-                TextButton(onClick = { originExpanded = true }, enabled = enabled) {
-                    Text(
-                        text = state.origins.firstOrNull { it.id == state.origin }?.name
-                            ?: stringResource(MR.strings.leaf_novel_comments_all_extensions),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Icon(MaterialSymbols.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
-                }
-                DropdownMenu(expanded = originExpanded, onDismissRequest = { originExpanded = false }) {
-                    NovelCommentOriginItem(
-                        label = stringResource(MR.strings.leaf_novel_comments_all_extensions),
-                        selected = state.origin == null,
-                    ) {
-                        originExpanded = false
-                        onSetOrigin(null)
-                    }
+    TabbedDialog(
+        onDismissRequest = onDismissRequest,
+        tabTitles = listOf(stringResource(MR.strings.action_filter), stringResource(MR.strings.action_sort)),
+    ) { page ->
+        Column(
+            modifier = Modifier
+                .padding(vertical = TabbedDialogPaddings.Vertical)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            when (page) {
+                0 -> {
+                    HeadingItem(MR.strings.label_extensions)
                     state.origins.forEach { origin ->
-                        NovelCommentOriginItem(
+                        TriStateItem(
                             label = origin.count?.let {
                                 stringResource(MR.strings.leaf_novel_comments_feed_count, origin.name, it)
                             } ?: origin.name,
-                            selected = state.origin == origin.id,
-                        ) {
-                            originExpanded = false
-                            onSetOrigin(origin.id)
-                        }
+                            state = state.originFilter[origin.id] ?: TriState.DISABLED,
+                            // With one extension there is nothing to choose between.
+                            onClick = { next: TriState -> onSetOriginFilter(origin.id, next) }.takeIf {
+                                state.origins.size >
+                                    1
+                            },
+                        )
                     }
+                }
+                1 -> NovelCommentLocalSort.entries.forEach { sort ->
+                    BaseSortItem(
+                        label = stringResource(sort.titleRes),
+                        icon = MaterialSymbols.Rounded.Check.takeIf { sort == state.sort },
+                        onClick = { onSetSort(sort) },
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * The overflow menu, as Mihon's app bars draw theirs: words only, a little shorter per row since the
+ * sheet is smaller than a screen.
+ */
 @Composable
-private fun NovelCommentOriginItem(label: String, selected: Boolean, onClick: () -> Unit) {
-    DropdownMenuItem(
-        text = { Text(label) },
-        trailingIcon = { if (selected) Icon(MaterialSymbols.Rounded.Check, null) },
-        onClick = onClick,
-    )
+private fun NovelCommentsMenu(
+    state: NovelCommentsState,
+    onRefresh: () -> Unit,
+    onNextComment: () -> Unit,
+    onCollapseAll: () -> Unit,
+    onExpandAll: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(MaterialSymbols.Rounded.MoreVert, stringResource(MR.strings.action_menu_overflow_description))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            listOf(
+                MR.strings.action_webview_refresh to onRefresh,
+                MR.strings.leaf_novel_comments_next to onNextComment,
+                MR.strings.leaf_novel_comments_collapse_all to onCollapseAll,
+                MR.strings.leaf_novel_comments_expand_all to onExpandAll,
+            ).forEach { (title, action) ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(title),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Normal,
+                        )
+                    },
+                    enabled = when (title) {
+                        MR.strings.action_webview_refresh -> !state.loading && !state.posting && state.voting.isEmpty()
+                        MR.strings.leaf_novel_comments_next -> state.rows.isNotEmpty()
+                        else -> true
+                    },
+                    modifier = Modifier.height(MENU_ITEM_HEIGHT),
+                    onClick = {
+                        expanded = false
+                        action()
+                    },
+                )
+            }
+        }
+    }
 }
+
+private val MENU_ITEM_HEIGHT = 40.dp
 
 /**
  * The review filter as one chip that cycles: grey for everything, green for reviews alone, red for

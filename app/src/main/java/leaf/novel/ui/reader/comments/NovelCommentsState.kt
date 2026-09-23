@@ -7,6 +7,7 @@ import leaf.novel.api.NovelCommentFeed
 import leaf.novel.api.NovelCommentFeedback
 import leaf.novel.api.NovelCommentFeedbackSource
 import leaf.novel.api.NovelCommentScope
+import tachiyomi.core.common.preference.TriState
 
 /**
  * One thread as it is fetched, which is the model everything else is derived from.
@@ -142,8 +143,11 @@ data class NovelCommentsState(
 
     /** The novel's own source and every other that has it; the filter appears once there are two. */
     val origins: List<NovelCommentOrigin> = emptyList(),
-    /** The one source to show, or null for all of them together. */
-    val origin: Long? = null,
+    /**
+     * Sources the reader has asked for alone ([TriState.ENABLED_IS]) or asked to hide
+     * ([TriState.ENABLED_NOT]), as the library's own filters do. Empty shows every source.
+     */
+    val originFilter: Map<Long, TriState> = emptyMap(),
     /** Still looking for the novel on the other sources. */
     val searching: Boolean = false,
 
@@ -199,6 +203,13 @@ data class NovelCommentsState(
     val count: Int get() = total ?: NovelCommentTree.count(roots)
 
     val isEmpty: Boolean get() = loaded && roots.isEmpty()
+
+    /** Whether [originFilter] lets a source's comments through. */
+    fun shows(origin: Long): Boolean {
+        val filter = originFilter[origin]
+        if (filter == TriState.ENABLED_NOT) return false
+        return filter == TriState.ENABLED_IS || TriState.ENABLED_IS !in originFilter.values
+    }
 
     /** The comment the sheet is focused on, when it is. */
     val focused: NovelComment? get() = focus?.let { NovelCommentTree.find(roots, it) }

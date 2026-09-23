@@ -12,19 +12,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,8 +36,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -58,9 +58,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import coil3.compose.AsyncImage
-import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.util.relativeTimeSpanString
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import leaf.novel.api.NovelComment
@@ -73,6 +74,10 @@ import leaf.novel.ui.reader.comments.NovelCommentReview
 import leaf.novel.ui.reader.comments.NovelCommentSpan
 import leaf.novel.ui.reader.comments.NovelCommentTree
 import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.automirroredrounded.ArrowForward
+import mihon.icons.materialsymbols.automirroredrounded.OpenInNew
+import mihon.icons.materialsymbols.rounded.ContentCopy
+import mihon.icons.materialsymbols.rounded.ExpandLess
 import mihon.icons.materialsymbols.rounded.ExpandMore
 import mihon.icons.materialsymbols.rounded.MoreVert
 import tachiyomi.i18n.MR
@@ -86,6 +91,9 @@ import tachiyomi.presentation.core.i18n.stringResource
  * left, the rating over the extension on the right (the extension alone, in the rating's place,
  * when there is no rating), and the menu at the end. Whatever a site adds of its own to a user — a
  * tier, a title, a tagline — is left out, because no two sites mean the same thing by one.
+ *
+ * A tap anywhere on the header folds the comment down to that header alone, the way Reddit does, and
+ * another opens it; a tap on the avatar's picture opens the picture instead.
  *
  * A comment with replies draws a line down from its avatar, the way YouTube does. Closed, it turns
  * into the "replies" row at the foot of the comment; open, it runs on past every reply to the
@@ -127,9 +135,11 @@ fun NovelCommentItem(
     val review = remember(comment.body) { NovelCommentReview.parse(comment.body) }
     val spans = remember(review.body, comment.permalink) { NovelCommentMarkup.parse(review.body, comment.permalink) }
     val hasSpoilers = remember(spans) { spans.any { it.spoiler } }
+    val hasText = remember(spans) { spans.any { it.image == null } }
     var revealed by remember(comment.id) { mutableStateOf(false) }
     var overflows by remember(comment.body) { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var viewingAvatar by remember { mutableStateOf<String?>(null) }
     val hidden = (spoilerGuard || hasSpoilers) && !revealed
     val rating = (feedback.rating ?: review.rating).takeUnless { comment.deleted || hidden }
     // A site that judges a review rather than scoring it puts its verdict where the stars would be.
@@ -139,7 +149,7 @@ fun NovelCommentItem(
         .takeUnless { comment.deleted || hidden || rating != null }
     val avatar = avatarSize(depth)
     val lineColor = MaterialTheme.colorScheme.outlineVariant
-    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = DIVIDER_ALPHA)
     val replyCount = maxOf(
         NovelCommentTree.count(comment.replies),
         if (capabilities.lazyReplies) comment.replyCount else 0,
@@ -151,22 +161,30 @@ fun NovelCommentItem(
     Column(
         modifier = modifier.fillMaxWidth()
             .drawBehind {
-                // A rule under the comment, except where its thread line carries on below it.
+                // A rule under the comment, except where its thread line carries on below it: edge
+                // to edge, fading in from nothing at either end to full by the last 18% of the width.
                 if (!continues) {
                     drawLine(
-                        color = dividerColor,
-                        start = Offset((avatar + GAP).toPx(), size.height),
-                        end = Offset(size.width - 8.dp.toPx(), size.height),
-                        strokeWidth = 0.5.dp.toPx(),
+                        brush = Brush.horizontalGradient(
+                            0f to Color.Transparent,
+                            DIVIDER_FADE to dividerColor,
+                            1f - DIVIDER_FADE to dividerColor,
+                            1f to Color.Transparent,
+                        ),
+                        start = Offset(0f, size.height),
+                        end = Offset(size.width, size.height),
+                        strokeWidth = 1.dp.toPx(),
                     )
                 }
             }
-            .padding(top = 10.dp),
+            .padding(top = 10.dp, bottom = if (collapsed) 10.dp else 0.dp),
     ) {
-        Row(modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT).clickable(onClick = onToggleCollapsed),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier.width(avatar).fillMaxHeight()
-                    .then(if (threaded) Modifier.clickable(onClick = onToggleReplies) else Modifier)
                     .drawBehind {
                         if (threaded) {
                             val x = size.width / 2
@@ -180,13 +198,19 @@ fun NovelCommentItem(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                CommentAvatar(comment, avatar, showImage = showAvatar && capabilities.avatars)
+                CommentAvatar(
+                    comment,
+                    avatar,
+                    showImage = showAvatar && capabilities.avatars,
+                    onOpen = { viewingAvatar = it },
+                )
             }
             Spacer(Modifier.width(GAP))
             val details = listOfNotNull(
                 comment.postedAt.takeIf { it > 0 }?.let { relativeTimeSpanString(it) },
                 comment.chapterLabel?.takeIf { showChapter && it.isNotBlank() },
                 stringResource(MR.strings.leaf_novel_comments_pinned).takeIf { comment.pinned },
+                "+$hiddenCount".takeIf { collapsed && hiddenCount > 0 },
             )
             val source: (@Composable () -> Unit)? = sourceName?.let { { HeaderLabel(it) } }
             HeaderGrid(
@@ -216,61 +240,80 @@ fun NovelCommentItem(
                 bottomEnd = source.takeIf { rating != null || verdict != null },
             )
             Box {
-                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         MaterialSymbols.Rounded.MoreVert,
                         stringResource(MR.strings.action_menu_overflow_description),
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(
-                                    if (collapsed) {
-                                        MR.strings.leaf_novel_comments_expand
-                                    } else {
-                                        MR.strings.leaf_novel_comments_collapse
-                                    },
-                                ),
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onToggleCollapsed()
-                        },
-                    )
-                    if (comment.replies.isNotEmpty() || comment.replyCount > 0) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(MR.strings.leaf_novel_comments_focus)) },
+                // A narrow column of small icons: the platform menu rather than the app's, which is
+                // fixed at the width of a menu of words.
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    @Composable
+                    fun Action(title: String, icon: ImageVector, onClick: () -> Unit) {
+                        IconButton(
                             onClick = {
                                 menuExpanded = false
-                                onFocus()
+                                onClick()
                             },
+                            modifier = Modifier.padding(horizontal = 4.dp).size(MENU_BUTTON),
+                        ) {
+                            Icon(
+                                icon,
+                                title,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(MENU_ICON),
+                            )
+                        }
+                    }
+                    if (collapsed) {
+                        Action(
+                            stringResource(MR.strings.leaf_novel_comments_expand),
+                            MaterialSymbols.Rounded.ExpandMore,
+                            onToggleCollapsed,
+                        )
+                    } else {
+                        Action(
+                            stringResource(MR.strings.leaf_novel_comments_collapse),
+                            MaterialSymbols.Rounded.ExpandLess,
+                            onToggleCollapsed,
+                        )
+                    }
+                    if (comment.replies.isNotEmpty() || comment.replyCount > 0) {
+                        Action(
+                            stringResource(MR.strings.leaf_novel_comments_focus),
+                            MaterialSymbols.AutoMirroredRounded.ArrowForward,
+                            onFocus,
                         )
                     }
                     if (!comment.deleted) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(MR.strings.action_copy_to_clipboard)) },
-                            onClick = {
-                                menuExpanded = false
-                                context.copyToClipboard(comment.author, NovelCommentMarkup.plainText(comment.body))
-                            },
-                        )
+                        Action(
+                            stringResource(MR.strings.action_copy_to_clipboard),
+                            MaterialSymbols.Rounded.ContentCopy,
+                        ) {
+                            context.copyToClipboard(comment.author, NovelCommentMarkup.plainText(comment.body))
+                        }
                     }
                     comment.permalink?.let { url ->
-                        DropdownMenuItem(
-                            text = { Text(stringResource(MR.strings.action_open_in_browser)) },
-                            onClick = {
-                                menuExpanded = false
-                                onOpenLink(url)
-                            },
-                        )
+                        Action(
+                            stringResource(MR.strings.action_open_in_browser),
+                            MaterialSymbols.AutoMirroredRounded.OpenInNew,
+                        ) { onOpenLink(url) }
                     }
                 }
             }
         }
+
+        viewingAvatar?.let { url ->
+            NovelCommentAvatarDialog(url, comment.author, onDismissRequest = { viewingAvatar = null })
+        }
+        // Folded, the header is all there is: no body, no votes and no replies row beneath it.
+        if (collapsed) return@Column
 
         Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Box(
@@ -287,18 +330,8 @@ fun NovelCommentItem(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(top = 4.dp, bottom = if (threaded && !continues) 0.dp else 12.dp),
+                    .padding(top = 2.dp, bottom = if (threaded && !continues) 0.dp else 6.dp),
             ) {
-                if (collapsed) {
-                    TextButton(onClick = onToggleCollapsed) {
-                        Icon(MaterialSymbols.Rounded.ExpandMore, null, modifier = Modifier.size(18.dp))
-                        Text(
-                            stringResource(MR.strings.leaf_novel_comments_expand) +
-                                if (hiddenCount > 0) " · $hiddenCount" else "",
-                        )
-                    }
-                    return@Column
-                }
                 when {
                     comment.deleted -> Unit
                     hidden -> Text(
@@ -311,23 +344,28 @@ fun NovelCommentItem(
                     )
                     else -> {
                         // The body itself is the control: a tap opens a long comment, and another
-                        // closes it. The label below only says which a tap will do.
-                        Text(
-                            text = spans.toAnnotatedString(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = if (expanded) Int.MAX_VALUE else 4,
-                            overflow = TextOverflow.Ellipsis,
-                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
-                            modifier = Modifier.clickable(
-                                enabled = expanded || overflows,
-                                interactionSource = null,
-                                indication = null,
-                                onClick = toggleBody,
-                            ),
-                        )
+                        // closes it. The label below only says which a tap will do. A comment that is
+                        // only a picture has no line of text to hold a place above it.
+                        if (hasText) {
+                            Text(
+                                text = spans.toAnnotatedString(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                                // bodyLarge's own leading is set for paragraphs of prose; a comment is a
+                                // few lines, and reads as one block with the lines closer together.
+                                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.3.em),
+                                maxLines = if (expanded) Int.MAX_VALUE else 4,
+                                overflow = TextOverflow.Ellipsis,
+                                onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
+                                modifier = Modifier.clickable(
+                                    enabled = expanded || overflows,
+                                    interactionSource = null,
+                                    indication = null,
+                                    onClick = toggleBody,
+                                ),
+                            )
+                        }
                         if (expanded || overflows) {
                             Text(
                                 text = stringResource(
@@ -339,12 +377,15 @@ fun NovelCommentItem(
                                 ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.heightIn(min = 40.dp)
+                                modifier = Modifier
                                     .clickable(role = Role.Button, onClick = toggleBody)
-                                    .padding(vertical = 10.dp),
+                                    .padding(vertical = 4.dp),
                             )
                         }
-                        NovelCommentImages(remember(spans) { spans.mapNotNull { it.image } })
+                        NovelCommentImages(
+                            remember(spans) { spans.mapNotNull { it.image } },
+                            modifier = Modifier.padding(top = if (hasText) 8.dp else 4.dp),
+                        )
                     }
                 }
                 if (!comment.deleted) {
@@ -414,7 +455,10 @@ fun NovelCommentRepliesRow(
     val avatar = avatarSize(depth)
     val lineColor = MaterialTheme.colorScheme.outlineVariant
     Row(
+        // Shorter than a touch row and padded below instead, so the label sits as far under the
+        // votes as the rule sits under it.
         modifier = modifier
+            .padding(bottom = REPLIES_ROW_GAP)
             .fillMaxWidth()
             .height(REPLIES_ROW_HEIGHT)
             .clickable(role = Role.Button, onClick = onClick)
@@ -515,7 +559,7 @@ private fun HeaderLabel(text: String) {
  * start. The picture itself only where the reader wants pictures and the site has real ones.
  */
 @Composable
-private fun CommentAvatar(comment: NovelComment, size: Dp, showImage: Boolean) {
+private fun CommentAvatar(comment: NovelComment, size: Dp, showImage: Boolean, onOpen: (String) -> Unit) {
     var failed by remember(comment.avatarUrl) { mutableStateOf(false) }
     val url = comment.avatarUrl?.takeIf { showImage && !comment.deleted && !failed }
     Box(
@@ -545,7 +589,7 @@ private fun CommentAvatar(comment: NovelComment, size: Dp, showImage: Boolean) {
                 // Avatars are not all square, and fitting one into a circle leaves bare edges.
                 contentScale = ContentScale.Crop,
                 onError = { failed = true },
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier.matchParentSize().clickable { onOpen(url) },
             )
         }
     }
@@ -620,9 +664,14 @@ private fun avatarSize(depth: Int): Dp = if (depth == 0) 32.dp else 24.dp
 
 private val GAP = 10.dp
 private val HEADER_HEIGHT = 40.dp
-private val REPLIES_ROW_HEIGHT = 44.dp
+private val REPLIES_ROW_HEIGHT = 32.dp
+private val REPLIES_ROW_GAP = 8.dp
 private val LINE = 1.5.dp
 private val ELBOW = 10.dp
+private val MENU_BUTTON = 32.dp
+private val MENU_ICON = 16.dp
+private const val DIVIDER_ALPHA = 0.7f
+private const val DIVIDER_FADE = 0.18f
 
 /**
  * The spans as Compose sees them.
@@ -640,10 +689,14 @@ private fun List<NovelCommentSpan>.toAnnotatedString(
                 // A quote is set in italics and a quieter colour rather than behind a rule: a rule
                 // would have to be its own element, and this is one string of text.
                 color = if (span.quote) quoteColor else Color.Unspecified,
-                fontWeight = if (span.bold) FontWeight.Bold else null,
+                fontSize = if (span.heading) 1.15.em else TextUnit.Unspecified,
+                fontWeight = if (span.bold || span.heading) FontWeight.Bold else null,
                 fontStyle = if (span.italic || span.quote) FontStyle.Italic else null,
                 fontFamily = if (span.code) FontFamily.Monospace else null,
-                textDecoration = if (span.strikethrough) TextDecoration.LineThrough else null,
+                textDecoration = listOfNotNull(
+                    TextDecoration.LineThrough.takeIf { span.strikethrough },
+                    TextDecoration.Underline.takeIf { span.underline },
+                ).takeIf { it.isNotEmpty() }?.let(TextDecoration::combine),
             )
             if (span.link != null) {
                 withLink(

@@ -29,4 +29,11 @@ class NovelCommentReviewTest {
     fun `retains zero and non five point scales`() {
         NovelCommentReview.parse("<b>★ 0 / 10</b><br/>Review").rating shouldBe NovelCommentRating(0.0, 10.0)
     }
+
+    @Test
+    fun `puts every scale on five stars`() {
+        NovelCommentRating(7.0, 10.0).outOfFive() shouldBe NovelCommentRating(3.5, 5.0)
+        NovelCommentRating(73.0, 100.0).outOfFive() shouldBe NovelCommentRating(3.7, 5.0)
+        NovelCommentRating(4.5, 5.0).outOfFive() shouldBe NovelCommentRating(4.5, 5.0)
+    }
 }

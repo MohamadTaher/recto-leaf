@@ -180,6 +180,37 @@ class NovelCommentMarkupTest {
     }
 
     @Test
+    fun `keeps no more than one blank line between lines`() {
+        text("one<br><br><br><br>two") shouldBe "one\n\ntwo"
+        text("<p>one</p>\n \n\n<p>two</p><br><p>three</p>") shouldBe "one\n\ntwo\n\nthree"
+    }
+
+    @Test
+    fun `keeps a single line break and a single blank line as written`() {
+        text("one<br>two<br><br>three") shouldBe "one\ntwo\n\nthree"
+        text("one\n\ntwo") shouldBe "one\n\ntwo"
+    }
+
+    @Test
+    fun `keeps the blank lines inside a code block`() {
+        text("<pre>a\n\nb</pre>") shouldBe "a\n\nb"
+    }
+
+    @Test
+    fun `sets a heading apart on its own line`() {
+        val spans = NovelCommentMarkup.parse("<h2>Verdict</h2>Worth it")
+
+        spans.map { it.text } shouldBe listOf("Verdict", "\nWorth it")
+        spans[0].heading shouldBe true
+        spans[1].heading shouldBe false
+    }
+
+    @Test
+    fun `keeps an underline`() {
+        NovelCommentMarkup.parse("<u>this</u>").single().underline shouldBe true
+    }
+
+    @Test
     fun `survives an empty comment`() {
         NovelCommentMarkup.parse("") shouldBe emptyList()
     }
