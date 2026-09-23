@@ -76,6 +76,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.daysUntil
+import leaf.novel.presentation.manga.NovelRatingLine
 import leaf.novel.presentation.reader.comments.NovelCommentGlyphs
 import mihon.app.di.appGraph
 import mihon.icons.materialsymbols.MaterialSymbols
@@ -388,6 +389,8 @@ private fun MangaAndSourceTitlesLarge(
             doSearch = doSearch,
             textAlign = TextAlign.Center,
         )
+        // [recto-leaf] a novel's rating, on its site and across sites; draws nothing on a manga
+        NovelRatingLine(manga)
     }
 }
 
@@ -430,6 +433,8 @@ private fun MangaAndSourceTitlesSmall(
                 isStubSource = isStubSource,
                 doSearch = doSearch,
             )
+            // [recto-leaf] a novel's rating, on its site and across sites; draws nothing on a manga
+            NovelRatingLine(manga)
         }
     }
 }

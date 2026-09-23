@@ -14,4 +14,6 @@ dependencies {
     api(projects.sourceApi)
     api(projects.core.common)
     api(libs.okhttp.core)
+    // Only for reading and writing NovelRating in SManga.memo; the type never reaches the surface.
+    implementation(libs.kotlinx.serialization.json)
 }
