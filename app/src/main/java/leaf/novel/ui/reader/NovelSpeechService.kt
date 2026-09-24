@@ -24,8 +24,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
+import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.AndroidPreferenceStore
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
 
 /**
@@ -128,6 +130,11 @@ class NovelSpeechService : Service() {
         // start the service afresh each time, which is exactly what a background chapter change
         // is not allowed to do on Android 12+.
         startForeground(NOTIFICATION_ID, notification(lastTitle, lastChapter, lastPaused))
+        starting = false
+        if (stopOnceStarted) {
+            stopOnceStarted = false
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
 
@@ -229,6 +236,17 @@ class NovelSpeechService : Service() {
         @Volatile
         private var instance: NovelSpeechService? = null
 
+        /**
+         * Between asking for the service and its going foreground. Stopped in that window, a
+         * service started with `startForegroundService` takes the app down with it, and a single
+         * short utterance ends speech that fast. So a stop then waits for the start instead.
+         */
+        @Volatile
+        private var starting = false
+
+        @Volatile
+        private var stopOnceStarted = false
+
         /** Starts the service, or updates what the notification says when it is already up. */
         fun show(context: Context, title: String, chapter: String, paused: Boolean) {
             val running = instance
@@ -240,11 +258,22 @@ class NovelSpeechService : Service() {
                 .putExtra(EXTRA_TITLE, title)
                 .putExtra(EXTRA_CHAPTER, chapter)
                 .putExtra(EXTRA_PAUSED, paused)
-            ContextCompat.startForegroundService(context, intent)
+            starting = true
+            stopOnceStarted = false
+            // Refused from the background on Android 12+. Speech goes on without the notification
+            // rather than the refusal crashing the app.
+            runCatching { ContextCompat.startForegroundService(context, intent) }.onFailure {
+                starting = false
+                logcat(LogPriority.WARN, it) { "Could not start the read-aloud service" }
+            }
         }
 
         fun hide(context: Context) {
             controls = null
+            if (starting) {
+                stopOnceStarted = true
+                return
+            }
             context.stopService(Intent(context, NovelSpeechService::class.java))
         }
     }

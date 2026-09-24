@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -44,11 +45,13 @@ fun NovelImageDialog(
     loadBytes: suspend (String) -> ByteArray?,
     onDismissRequest: () -> Unit,
 ) {
-    val bitmap by produceState<ImageBitmap?>(initialValue = null, url) {
-        value = loadBytes(url)?.let { bytes ->
-            runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-                .getOrNull()
-                ?.asImageBitmap()
+    // Null while loading. A failure is kept as one, or the spinner would turn forever over an image
+    // that is missing, or in a format Android cannot decode, such as SVG.
+    val bitmap by produceState<Result<ImageBitmap>?>(initialValue = null, url) {
+        val bytes = loadBytes(url)
+        value = runCatching {
+            val decoded = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            checkNotNull(decoded).asImageBitmap()
         }
     }
 
@@ -63,9 +66,11 @@ fun NovelImageDialog(
                 .clickableNoIndication(onClick = onDismissRequest),
             contentAlignment = Alignment.Center,
         ) {
-            when (val image = bitmap) {
-                null -> CircularProgressIndicator()
-                else -> ZoomableImage(image)
+            val image = bitmap
+            when {
+                image == null -> CircularProgressIndicator()
+                image.isSuccess -> ZoomableImage(image.getOrThrow())
+                else -> Text(text = stringResource(MR.strings.decode_image_error), color = Color.White)
             }
         }
     }

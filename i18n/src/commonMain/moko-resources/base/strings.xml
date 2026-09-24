@@ -1229,8 +1229,6 @@
     <string name="leaf_novel_reader_indent_first_line">Indent first line of paragraph</string>
     <string name="leaf_novel_reader_trim_blank_lines">Trim blank lines and spaces</string>
     <string name="leaf_novel_reader_heading_replacements">Find and replace</string>
-    <string name="leaf_novel_reader_replacements_subtitle">Applied to every chapter before it is shown.</string>
-    <string name="leaf_novel_reader_edit_replacements">Edit replacements</string>
     <string name="leaf_novel_reader_replacements_this_novel">This novel</string>
     <string name="leaf_novel_reader_replacements_app_wide">App-wide</string>
     <string name="leaf_novel_reader_add_replacement">Add a rule</string>

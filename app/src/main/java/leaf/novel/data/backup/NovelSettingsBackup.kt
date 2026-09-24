@@ -72,17 +72,22 @@ object NovelSettingsTransfer {
      * is to survive the fork's own churn, and one that a later stage renamed should not take the
      * rest of it down. A key *missing* from the file is left alone rather than reset, so restoring
      * an older export does not silently undo settings that export never knew about.
+     *
+     * Only the reader's own keys are written, whatever the file holds. It is a file people share,
+     * and one that could set any preference could, for one, mark an extension as trusted.
      */
     fun apply(backup: NovelSettingsBackup, store: PreferenceStore) {
-        backup.booleans.forEach { (key, value) -> store.getBoolean(key).set(value) }
-        backup.ints.forEach { (key, value) -> store.getInt(key).set(value) }
-        backup.longs.forEach { (key, value) -> store.getLong(key).set(value) }
-        backup.floats.forEach { (key, value) -> store.getFloat(key).set(value) }
-        backup.strings.forEach { (key, value) -> store.getString(key).set(value) }
-        backup.stringSets.forEach { (key, value) -> store.getStringSet(key).set(value.toSet()) }
+        backup.booleans.owned().forEach { (key, value) -> store.getBoolean(key).set(value) }
+        backup.ints.owned().forEach { (key, value) -> store.getInt(key).set(value) }
+        backup.longs.owned().forEach { (key, value) -> store.getLong(key).set(value) }
+        backup.floats.owned().forEach { (key, value) -> store.getFloat(key).set(value) }
+        backup.strings.owned().forEach { (key, value) -> store.getString(key).set(value) }
+        backup.stringSets.owned().forEach { (key, value) -> store.getStringSet(key).set(value.toSet()) }
     }
 
     /** The entries of one primitive type, keyed as they were stored. */
     private inline fun <reified T> Map<String, *>.pick(): Map<String, T> =
         mapNotNull { (key, value) -> (value as? T)?.let { key to it } }.toMap()
+
+    private fun <T> Map<String, T>.owned(): Map<String, T> = filterKeys { it.startsWith(PREFIX) }
 }

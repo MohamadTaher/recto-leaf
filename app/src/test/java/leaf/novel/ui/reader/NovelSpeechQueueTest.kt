@@ -112,4 +112,24 @@ class NovelSpeechQueueTest {
     fun `has nothing to report for an empty queue`() {
         NovelSpeechQueue().chapterProgress(0) shouldBe null
     }
+
+    /**
+     * A unit's progress is where it starts, so the last of twelve even paragraphs reads 91 and the
+     * chapter would never reach 95. Leaving it is what finishes it; seeking back finishes nothing.
+     */
+    @Test
+    fun `finishes a chapter when speech moves on out of it`() {
+        val queue = NovelSpeechQueue()
+        val paragraphs = (1..12).joinToString("") { "<p>paragraph</p>" }
+        val first = NovelSpeech.positions(paragraphs, NovelSpeechDivision.PARAGRAPH, chapterId = 1)
+        val second = NovelSpeech.positions(paragraphs, NovelSpeechDivision.PARAGRAPH, chapterId = 2)
+        queue.start(mangaId = 5, positions = first, chapterIndex = 0)
+        queue.extend(second, chapterIndex = 1)
+
+        queue.chapterProgress(11) shouldBe (1L to 91)
+        queue.chapterFinished(from = 11, to = 12) shouldBe 1L
+        queue.chapterFinished(from = 10, to = 11) shouldBe null
+        queue.chapterFinished(from = 12, to = 11) shouldBe null
+        queue.lastChapterId shouldBe 2L
+    }
 }

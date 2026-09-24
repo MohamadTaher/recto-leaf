@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -33,59 +32,14 @@ import leaf.novel.ui.reader.setting.NovelTextReplacement
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Add
 import mihon.icons.materialsymbols.rounded.Delete
-import tachiyomi.core.common.preference.Preference
 import tachiyomi.i18n.MR
-import tachiyomi.presentation.core.components.HeadingItem
-import tachiyomi.presentation.core.components.SettingsItemsPaddings
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
-import tachiyomi.presentation.core.util.collectAsState
 import tachiyomi.presentation.core.util.secondaryItemAlpha
 
 private enum class ReplacementScope {
     NOVEL,
     APP_WIDE,
-}
-
-@Composable
-fun ColumnScope.TextReplacements(
-    appWidePreference: Preference<String>,
-    novelRules: String,
-    onNovelRulesChange: (String) -> Unit,
-) {
-    val appWideRules by appWidePreference.collectAsState()
-    var showEditor by remember { mutableStateOf(false) }
-
-    HeadingItem(MR.strings.leaf_novel_reader_heading_replacements)
-    Text(
-        text = stringResource(MR.strings.leaf_novel_reader_replacements_subtitle),
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier
-            .padding(horizontal = SettingsItemsPaddings.Horizontal)
-            .secondaryItemAlpha(),
-    )
-    Text(
-        text = stringResource(MR.strings.leaf_novel_reader_edit_replacements),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
-            .clickable { showEditor = true }
-            .fillMaxWidth()
-            .padding(
-                horizontal = SettingsItemsPaddings.Horizontal,
-                vertical = SettingsItemsPaddings.Vertical,
-            ),
-    )
-
-    if (showEditor) {
-        NovelTextReplacementDialog(
-            appWideRules = appWideRules,
-            novelRules = novelRules,
-            onDismissRequest = { showEditor = false },
-            onSaveAppWide = appWidePreference::set,
-            onSaveNovel = onNovelRulesChange,
-        )
-    }
 }
 
 @Composable
@@ -151,8 +105,10 @@ fun NovelTextReplacementDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val encoded = NovelTextReplacements.encode(rules.simplePairs())
-                    if (scope == ReplacementScope.NOVEL) onSaveNovel(encoded) else onSaveAppWide(encoded)
+                    // Both tabs, because switching tabs is not a save: a draft left behind on the
+                    // other one is still an edit the person made.
+                    if (novelDraft != rulesDraft(novelRules)) onSaveNovel(novelDraft.encoded())
+                    if (appWideDraft != rulesDraft(appWideRules)) onSaveAppWide(appWideDraft.encoded())
                     onDismissRequest()
                 },
             ) {
@@ -246,9 +202,9 @@ private fun rulesDraft(rules: String): List<NovelTextReplacement> =
 
 private fun emptyRule() = listOf(NovelTextReplacement())
 
-private fun List<NovelTextReplacement>.simplePairs(): List<NovelTextReplacement> =
-    filter { it.pattern.isNotBlank() }
-        .map { NovelTextReplacement(pattern = it.pattern, replacement = it.replacement) }
+/** Every field kept, so an option this editor does not show survives an edit here. */
+private fun List<NovelTextReplacement>.encoded(): String =
+    NovelTextReplacements.encode(filter { it.pattern.isNotBlank() })
 
 private fun List<NovelTextReplacement>.replacing(index: Int, rule: NovelTextReplacement) =
     toMutableList().also { it[index] = rule }

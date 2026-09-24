@@ -19,6 +19,7 @@ import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.source.interactor.GetIncognitoState
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
+import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.Deferred
@@ -59,6 +60,7 @@ import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import logcat.LogPriority
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getAndSet
+import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
@@ -67,6 +69,7 @@ import tachiyomi.domain.chapter.interactor.UpdateChapter
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.chapter.model.ChapterUpdate
 import tachiyomi.domain.chapter.service.getChapterSort
+import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.history.interactor.UpsertHistory
 import tachiyomi.domain.history.model.HistoryUpdate
 import tachiyomi.domain.manga.interactor.GetManga
@@ -114,6 +117,8 @@ class NovelReaderViewModel(
     private val getIncognitoState: GetIncognitoState,
     private val fileSystem: NovelFileSystem,
     private val downloadProvider: DownloadProvider,
+    private val downloadManager: DownloadManager,
+    private val downloadPreferences: DownloadPreferences,
     private val sourceManager: SourceManager,
     private val preferenceStore: PreferenceStore,
     val readerPreferences: ReaderPreferences,
@@ -254,7 +259,12 @@ class NovelReaderViewModel(
         restartReadTimer()
 
         mutableState.update {
-            it.copy(manga = manga, chapters = chapters, currentIndex = startIndex, isLoading = false)
+            it.copy(
+                manga = manga,
+                chapters = chapters.openedAt(startIndex),
+                currentIndex = startIndex,
+                isLoading = false,
+            )
         }
         preloadChapters(startIndex)
         // Speech may already be running from a reader that has since been destroyed — attach to
@@ -352,7 +362,13 @@ class NovelReaderViewModel(
         val chapter = state.value.chapters.getOrNull(index) ?: return
         if (state.value.currentIndex == index) return
 
-        viewModelScope.launchNonCancellable { flushProgress() }
+        // The time spent in the chapter being left is written against it before the clock restarts,
+        // as ReaderViewModel does on every chapter change.
+        val history = historyUpdate()
+        viewModelScope.launchNonCancellable {
+            flushProgress()
+            history?.let { upsertHistory.await(it) }
+        }
         restoredChapterId = chapter.id
         restartReadTimer()
         // Neither auto scroll nor a search carries across a chapter boundary. Speech does, and a
@@ -361,6 +377,8 @@ class NovelReaderViewModel(
         stopSpeedReading()
         mutableState.update {
             it.copy(
+                // Scrolled into, a chapter is already on screen where it should be.
+                chapters = if (continuous) it.chapters else it.chapters.openedAt(index),
                 currentIndex = index,
                 autoScrolling = it.autoScrolling && continuous,
                 searchQuery = it.searchQuery.takeIf { continuous },
@@ -377,6 +395,17 @@ class NovelReaderViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Opens a chapter already read at its start, as `ChapterLoader` does for the image reader.
+     *
+     * Only in memory: the stored position is left until the reader moves, so a chapter opened and
+     * closed again has lost nothing.
+     */
+    private fun List<Chapter>.openedAt(index: Int): List<Chapter> {
+        val chapter = getOrNull(index)?.takeIf { it.read && it.lastPageRead > 0 } ?: return this
+        return toMutableList().apply { this[index] = chapter.copy(lastPageRead = 0) }
     }
 
     /**
@@ -471,7 +500,7 @@ class NovelReaderViewModel(
             percentRead == state.value.currentChapter?.lastPageRead?.toInt()
         }
         val fromIndex = NovelSpeech.resumeIndex(percentRead, utterances, bookmark, anchor)
-        NovelSpeechSession.queue.start(mangaId, utterances, state.value.currentIndex)
+        NovelSpeechSession.queue.start(mangaId, utterances, state.value.currentIndex, records = !incognitoMode)
         mutableState.update {
             it.copy(
                 autoScrolling = false,
@@ -518,6 +547,7 @@ class NovelReaderViewModel(
         // latest value to a new collector, so adopting a session already speaking must not look
         // like a false→true transition — that would re-arm the sleep timer from zero (M3).
         val lifecycle = NovelSpeechLifecycle(initiallySpeaking = engine.speech.value.speaking)
+        var previousIndex = engine.speech.value.index
         engine.speech
             .onEach { speech ->
                 val transition = lifecycle.observe(speech.speaking)
@@ -527,12 +557,22 @@ class NovelReaderViewModel(
                     NovelSpeechLifecycle.Transition.NONE -> Unit
                 }
                 if (speech.speaking || transition == NovelSpeechLifecycle.Transition.ENDED) {
-                    NovelSpeechSession.queue.chapterProgress(speech.index)?.let { (chapterId, percent) ->
+                    val queue = NovelSpeechSession.queue
+                    // Recorded before the chapter changes, so the flush that change makes writes it.
+                    queue.chapterFinished(previousIndex, speech.index)?.let {
+                        recordProgress(it, FINISHED_PERCENT, fromSpeech = true)
+                    }
+                    queue.chapterProgress(speech.index)?.let { (chapterId, percent) ->
                         val index = state.value.chapters.indexOfFirst { it.id == chapterId }
                         if (index >= 0) setCurrentChapter(index, continuous = true)
                         recordProgress(chapterId, percent, fromSpeech = true)
                     }
+                    // Saying the last unit finishes its chapter, which the unit's start never reads as.
+                    if (speech.finished) {
+                        queue.lastChapterId?.let { recordProgress(it, FINISHED_PERCENT, fromSpeech = true) }
+                    }
                 }
+                previousIndex = speech.index
                 if (speech.speaking) extendSpeech(speech.index)
                 holdProcessOpen(speech.speaking, speech.paused)
                 val snapshot = NovelSpeechSession.queue.snapshot(speech)
@@ -593,7 +633,8 @@ class NovelReaderViewModel(
      * The paragraphs after the ones queued are added a few pieces before the voice runs out, so it
      * never stops at a chapter boundary. Nothing here moves the reader: the continuous document
      * already holds the chapters on either side of the open one, so the page follows the voice by
-     * scrolling to the highlighted text and reports the chapter it lands in for itself.
+     * scrolling to the highlighted text and reports the chapter it lands in for itself. A paged
+     * document holds one chapter, so the screen opens the next when the voice reaches it.
      *
      * With the reader gone, [state] and [awaitChapter] belong to a destroyed session and this
      * simply stops finding a next chapter — the queue finishes what it already has and speech
@@ -864,6 +905,7 @@ class NovelReaderViewModel(
     private fun recordProgress(chapterId: Long, percent: Int, fromSpeech: Boolean) {
         if (state.value.speaking && !fromSpeech) return
         mutableState.update { it.withProgress(chapterId, percent, fromSpeech) }
+        if (percent > DOWNLOAD_AHEAD_PERCENT) downloadNextChapters(chapterId)
         if (incognitoMode) return
         pendingProgress[chapterId] = percent.coerceIn(0, 100)
         progressTicks.tryEmit(Unit)
@@ -896,8 +938,59 @@ class NovelReaderViewModel(
         if (completed && !alreadyRead) {
             chaptersMarkedRead += chapterId
             trackChapterRead(chapter)
+            deleteChapterIfNeeded(chapterId)
         }
     }
+
+    // region Downloads
+
+    /** Chapters the next ones have already been queued from, so every scroll does not queue them. */
+    private val downloadedAheadFrom = mutableSetOf<Long>()
+
+    /**
+     * Queues the chapters after [chapterId] once a quarter of it is read. Mirrors
+     * `ReaderViewModel.downloadNextChapters`, down to only reading ahead from a downloaded chapter
+     * followed by a downloaded one: a reader streaming from the web did not ask for downloads.
+     */
+    private fun downloadNextChapters(chapterId: Long) {
+        val amount = downloadPreferences.autoDownloadWhileReading.get()
+        if (amount == 0 || !downloadedAheadFrom.add(chapterId)) return
+        val manga = state.value.manga ?: return
+        val chapters = state.value.chapters
+        val index = chapters.indexOfFirst { it.id == chapterId }
+        val current = chapters.getOrNull(index) ?: return
+        val next = chapters.getOrNull(index + 1) ?: return
+
+        viewModelScope.launchIO {
+            if (!current.isDownloaded(manga) || !next.isDownloaded(manga)) return@launchIO
+            val toDownload = chapters.drop(index + 1).filterNot { it.read }.take(amount)
+            downloadManager.downloadChapters(manga, toDownload)
+        }
+    }
+
+    private fun Chapter.isDownloaded(manga: Manga): Boolean =
+        downloadManager.isChapterDownloaded(name, scanlator, url, manga.title, manga.source)
+
+    /**
+     * Queues the chapter the "delete after reading" setting names, to go when the reader closes.
+     * Mirrors `ReaderViewModel.deleteChapterIfNeeded`, which counts back from the chapter just read.
+     */
+    private suspend fun deleteChapterIfNeeded(chapterId: Long) {
+        val slots = downloadPreferences.removeAfterReadSlots.get()
+        if (slots == -1) return
+        val manga = state.value.manga ?: return
+        val chapters = state.value.chapters
+        val toDelete = chapters.getOrNull(chapters.indexOfFirst { it.id == chapterId } - slots) ?: return
+        if (toDelete.id !in chaptersMarkedRead) return
+        downloadManager.enqueueChaptersToDelete(listOf(toDelete), manga)
+    }
+
+    /** Deletes what [deleteChapterIfNeeded] queued. Called as the reader is left, as Mihon's is. */
+    fun onActivityFinish() {
+        viewModelScope.launchNonCancellable { downloadManager.deletePendingChapters() }
+    }
+
+    // endregion
 
     private suspend fun trackChapterRead(chapter: Chapter) {
         if (!trackPreferences.autoUpdateTrack.get()) return
@@ -910,14 +1003,18 @@ class NovelReaderViewModel(
         chapterReadStartTime = Clock.System.now().toEpochMilliseconds()
     }
 
-    /** Writes the reading-session entry. Mirrors `ReaderViewModel.updateHistory`. */
-    private suspend fun updateHistory() {
-        if (incognitoMode) return
-        val chapter = state.value.currentChapter ?: return
+    /**
+     * The reading-session entry for the open chapter, as of now. Mirrors
+     * `ReaderViewModel.updateHistory`, split from the write so a chapter change can take it before
+     * the chapter and the clock move on.
+     */
+    private fun historyUpdate(): HistoryUpdate? {
+        if (incognitoMode) return null
+        val chapter = state.value.currentChapter ?: return null
         val endTime = Date()
         val duration = chapterReadStartTime?.let { endTime.time - it } ?: 0
-        upsertHistory.await(HistoryUpdate(chapter.id, endTime, duration))
         chapterReadStartTime = null
+        return HistoryUpdate(chapter.id, endTime, duration)
     }
 
     /**
@@ -930,9 +1027,10 @@ class NovelReaderViewModel(
      * a switch to another app, neither of which means "stop reading to me" (D001).
      */
     fun saveOnPause() {
+        val history = historyUpdate()
         viewModelScope.launchNonCancellable {
             flushProgress()
-            updateHistory()
+            history?.let { upsertHistory.await(it) }
         }
     }
 
@@ -993,6 +1091,12 @@ class NovelReaderViewModel(
     companion object {
         /** Trailing whitespace and short final paragraphs mean a reader rarely hits a literal 100. */
         const val COMPLETION_THRESHOLD = 95
+
+        /** What a chapter speech has finished is recorded as. */
+        private const val FINISHED_PERCENT = 100
+
+        /** How far into a chapter the ones after it are downloaded, as `ReaderViewModel` has it. */
+        private const val DOWNLOAD_AHEAD_PERCENT = 25
 
         /**
          * How many pieces from the end of the queue the next chapter is fetched and added.

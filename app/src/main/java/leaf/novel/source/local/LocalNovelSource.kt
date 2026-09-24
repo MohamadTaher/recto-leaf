@@ -185,14 +185,17 @@ class LocalNovelSource(
      * `source_order` from the list index and Mihon reads a title from the highest `source_order`
      * down. Reversing here is what makes the chapter list and "continue reading" agree with the
      * novel's actual reading order.
+     *
+     * No chapter number is set, so [SyncChaptersWithSource] reads one from the name as it does for
+     * Mihon's own local source. The spine position is not one: a cover, a title page and a table of
+     * contents come first, and a tracker would be told chapter 4 when chapter 1 was read.
      */
     private fun buildChapters(manga: SManga, epub: NovelEpubReader, bookFile: UniFile): List<SChapter> {
         val uploadDate = epub.metadata.date ?: bookFile.lastModified()
-        return epub.spine.mapIndexed { index, item ->
+        return epub.spine.map { item ->
             SChapter.create().apply {
                 url = "${manga.url}/${item.href}"
                 name = item.title ?: item.href.fileNameWithoutExtension()
-                chapter_number = (index + 1).toFloat()
                 date_upload = uploadDate
             }
         }.asReversed()

@@ -21,6 +21,7 @@ local.properties
 /plans/
 /progress/
 /LocalFiles/
+/dev/
 
 # Local agent instructions
 CLAUDE.md

@@ -156,7 +156,7 @@ data object LibraryTab : Tab {
                     onMarkAsReadClicked = { viewModel.markReadSelection(true) },
                     onMarkAsUnreadClicked = { viewModel.markReadSelection(false) },
                     onDownloadClicked = viewModel::performDownloadAction
-                        // [recto-leaf] Novels have no page list, so they can never be downloaded.
+                        // [recto-leaf] An imported novel, like a local manga, has nothing to download.
                         .takeIf { state.selectedManga.fastAll { !it.isLocal() && !it.isLocalNovel() } },
                     onDeleteClicked = viewModel::openDeleteMangaDialog,
                     onMigrateClicked = {

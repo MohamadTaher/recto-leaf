@@ -247,7 +247,7 @@ object NovelReaderCss {
         val document = Jsoup.parseBodyFragment(html, baseUrl.orEmpty())
         document.outputSettings().prettyPrint(false)
         val body = document.body()
-        val prefix = "leaf-$chapterId-"
+        val prefix = "$FRAGMENT_PREFIX$chapterId-"
 
         body.select("[id]").forEach { it.attr("id", prefix + it.id()) }
         body.select("[name]").forEach { it.attr("name", prefix + it.attr("name")) }
@@ -438,6 +438,9 @@ object NovelReaderCss {
 
     /** What [stylesheet] is written into, so a theme change can find it in the open document. */
     const val STYLE_ID = "recto-leaf-style"
+
+    /** What a continuous document puts before every id it renames, so notes stay apart. */
+    const val FRAGMENT_PREFIX = "leaf-"
 
     private const val BODY_OPEN = "<body>"
     private const val BODY_CLOSE = "</body>"

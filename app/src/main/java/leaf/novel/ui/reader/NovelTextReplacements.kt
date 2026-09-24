@@ -71,7 +71,10 @@ object NovelTextReplacements {
         cache.getOrPut(rulesJson) {
             parse(rulesJson).mapNotNull { rule ->
                 if (!rule.enabled || rule.pattern.isBlank()) return@mapNotNull null
-                runCatching { rule.toRegex() to rule.replacement }
+                // A literal rule's replacement means itself too: unescaped, `$` and `\` would be
+                // read as a group reference and the rule would fail on every chapter.
+                val replacement = if (rule.isRegex) rule.replacement else Regex.escapeReplacement(rule.replacement)
+                runCatching { rule.toRegex() to replacement }
                     .onFailure { logcat(LogPriority.WARN, it) { "Bad pattern in '${rule.title}'" } }
                     .getOrNull()
             }

@@ -370,7 +370,10 @@ fun NovelChapterWebView(
                 }) { id, percent, screens ->
                     if (continuous) {
                         controller.screens = screens
-                        currentOnChapterProgress(id, percent)
+                        // The script reports from the first frame, before the restore has scrolled
+                        // anywhere, and that 0% would be saved over the real position. The restore
+                        // is itself a command, so a report follows it either way.
+                        if (restored.value) currentOnChapterProgress(id, percent)
                     }
                 }
                 webViewClient = novelWebViewClient(
@@ -597,14 +600,21 @@ private fun NovelWebView.attachTapDetector(
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 // The hit test reports whatever the last touch landed on, so an illustration can
                 // claim its own tap before the grid underneath is ever consulted.
+                val hit = hitTestResult
                 if (tapImageEnabled()) {
-                    val hit = hitTestResult
                     val onImage = hit.type == WebView.HitTestResult.IMAGE_TYPE ||
                         hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
                     if (onImage) {
                         hit.extra?.let(onImageTap)
                         return false
                     }
+                }
+                // A link is the WebView's to follow. Turning the page or opening the menu as well
+                // would land the reader somewhere other than where the link went.
+                if (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
+                    hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
+                ) {
+                    return false
                 }
 
                 // An edge tap on a gesture-navigation phone is as likely to have been a missed
@@ -731,6 +741,12 @@ private fun novelWebViewClient(
     }
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        // A note the continuous document renamed is already on the page. Taken as an entry below,
+        // it would name no chapter but the document's first, and reload there.
+        request.url.fragment?.takeIf { it.startsWith(NovelReaderCss.FRAGMENT_PREFIX) }?.let { id ->
+            view.evaluateJavascript("document.getElementById(${JSONObject.quote(id)})?.scrollIntoView();", null)
+            return true
+        }
         val url = request.url.toString()
         when {
             url.startsWith(VIRTUAL_ORIGIN) -> onInternalLink(url.removePrefix(VIRTUAL_ORIGIN))
@@ -820,24 +836,31 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         }));
         const all = chapters();
         if (all.length === 0) return;
-        const position = activeIn(all);
-        const chapter = all[position];
-        const end = position + 1 < all.length
-          ? all[position + 1].offsetTop
-          : chapter.offsetTop + chapter.offsetHeight;
-        const travel = Math.max(1, end - chapter.offsetTop - window.innerHeight);
-        const percent = Math.max(0, Math.min(100,
-          Math.round((window.scrollY - chapter.offsetTop) * 100 / travel)));
-        const range = Math.max(1, end - chapter.offsetTop);
-        RectoLeafChapterBridge.postMessage(JSON.stringify({
-          type: 'position',
-          generation: rectoLeafGeneration,
-          id: chapter.dataset.leafChapter,
-          percent: percent,
-          offset: Math.max(0, Math.round(window.scrollY - chapter.offsetTop)),
-          range: Math.round(range),
-          viewport: Math.round(window.innerHeight),
-        }));
+        const active = activeIn(all);
+        // A last section shorter than the screen never reaches the top, so it would never be the
+        // one reported. At the end of the document every section from the active one down has
+        // been seen whole, so each is reported finished, the last one last.
+        const atEnd = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1;
+        const last = atEnd ? all.length - 1 : active;
+        for (let position = active; position <= last; position++) {
+          const chapter = all[position];
+          const end = position + 1 < all.length
+            ? all[position + 1].offsetTop
+            : chapter.offsetTop + chapter.offsetHeight;
+          const travel = Math.max(1, end - chapter.offsetTop - window.innerHeight);
+          const percent = atEnd ? 100 : Math.max(0, Math.min(100,
+            Math.round((window.scrollY - chapter.offsetTop) * 100 / travel)));
+          const range = Math.max(1, end - chapter.offsetTop);
+          RectoLeafChapterBridge.postMessage(JSON.stringify({
+            type: 'position',
+            generation: rectoLeafGeneration,
+            id: chapter.dataset.leafChapter,
+            percent: percent,
+            offset: Math.max(0, Math.round(window.scrollY - chapter.offsetTop)),
+            range: Math.round(range),
+            viewport: Math.round(window.innerHeight),
+          }));
+        }
       };
 
       const scheduleReport = () => {

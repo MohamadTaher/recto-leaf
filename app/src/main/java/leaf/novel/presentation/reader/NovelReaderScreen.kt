@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -451,6 +452,13 @@ fun NovelReaderScreen(
             documentStartChapterId = state.currentChapter?.id
         }
         documentPaged = paged
+    }
+    // Speech carries on into the next chapter by itself. A continuous document already holds that
+    // chapter; a paged one holds only its own, so it is opened where the voice has gone.
+    LaunchedEffect(paged, chapter?.id) {
+        if (paged && documentStartChapterId != null && chapter != null && chapter.id != documentStartChapterId) {
+            documentStartChapterId = chapter.id
+        }
     }
     val keepOneLine by viewModel.novelReaderPreferences.keepOneLineWhenPaging.collectAsState()
     val pageTurnSound by viewModel.novelReaderPreferences.pageTurnSound.collectAsState()
@@ -958,7 +966,11 @@ private fun ChapterContent(
     val assetServer = remember(viewModel) { viewModel.assetServer() }
     val continuous = !paged
 
-    val loaded by produceState<NovelReaderViewModel.LoadedChapter?>(initialValue = null, startIndex) {
+    // Bumped by Retry. Choosing the same chapter again leaves the key alone, so nothing else would
+    // fetch a chapter that failed.
+    var attempt by remember(startIndex) { mutableIntStateOf(0) }
+    val loaded by produceState<NovelReaderViewModel.LoadedChapter?>(initialValue = null, startIndex, attempt) {
+        value = null
         value = viewModel.loadedChapter(startIndex)
     }
 
@@ -971,13 +983,24 @@ private fun ChapterContent(
             }
         }
         chapterContent == null -> {
-            Box(modifier = Modifier.fillMaxSize()) {
-                NovelReaderErrorMessage(
-                    error = NovelReaderError.CHAPTER_MISSING,
+            // The page is what a tap opens the menu from, and there is no page: the error takes
+            // the tap instead, or the only way out would be Back.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickableNoIndication(onClick = viewModel::toggleMenu),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .padding(MaterialTheme.padding.large),
-                )
+                ) {
+                    NovelReaderErrorMessage(error = NovelReaderError.CHAPTER_MISSING)
+                    TextButton(onClick = { attempt++ }) {
+                        Text(stringResource(MR.strings.action_retry))
+                    }
+                }
             }
         }
         else -> {
