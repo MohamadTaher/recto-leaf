@@ -14,6 +14,7 @@ import leaf.novel.api.NovelCommentPage
 import leaf.novel.api.NovelCommentRequest
 import leaf.novel.api.NovelCommentScope
 import org.junit.jupiter.api.Test
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * Finding the novel elsewhere is the one step that can put a stranger's discussion in the sheet, so
@@ -146,9 +147,35 @@ class NovelCommentMatcherTest {
         matcher.chapter(other, book, 12.0)?.url shouldBe "/c/12"
         matcher.chapter(other, book, 13.0) shouldBe null
 
-        // Each answer is remembered, the missing chapter included, and the list is never fetched.
-        asked shouldBe listOf(12.0, 13.0)
+        // A chapter found is remembered. A missing one is not, since the site may publish it while
+        // someone reads — and the list is never fetched.
+        asked shouldBe listOf(12.0, 13.0, 13.0)
         other.chapterFetches.get() shouldBe 0
+    }
+
+    /**
+     * A novel still coming out gains chapters while someone reads, so a number the list lacks is
+     * looked for again once the list is old — and only then, so reading past what another site has
+     * does not fetch its whole table of contents on every chapter turn.
+     */
+    @Test
+    fun `looks again for a chapter missing from an old list, but not for one it has`() = runBlocking<Unit> {
+        var now = 0L
+        var published = listOf(sourceChapter(11f, "/c/11"))
+        val other = FakeCommentSource(id = 2L, respond = empty).apply { chapters = { published } }
+        val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache(clock = { now })) { listOf(other) }
+        val book = novel("Shadow Slave")
+
+        matcher.chapter(other, book, 12.0) shouldBe null
+        published = listOf(sourceChapter(12f, "/c/12"), sourceChapter(11f, "/c/11"))
+        matcher.chapter(other, book, 12.0) shouldBe null
+        other.chapterFetches.get() shouldBe 1
+
+        now += 11.minutes.inWholeMilliseconds
+        matcher.chapter(other, book, 11.0)?.url shouldBe "/c/11"
+        other.chapterFetches.get() shouldBe 1
+        matcher.chapter(other, book, 12.0)?.url shouldBe "/c/12"
+        other.chapterFetches.get() shouldBe 2
     }
 
     /**

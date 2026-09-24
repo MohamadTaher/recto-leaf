@@ -168,7 +168,7 @@ fun NovelCommentsSheet(
                     !state.loaded && state.error == null -> Message(
                         text = null,
                         action = stringResource(MR.strings.leaf_novel_comments_load),
-                        onAction = comments::reload,
+                        onAction = comments::load,
                     )
 
                     state.error != null && state.rows.isEmpty() -> {
@@ -453,17 +453,15 @@ private fun NovelCommentsSettingsDialog(
             when (page) {
                 0 -> {
                     HeadingItem(MR.strings.label_extensions)
+                    // With one extension there is nothing to choose between.
+                    val choosable = state.origins.size > 1
                     state.origins.forEach { origin ->
                         TriStateItem(
                             label = origin.count?.let {
                                 stringResource(MR.strings.leaf_novel_comments_feed_count, origin.name, it)
                             } ?: origin.name,
                             state = state.originFilter[origin.id] ?: TriState.DISABLED,
-                            // With one extension there is nothing to choose between.
-                            onClick = { next: TriState -> onSetOriginFilter(origin.id, next) }.takeIf {
-                                state.origins.size >
-                                    1
-                            },
+                            onClick = { next: TriState -> onSetOriginFilter(origin.id, next) }.takeIf { choosable },
                         )
                     }
                 }
@@ -541,20 +539,15 @@ private fun NovelCommentKindToggle(kind: NovelCommentKind, enabled: Boolean, onC
         NovelCommentKind.COMMENTS -> MR.strings.leaf_novel_comments_kind_comments to CommentsRed
     }
     val label = stringResource(description)
+    val selected = kind != NovelCommentKind.ALL
     FilterChip(
-        selected = kind != NovelCommentKind.ALL,
+        selected = selected,
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier.semantics { contentDescription = label },
         label = {
             Icon(
-                imageVector = if (kind ==
-                    NovelCommentKind.ALL
-                ) {
-                    NovelCommentGlyphs.Star
-                } else {
-                    NovelCommentGlyphs.FilledStar
-                },
+                imageVector = if (selected) NovelCommentGlyphs.FilledStar else NovelCommentGlyphs.Star,
                 contentDescription = null,
                 modifier = Modifier.size(FilterChipDefaults.IconSize),
             )

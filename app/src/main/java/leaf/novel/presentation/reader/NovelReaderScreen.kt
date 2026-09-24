@@ -947,10 +947,7 @@ fun NovelReaderScreen(
         NovelCommentsSheet(
             comments = viewModel.comments,
             preferences = viewModel.novelReaderPreferences,
-            onDismissRequest = {
-                viewModel.comments.close()
-                showComments = false
-            },
+            onDismissRequest = { showComments = false },
         )
     }
 

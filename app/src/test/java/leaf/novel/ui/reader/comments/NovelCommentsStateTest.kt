@@ -82,7 +82,7 @@ class NovelCommentsStateTest {
         )
 
         state.rows.map { it.key } shouldBe listOf("body:1", "body:1a", "hide:1", "body:2")
-        state.count shouldBe 3
+        NovelCommentTree.count(state.roots) shouldBe 3
     }
 
     @Test

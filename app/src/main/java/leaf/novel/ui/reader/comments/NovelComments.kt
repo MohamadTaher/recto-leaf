@@ -162,6 +162,10 @@ class NovelComments(
     val supported: Boolean
         get() = state.value.capabilities?.scopes?.contains(commentScope) == true
 
+    /** Whether to fetch before the sheet asks, which never happens while comments are turned off. */
+    private val autoLoad: Boolean
+        get() = preferences.commentsEnabled.get() && preferences.commentsAutoLoad.get()
+
     /**
      * What the source said about a comment, as it said it when the comment arrived.
      *
@@ -227,7 +231,7 @@ class NovelComments(
         shown = emptyList()
         generation++
         mutableState.update { it.reset(chapterName = chapter?.name).copy(draft = "", origins = describe()) }
-        if (preferences.commentsAutoLoad.get()) show()
+        if (autoLoad) show()
     }
 
     /**
@@ -237,7 +241,7 @@ class NovelComments(
      * with a spinner over comments that could have been fetched while the chapter was being read.
      */
     fun prefetch(chapters: List<Chapter>) {
-        if (commentScope != NovelCommentScope.CHAPTER || !preferences.commentsAutoLoad.get()) return
+        if (commentScope != NovelCommentScope.CHAPTER || !autoLoad) return
         val threads = contributors()
         chapters.forEach { chapter -> threads.forEach { (origin, feed) -> drainFor(origin, feed, chapter) } }
     }
@@ -265,12 +269,17 @@ class NovelComments(
      * that would otherwise put every comment, vote and fold into the reader screen's recomposition.
      */
     fun open() {
-        if (state.value.loaded || state.value.loading) return
-        if (preferences.commentsAutoLoad.get()) show()
+        if (autoLoad) load()
     }
 
-    /** Draft and reply target survive dismissing the sheet; changing chapters clears both. */
-    fun close() = Unit
+    /**
+     * Shows what is on screen, fetching only what is not already in hand: what the sheet's button
+     * does when auto-load is off. [reload] is the one that throws away what was fetched.
+     */
+    fun load() {
+        if (state.value.loaded || state.value.loading) return
+        show()
+    }
 
     fun setDraft(body: String) {
         if (!state.value.posting) mutableState.update { it.copy(draft = body) }
@@ -291,6 +300,8 @@ class NovelComments(
             drains.remove(keyFor(origin, feed, chapter) ?: return@forEach)?.let { drain ->
                 drain.job?.cancel()
                 drain.cacheKey?.let(cache::remove)
+                // Another site that lacked this chapter may have published it since.
+                if (!origin.own && drain.target == null) matcher?.forget(origin.source, origin.novel)
             }
         }
         loadJob?.cancel()
@@ -340,7 +351,7 @@ class NovelComments(
                 cursor = drain.pages.value.replyCursors[id],
                 parent = parent,
             )
-            attempt { drain.fetch(request) }
+            drain.fetch(request)
                 .onSuccess { fetched ->
                     val result = fetched.page
                     // A page that brought nothing new is the end of the replies whatever the site
@@ -534,7 +545,7 @@ class NovelComments(
         scope.launch {
             attempt { drain.origin.source.postComment(NovelCommentDraft(target, body.trim(), parentId)) }
                 .onSuccess { posted ->
-                    val feedback = attempt { drain.feedbackFor(posted) }.getOrDefault(emptyMap())
+                    val feedback = drain.feedbackFor(posted)
                     drain.update {
                         it.copy(
                             comments = NovelCommentTree.insert(it.comments, parentId, posted),
@@ -871,7 +882,7 @@ class NovelComments(
                 page = thread.nextPage,
                 cursor = thread.nextCursor,
             )
-            val fetched = attempt { drain.fetch(request) }.getOrElse { failure ->
+            val fetched = drain.fetch(request).getOrElse { failure ->
                 logcat(LogPriority.WARN, failure) {
                     "Could not load comments for ${target.novel.title} from ${drain.origin.source.name}"
                 }
@@ -1109,15 +1120,20 @@ class NovelComments(
         /**
          * A page, and what the source says about the comments on it, with nothing else asked of
          * that source in between; see [Origin.lock].
+         *
+         * The lock is taken before the [timeout] starts. A request waiting its turn behind the
+         * source's others has not been sent yet, so the wait is not the site's to answer for.
          */
-        suspend fun fetch(request: NovelCommentRequest): Fetched = origin.lock.withLock {
-            val page = origin.getComments(request, feed)
-            Fetched(page, snapshot(page.comments))
+        suspend fun fetch(request: NovelCommentRequest): Result<Fetched> = origin.lock.withLock {
+            attempt {
+                val page = origin.getComments(request, feed)
+                Fetched(page, snapshot(page.comments))
+            }
         }
 
         /** The same, for a comment that arrived by itself — one this reader has just posted. */
         suspend fun feedbackFor(comment: NovelComment): Map<String, NovelCommentFeedback> =
-            origin.lock.withLock { snapshot(listOf(comment)) }
+            origin.lock.withLock { attempt { snapshot(listOf(comment)) }.getOrDefault(emptyMap()) }
 
         /**
          * What the source says about each of [comments] and their replies, asked once, now.

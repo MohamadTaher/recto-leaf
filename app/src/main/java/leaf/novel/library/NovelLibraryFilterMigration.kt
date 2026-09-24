@@ -22,6 +22,9 @@ import tachiyomi.core.common.preference.PreferenceStore
  * [NovelLibraryPreferences.filterNovels] starts at `TriState.DISABLED`. That is the right place to
  * land: the two settings do not mean the same thing, and showing someone their whole library is
  * recoverable in a way that silently hiding half of it is not.
+ *
+ * It runs with the first release after version code 30, not before. The fork shares upstream's
+ * version code, and Mihon runs no migration at all, [Migration.ALWAYS] included, until that changes.
  */
 @Inject
 @ContributesIntoSet(AppScope::class)

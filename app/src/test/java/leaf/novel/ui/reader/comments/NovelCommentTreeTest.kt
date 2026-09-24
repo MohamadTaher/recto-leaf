@@ -354,21 +354,6 @@ class NovelCommentTreeTest {
         NovelCommentTree.count(roots) shouldBe 5
     }
 
-    /**
-     * A second page overlaps the first as soon as somebody posts between the two requests, and a
-     * comment can come back as a root having arrived as a reply. Both copies would be two rows
-     * under one key.
-     */
-    @Test
-    fun `merges a later page without repeating what is already in the thread`() {
-        val roots = listOf(comment("1", replies = listOf(comment("1a", parentId = "1"))))
-
-        val merged = NovelCommentTree.merge(roots, listOf(comment("1a", parentId = "1"), comment("2")))
-
-        merged.map { it.id } shouldBe listOf("1", "2")
-        NovelCommentTree.flatten(merged).map { it.key } shouldBe listOf("body:1", "body:1a", "hide:1", "body:2")
-    }
-
     @Test
     fun `knows every id in the forest, replies included`() {
         val roots = listOf(comment("1", replies = listOf(comment("1a"))), comment("2"))

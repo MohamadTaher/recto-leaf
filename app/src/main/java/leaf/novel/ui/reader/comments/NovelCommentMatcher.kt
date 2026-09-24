@@ -22,6 +22,7 @@ import tachiyomi.domain.chapter.service.ChapterRecognition
 import tachiyomi.domain.source.service.SourceManager
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * The same novel on the other installed comment sources, so its comments can be read together.
@@ -104,16 +105,30 @@ class NovelCommentMatcher(
         if (number < 0) return null
         if (source is NovelCommentChapterSource) {
             val key = ChapterKey(source.id, novel.url, number)
-            matches.get<Found>(key)?.let { return it.chapter }
+            matches.get<SChapter>(key)?.let { return it }
+            // A chapter the site does not have is not remembered: it may publish it while someone reads.
             return withCommentTimeout(timeout) { source.getCommentChapter(novel, number) }
-                .also { matches.put(key, Found(it)) }
+                ?.also { matches.put(key, it) }
         }
         val key = ChaptersKey(source.id, novel.url)
-        val chapters = locks.getOrPut(key) { Mutex() }.withLock {
-            lists.get<Map<Double, SChapter>>(key) ?: fetchChapters(source, novel).also { lists.put(key, it) }
+        return locks.getOrPut(key) { Mutex() }.withLock {
+            val cached = lists.get<Map<Double, SChapter>>(key)
+            val chapters = when {
+                cached == null -> null
+                // A chapter the list has does not move.
+                number in cached -> cached
+                // One it lacks may have been published since, so an old list is read again. Only an
+                // old one: reading past what another site has would otherwise fetch its whole table
+                // of contents on every chapter turn. Asking with an age drops the old list.
+                lists.get<Any>(key, MISS_MAX_AGE) != null -> cached
+                else -> null
+            }
+            (chapters ?: fetchChapters(source, novel).also { lists.put(key, it) })[number]
         }
-        return chapters[number]
     }
+
+    /** Forgets [source]'s chapter list for [novel], so the next lookup reads it again. */
+    fun forget(source: Source, novel: SManga) = lists.remove(ChaptersKey(source.id, novel.url))
 
     private suspend fun fetchChapters(source: Source, novel: SManga): Map<Double, SChapter> =
         withCommentTimeout(timeout) {
@@ -153,12 +168,12 @@ class NovelCommentMatcher(
 
     private data class ChaptersKey(val source: Long, val url: String)
 
-    /** One chapter a source looked up itself, including one it does not have. */
-    private class Found(val chapter: SChapter?)
-
     private data class ChapterKey(val source: Long, val url: String, val number: Double)
 
     companion object {
+
+        /** How old a chapter list has to be before a chapter missing from it is looked for again. */
+        private val MISS_MAX_AGE = 10.minutes.inWholeMilliseconds
 
         /** The sources global search would use: installed, enabled, and in an enabled language. */
         fun installed(sourceManager: SourceManager, preferences: SourcePreferences) = NovelCommentMatcher {

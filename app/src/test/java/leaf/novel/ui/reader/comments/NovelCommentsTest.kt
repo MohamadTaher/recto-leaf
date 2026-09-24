@@ -206,7 +206,6 @@ class NovelCommentsTest {
             comments.canReply(reply) shouldBe false
             comments.canReply(parent) shouldBe true
             comments.replyTo(parent)
-            comments.close()
             comments.state.value.draft shouldBe "Keep this draft"
             comments.state.value.replyingTo shouldBe parent
             comments.reload()
@@ -677,6 +676,110 @@ class NovelCommentsTest {
     }
 
     /**
+     * The budget is for the site, not for the queue in front of it: a source is asked one thing at a
+     * time, so with several of its threads filling at once the last in line used to time out before
+     * its request was even sent.
+     */
+    @Test
+    fun `a request waiting its turn at a busy source is not timed out while it waits`() = runBlocking<Unit> {
+        val capabilities = NovelCommentCapabilities(scopes = setOf(NovelCommentScope.NOVEL))
+        val source = FakeCommentSource(capabilities) { error("A declared feed must be supplied") }
+        source.commentFeeds = listOf(
+            NovelCommentFeed("comments", "Comments", capabilities),
+            NovelCommentFeed(NovelCommentFeed.REVIEWS, "Reviews", capabilities),
+        )
+        source.feedResponse = { _, feed ->
+            delay(700)
+            NovelCommentPage(listOf(comment(feed.key)))
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL, timeout = 1000.milliseconds)
+            comments.bind(source, Manga.create())
+            comments.open()
+            waitFor("both feeds") { comments.state.value.roots.size == 2 }
+            comments.state.value.error shouldBe null
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** A reader who turned comments off asked for none of them, fetched ahead or otherwise. */
+    @Test
+    fun `turning comments off stops the fetching, not only the button`() = runBlocking<Unit> {
+        val source = FakeCommentSource { NovelCommentPage(listOf(comment("1"))) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences("leaf_novel_comments_enabled" to false))
+            comments.bind(source, Manga.create())
+            comments.setChapter(chapter(1))
+            comments.prefetch(listOf(chapter(2)))
+            delay(SETTLE_MS)
+            source.requests.size shouldBe 0
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /**
+     * Without auto-load the sheet offers a button instead, and that button used to be Refresh: a
+     * reader on a metered connection paid again for a chapter they had already loaded.
+     */
+    @Test
+    fun `without auto-load, loading a chapter again shows what was already fetched`() = runBlocking<Unit> {
+        val source = FakeCommentSource { NovelCommentPage(listOf(comment("1"))) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = NovelComments(scope, preferences("leaf_novel_comments_auto_load" to false))
+            comments.bind(source, Manga.create())
+            comments.setChapter(chapter(1))
+            comments.open()
+            comments.state.value.loaded shouldBe false
+            comments.load()
+            waitFor("the first chapter") { comments.state.value.roots.isNotEmpty() }
+
+            comments.setChapter(chapter(2))
+            comments.setChapter(chapter(1))
+            comments.load()
+            waitFor("the first chapter again") { comments.state.value.roots.isNotEmpty() }
+            source.requests.count { it.target.chapter?.url == "/chapter/1" } shouldBe 1
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /**
+     * Another site's chapters are found by number in a list read once, and a chapter that site had
+     * not published yet stayed missing for as long as the app lived — Refresh included.
+     */
+    @Test
+    fun `refresh finds a chapter the other site has published since`() = runBlocking<Unit> {
+        val own = FakeCommentSource(id = 1L, name = "Own") { NovelCommentPage(listOf(comment("own"))) }
+        val other = FakeCommentSource(id = 2L, name = "Other") { request ->
+            NovelCommentPage(listOf(comment("theirs-${request.target.chapter?.url}")))
+        }
+        other.search = { listOf(novel("Shadow Slave")) }
+        other.chapters = { listOf(sourceChapter(11f, "/theirs/11")) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val comments = shared(scope, own, other, commentScope = NovelCommentScope.CHAPTER)
+            comments.setChapter(chapter(1).copy(chapterNumber = 12.0))
+            waitFor("the first load") {
+                other.chapterFetches.get() == 1 && comments.state.value.origins.all { !it.loading } &&
+                    comments.state.value.roots.isNotEmpty()
+            }
+            comments.state.value.roots.map { it.body } shouldBe listOf("own")
+
+            other.chapters = { listOf(sourceChapter(12f, "/theirs/12"), sourceChapter(11f, "/theirs/11")) }
+            comments.reload()
+            waitFor("the other site's new chapter") { comments.state.value.roots.size == 2 }
+            comments.state.value.roots.map { it.body } shouldBe listOf("own", "theirs-/theirs/12")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /**
      * `NovelCommentFeedbackSource` is handed a comment and nothing else, so a source whose feeds can
      * both number from one cannot tell which of them is being asked about. Reading it as each page
      * lands settles that: the feed that just produced the comment is the one answering.
@@ -856,7 +959,11 @@ class NovelCommentsTest {
         timeout = timeout,
     ).apply { bind(sources.first(), Manga.create().copy(title = "Shadow Slave", url = "/shadow-slave")) }
 
-    private fun preferences() = NovelReaderPreferences(InMemoryPreferenceStore())
+    private fun preferences(vararg set: Pair<String, Boolean>) = NovelReaderPreferences(
+        InMemoryPreferenceStore(
+            set.asSequence().map { (key, value) -> InMemoryPreferenceStore.InMemoryPreference(key, value, !value) },
+        ),
+    )
 
     private fun comment(id: String, replies: List<NovelComment> = emptyList(), replyCount: Int = replies.size) =
         NovelComment(

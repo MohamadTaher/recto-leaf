@@ -3,6 +3,7 @@ package leaf.novel.presentation.manga
 import android.icu.text.CompactDecimalFormat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.kanade.domain.manga.model.toSManga
 import eu.kanade.presentation.manga.components.DotSeparatorText
+import eu.kanade.tachiyomi.source.Source
 import leaf.novel.api.NovelCommentRating
 import leaf.novel.api.NovelRating
 import leaf.novel.presentation.reader.comments.NovelCommentGlyphs
@@ -58,40 +61,43 @@ import java.text.NumberFormat
 import java.util.Locale
 
 /**
- * A novel's rating, under its title: its own site's, and the one across every site that has it.
+ * A novel's rating and its discussion, under its title: its own site's rating, the one across every
+ * site that has it, and the way into its comments.
  *
  * Drawn from the title block upstream owns, so everything it needs it finds for itself from [manga]
- * — the source, the search, the fetches — and the seam there is one call. Draws nothing on a manga,
- * and nothing on a novel until some site has a rating for it.
+ * — the source, the search, the fetches — and the seam there is one call. The discussion is here
+ * rather than in the action row for the same reason: a fifth action button cost that row a
+ * parameter, the padding of every button in it and both of `MangaScreen`'s layouts. Draws nothing
+ * on a manga.
  *
- * Tapping it lists every site, with how much each counts towards the rating across them.
+ * Tapping the rating lists every site, with how much each counts towards the rating across them.
  */
 @Composable
-fun NovelRatingLine(manga: Manga, modifier: Modifier = Modifier) {
+fun NovelInfoLine(manga: Manga, modifier: Modifier = Modifier) {
     if (!manga.isNovel) return
     val context = LocalContext.current
     val graph = remember { context.appGraph }
     val scope = rememberCoroutineScope()
+    val source by produceState<Source?>(null, manga.source) { value = graph.sourceManager.getOrStub(manga.source) }
+    val onDiscuss = source?.let { novelCommentsAction(manga, it) }
     val saved = remember(manga.memo) { NovelRating.read(manga.memo) }
     val ratings = remember(manga.id) {
         NovelRatings(scope, NovelCommentMatcher.installed(graph.sourceManager, graph.sourcePreferences))
     }
-    var sourceName by remember(manga.id) { mutableStateOf("") }
-    LaunchedEffect(manga.id) {
-        val source = graph.sourceManager.get(manga.source)
-        sourceName = source?.name.orEmpty()
-        ratings.bind(source, manga.toSManga(), saved)
+    LaunchedEffect(ratings, source) {
+        source?.let { ratings.bind(it, manga.toSManga(), saved) }
     }
     val state by ratings.state.collectAsState()
     var showing by rememberSaveable(manga.id) { mutableStateOf(false) }
 
     // The saved rating wins over one asked for, since it is the one a refresh keeps current.
-    val own = saved?.let { NovelRatings.Site(-1, sourceName, it, own = true) } ?: state.own
+    val own = saved?.let { NovelRatings.Site(-1, source?.name.orEmpty(), it, own = true) } ?: state.own
     val sites = listOfNotNull(own) + state.others
     val global = acrossSites(sites.map { it.rating })
         // Across sites means more than one: the own site's figure alone is already drawn beside it.
         ?.takeIf { sites.any { !it.own && (it.rating.count ?: 0) > 0 } }
-    if (own == null && global == null) return
+    val rated = own != null || global != null
+    if (!rated && onDiscuss == null) return
 
     val description = listOfNotNull(
         own?.let {
@@ -111,28 +117,57 @@ fun NovelRatingLine(manga: Manga, modifier: Modifier = Modifier) {
         },
     ).joinToString(". ")
 
-    Row(
-        modifier = modifier
-            .padding(top = 2.dp)
-            .clickableNoIndication { showing = true }
-            .semantics(mergeDescendants = true) { contentDescription = description },
-        verticalAlignment = Alignment.CenterVertically,
+    // Flowing rather than one row: under the cover on a phone there is not always room for both
+    // ratings and the discussion, and the discussion wrapping is better than it being cut off.
+    FlowRow(
+        modifier = modifier.padding(top = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
-            if (own != null) {
-                RatingFigure(NovelCommentGlyphs.FilledStar, MaterialTheme.colorScheme.primary, own.rating)
-            }
-            if (own != null && global != null) DotSeparatorText()
-            if (global != null) {
-                RatingFigure(MaterialSymbols.Rounded.Public, LocalContentColor.current, global)
-            }
-            if (state.searching) {
-                CircularProgressIndicator(
+            if (rated) {
+                Row(
                     modifier = Modifier
-                        .padding(start = 6.dp)
-                        .size(12.dp),
-                    strokeWidth = 1.5.dp,
-                )
+                        .clickableNoIndication { showing = true }
+                        .semantics(mergeDescendants = true) { contentDescription = description },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (own != null) {
+                        RatingFigure(NovelCommentGlyphs.FilledStar, MaterialTheme.colorScheme.primary, own.rating)
+                    }
+                    if (own != null && global != null) DotSeparatorText()
+                    if (global != null) {
+                        RatingFigure(MaterialSymbols.Rounded.Public, LocalContentColor.current, global)
+                    }
+                    if (state.searching) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(start = 6.dp)
+                                .size(12.dp),
+                            strokeWidth = 1.5.dp,
+                        )
+                    }
+                }
+            }
+            if (onDiscuss != null) {
+                Row(
+                    modifier = Modifier.clickableNoIndication(onClick = onDiscuss),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = NovelCommentGlyphs.Comments,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .size(16.dp),
+                    )
+                    Text(
+                        text = stringResource(MR.strings.leaf_novel_comments_novel),
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }

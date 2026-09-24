@@ -60,7 +60,6 @@ import eu.kanade.tachiyomi.source.getNameForMangaInfo
 import eu.kanade.tachiyomi.ui.manga.ChapterList
 import eu.kanade.tachiyomi.ui.manga.MangaViewModel
 import eu.kanade.tachiyomi.util.system.copyToClipboard
-import leaf.novel.presentation.manga.novelCommentsAction
 import leaf.novel.source.isLocalNovel
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.roundedfilled.PlayArrow
@@ -261,9 +260,6 @@ private fun MangaScreenSmallImpl(
 ) {
     val chapterListState = rememberLazyListState()
 
-    // [recto-leaf] The novel discussion, including matches on other extensions.
-    val onNovelCommentsClicked = novelCommentsAction(state.manga, state.source)
-
     val (chapters, listItem, isAnySelected) = remember(state) {
         Triple(
             first = state.processedChapters,
@@ -405,7 +401,6 @@ private fun MangaScreenSmallImpl(
                             onTrackingClicked = onTrackingClicked,
                             onEditIntervalClicked = onEditIntervalClicked,
                             onEditCategory = onEditCategoryClicked,
-                            onNovelCommentsClicked = onNovelCommentsClicked,
                         )
                     }
 
@@ -507,9 +502,6 @@ fun MangaScreenLargeImpl(
 ) {
     val layoutDirection = LocalLayoutDirection.current
     val density = LocalDensity.current
-
-    // [recto-leaf] The novel discussion, including matches on other extensions.
-    val onNovelCommentsClicked = novelCommentsAction(state.manga, state.source)
 
     val (chapters, listItem, isAnySelected) = remember(state) {
         Triple(
@@ -639,7 +631,6 @@ fun MangaScreenLargeImpl(
                             onTrackingClicked = onTrackingClicked,
                             onEditIntervalClicked = onEditIntervalClicked,
                             onEditCategory = onEditCategoryClicked,
-                            onNovelCommentsClicked = onNovelCommentsClicked,
                         )
                         ExpandableMangaDescription(
                             defaultExpandState = true,

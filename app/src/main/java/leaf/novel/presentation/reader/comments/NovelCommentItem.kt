@@ -415,18 +415,14 @@ fun NovelCommentItem(
         }
 
         if (threaded && !continues) {
+            val replies = if (replyCount == 1) {
+                MR.strings.leaf_novel_comments_one_reply
+            } else {
+                MR.strings.leaf_novel_comments_replies
+            }
             NovelCommentRepliesRow(
                 depth = depth,
-                label = stringResource(
-                    if (replyCount ==
-                        1
-                    ) {
-                        MR.strings.leaf_novel_comments_one_reply
-                    } else {
-                        MR.strings.leaf_novel_comments_replies
-                    },
-                    replyCount,
-                ),
+                label = stringResource(replies, replyCount),
                 open = false,
                 loading = loadingReplies && comment.replies.isEmpty(),
                 onClick = onToggleReplies,
@@ -573,13 +569,7 @@ private fun CommentAvatar(comment: NovelComment, size: Dp, showImage: Boolean, o
             Text(
                 comment.author.take(1).uppercase(),
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
-                style = if (size <
-                    32.dp
-                ) {
-                    MaterialTheme.typography.labelSmall
-                } else {
-                    MaterialTheme.typography.labelLarge
-                },
+                style = if (size < 32.dp) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge,
             )
         }
         if (url != null) {

@@ -174,9 +174,7 @@ data class NovelCommentsState(
     /** The fetch stopped with pages still to get; see [NovelCommentThread.hasMore]. */
     val hasMore: Boolean = false,
 
-    /** Whatever the site said the thread's size is, which is not always what arrived. */
-    val total: Int? = null,
-    /** The same, split: how many reviews and how many comments, for a header that names both. */
+    /** How many reviews and how many comments, for a header that names both. */
     val reviewCount: Int = 0,
     val commentCount: Int = 0,
 
@@ -203,9 +201,6 @@ data class NovelCommentsState(
     val chapterName: String? = null,
 ) {
 
-    /** How many comments are in hand, for the header. Falls back to the count when the site is quiet. */
-    val count: Int get() = total ?: NovelCommentTree.count(roots)
-
     val isEmpty: Boolean get() = loaded && roots.isEmpty()
 
     /** Whether [originFilter] lets a source's comments through. */
@@ -214,9 +209,6 @@ data class NovelCommentsState(
         if (filter == TriState.ENABLED_NOT) return false
         return filter == TriState.ENABLED_IS || TriState.ENABLED_IS !in originFilter.values
     }
-
-    /** The comment the sheet is focused on, when it is. */
-    val focused: NovelComment? get() = focus?.let { NovelCommentTree.find(roots, it) }
 
     /** Everything cleared but the configuration, which survives a chapter turn and a re-sort. */
     fun reset(chapterName: String? = this.chapterName) = copy(
@@ -231,7 +223,6 @@ data class NovelCommentsState(
         posting = false,
         voting = emptySet(),
         hasMore = false,
-        total = null,
         reviewCount = 0,
         commentCount = 0,
         error = null,
@@ -284,7 +275,6 @@ data class NovelCommentsState(
             loaded = arrived,
             loadingMore = arrived && !thread.done,
             hasMore = thread.hasMore,
-            total = thread.total,
             // Only ever set from the thread, never cleared by it: a vote that failed is an error
             // this has no business tidying away, and the reader dismisses it themselves.
             error = thread.failure?.text() ?: error,

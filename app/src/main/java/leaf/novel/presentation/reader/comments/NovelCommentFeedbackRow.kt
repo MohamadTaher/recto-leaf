@@ -107,21 +107,13 @@ fun NovelCommentReactionRow(reaction: NovelCommentReaction, modifier: Modifier =
         if (emoji != null) {
             Text(emoji, style = MaterialTheme.typography.labelSmall, maxLines = 1)
         } else if (reaction.sentiment != NovelCommentSentiment.NEUTRAL) {
+            val against = reaction.sentiment == NovelCommentSentiment.NEGATIVE
             Icon(
                 NovelCommentGlyphs.Like,
                 null,
                 tint = colour,
                 // The same thumb the vote row uses, turned over for a verdict against.
-                modifier = Modifier.size(12.dp)
-                    .then(
-                        if (reaction.sentiment ==
-                            NovelCommentSentiment.NEGATIVE
-                        ) {
-                            Modifier.rotate(180f)
-                        } else {
-                            Modifier
-                        },
-                    ),
+                modifier = Modifier.size(12.dp).rotate(if (against) 180f else 0f),
             )
         }
         Text(label, style = MaterialTheme.typography.labelSmall, color = colour, maxLines = 1)
@@ -159,15 +151,10 @@ fun NovelCommentFeedbackRow(
             if (vote == NovelCommentVote.DOWN && !capabilities.downvotes && siteCount == null) return@forEach
             if (siteCount == null && !capabilities.voting) return@forEach
             val count = siteCount?.plus(if (!capabilities.voting && localVote == vote) 1 else 0)
-            val label = stringResource(
-                if (vote ==
-                    NovelCommentVote.UP
-                ) {
-                    MR.strings.leaf_novel_comments_like
-                } else {
-                    MR.strings.leaf_novel_comments_dislike
-                },
-            )
+            val label = when (vote) {
+                NovelCommentVote.UP -> stringResource(MR.strings.leaf_novel_comments_like)
+                else -> stringResource(MR.strings.leaf_novel_comments_dislike)
+            }
             val description = if (count != null) "$label: $count" else label
             val active = chosen == vote
             TextButton(

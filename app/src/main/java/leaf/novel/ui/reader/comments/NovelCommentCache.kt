@@ -10,8 +10,9 @@ package leaf.novel.ui.reader.comments
  *
  * Memory only, on purpose. A comment thread goes stale, and a copy on disk would go on being served
  * long after the site had moved on; one that dies with the process never gets old enough to matter.
- * [NovelComments] still expires its threads, while a match or a chapter list is kept until evicted,
- * because neither changes while someone reads.
+ * [NovelComments] still expires its threads, and a match is kept until evicted, because it does not
+ * change while someone reads. A chapter list does, by growing, so [NovelCommentMatcher] reads an old
+ * one again when a chapter is missing from it.
  *
  * Bounded by entry count, least recently used first. The entries are small — a thread is a few
  * pages of text — and a count is the one bound that needs no guess at their size.

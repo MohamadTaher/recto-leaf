@@ -93,18 +93,6 @@ object NovelCommentTree {
         return dedupe(forest)
     }
 
-    /**
-     * [addition] appended to [roots] with everything already in them left out.
-     *
-     * The page a site returns is not always disjoint from the one before it — a comment posted
-     * between the two requests shifts the rest along, and a comment that arrived as a reply on the
-     * first page can come back as a root on the second. Appending both copies would draw the
-     * comment twice under one row key, so the later copy is dropped and the one already on screen,
-     * with whatever replies have since been fetched under it, is the one that stays.
-     */
-    fun merge(roots: List<NovelComment>, addition: List<NovelComment>): List<NovelComment> =
-        roots + dedupe(addition, ids(roots))
-
     /** Every id in the forest, replies included. */
     fun ids(roots: List<NovelComment>): Set<String> {
         val ids = mutableSetOf<String>()
@@ -318,8 +306,8 @@ object NovelCommentTree {
      * can be as deep as the site allowed, and a walk that finds nothing must not be the thing that
      * overflows the stack.
      */
-    private fun dedupe(roots: List<NovelComment>, known: Set<String> = emptySet()): List<NovelComment> {
-        val seen = known.toMutableSet()
+    private fun dedupe(roots: List<NovelComment>): List<NovelComment> {
+        val seen = mutableSetOf<String>()
         var repeated = false
         val stack = ArrayDeque(roots)
         while (stack.isNotEmpty()) {
@@ -330,7 +318,7 @@ object NovelCommentTree {
             }
             stack.addAll(comment.replies)
         }
-        return if (repeated) prune(roots, known.toMutableSet()) else roots
+        return if (repeated) prune(roots, mutableSetOf()) else roots
     }
 
     /**

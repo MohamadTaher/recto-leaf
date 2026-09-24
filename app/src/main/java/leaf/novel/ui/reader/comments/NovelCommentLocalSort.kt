@@ -17,8 +17,8 @@ import tachiyomi.i18n.MR
  */
 enum class NovelCommentLocalSort(val titleRes: StringResource) {
     TOP(MR.strings.leaf_novel_comments_sort_top),
-    NEWEST(MR.strings.leaf_novel_comments_sort_newest),
-    OLDEST(MR.strings.leaf_novel_comments_sort_oldest),
+    NEWEST(MR.strings.action_newest),
+    OLDEST(MR.strings.action_oldest),
     ;
 
     /**

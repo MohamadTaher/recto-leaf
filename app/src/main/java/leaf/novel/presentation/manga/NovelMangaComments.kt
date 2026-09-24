@@ -28,14 +28,13 @@ import tachiyomi.presentation.core.util.collectAsState
  * point for [NovelCommentScope.NOVEL] — one place each, chosen by where the reader already is.
  *
  * Written as a composable that both draws the sheet and *returns the action that opens it*, which
- * is unusual and deliberate. The alternative was threading a controller, a visibility flag and a
- * dismiss callback from the view model through [eu.kanade.presentation.manga.MangaScreen] and both
- * of its layout implementations, and every one of those lines is an upstream file the fork has to
- * merge for ever. This way the seam is a nullable lambda: upstream gains one parameter with a
- * default and one guarded button, and everything else lives here.
+ * is unusual and deliberate: [NovelInfoLine], already under the novel's title, offers it with no
+ * controller, visibility flag or dismiss callback threaded through
+ * [eu.kanade.presentation.manga.MangaScreen] and both of its layouts — every line of which would be
+ * an upstream file the fork has to merge for ever.
  *
- * Returns null — which is what withdraws the button — on manga and when the reader has turned
- * comments off. A novel whose own source has no novel feed can still have comments elsewhere.
+ * Returns null — which is what withdraws the link — when the reader has turned comments off. A
+ * novel whose own source has no novel feed can still have comments elsewhere.
  */
 @Composable
 fun novelCommentsAction(manga: Manga, source: Source): (() -> Unit)? {
@@ -45,8 +44,8 @@ fun novelCommentsAction(manga: Manga, source: Source): (() -> Unit)? {
     val enabled by preferences.commentsEnabled.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // Bound once per novel. The scope is the composition's, so leaving the screen cancels whatever
-    // is still being fetched rather than draining a thread nobody is going to read.
+    // Bound once per novel. The scope is the title block's, so leaving the screen, or scrolling the
+    // title away, cancels whatever is still being fetched; what arrived is in the cache.
     val comments = remember(manga.id, source.id) {
         NovelComments(
             scope = scope,
@@ -60,16 +59,13 @@ fun novelCommentsAction(manga: Manga, source: Source): (() -> Unit)? {
     var showing by rememberSaveable(manga.id) { mutableStateOf(false) }
 
     // Every `remember` above runs whatever the answer is, so the slots either side of this stay put.
-    if (!enabled || !manga.isNovel || !comments.supported) return null
+    if (!enabled || !comments.supported) return null
 
     if (showing) {
         NovelCommentsSheet(
             comments = comments,
             preferences = preferences,
-            onDismissRequest = {
-                comments.close()
-                showing = false
-            },
+            onDismissRequest = { showing = false },
         )
     }
 
