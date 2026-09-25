@@ -133,7 +133,7 @@ interface AppGraph : ViewModelGraph {
     val getExtensionStoreCountAsFlow: GetExtensionStoreCountAsFlow
 
     // [recto-leaf] Reached from Compose: the browse screen's import action, the
-    // library's content-type selector, and the novel screen's comments button.
+    // library's Novels filter, and the novel screen's comments button.
     val novelImporter: NovelImporter
     val novelLibraryPreferences: NovelLibraryPreferences
     val novelReaderPreferences: NovelReaderPreferences

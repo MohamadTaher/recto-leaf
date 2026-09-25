@@ -64,8 +64,8 @@ object NovelCommentMarkup {
         // A fragment that opens or closes with an empty <p> is common enough to be worth trimming;
         // left alone it draws a blank line above or below every one of those comments.
         while (merged.isNotEmpty() && merged.first().isBlank()) merged.removeAt(0)
-        // Pictures are drawn beneath the words, so text is trimmed as if they were not there: a line
-        // break that only led up to a picture would otherwise leave a blank line above it.
+        // Text is trimmed as if pictures were not there: a line break that only led up to a picture
+        // at the end would otherwise leave a blank line above it.
         val lastWords = merged.indexOfLast { it.image == null && it.text.isNotBlank() }
         return merged.mapIndexedNotNull { index, span ->
             when {
@@ -76,6 +76,39 @@ object NovelCommentMarkup {
         }
     }
 
+    /**
+     * [spans] as the blocks the sheet stacks: runs of text, and the pictures between them, each where
+     * the site put it.
+     *
+     * A picture ends the line it is in, since it cannot sit inside a line of an `AnnotatedString`
+     * without knowing its size first. Each run is trimmed at its edges, so a line break that only led
+     * up to a picture leaves no blank line beside it; pictures in a row are one block.
+     */
+    fun blocks(spans: List<NovelCommentSpan>): List<NovelCommentBlock> {
+        val blocks = mutableListOf<NovelCommentBlock>()
+        val run = mutableListOf<NovelCommentSpan>()
+        fun endRun() {
+            run.trimmed()?.let { blocks += NovelCommentBlock.Text(it) }
+            run.clear()
+        }
+        spans.forEach { span ->
+            val image = span.image
+            if (image == null) {
+                run += span
+                return@forEach
+            }
+            endRun()
+            val last = blocks.lastOrNull()
+            if (last is NovelCommentBlock.Media) {
+                blocks[blocks.lastIndex] = NovelCommentBlock.Media(last.urls + image)
+            } else {
+                blocks += NovelCommentBlock.Media(listOf(image))
+            }
+        }
+        endRun()
+        return blocks
+    }
+
     /** The comment as one string, for copying, sharing and searching. */
     fun plainText(html: String, baseUrl: String? = null): String =
         parse(html, baseUrl).joinToString("") { it.text }.trim()
@@ -84,7 +117,20 @@ object NovelCommentMarkup {
         when (node) {
             is TextNode -> {
                 val text = node.wholeText.replace(' ', ' ')
-                if (text.isNotEmpty()) out += style.span(text)
+                if (style.link != null) {
+                    out += style.span(text)
+                    return
+                }
+                // An address pasted as text is a link to whoever reads it, even where the site did
+                // not make it one. Empty pieces are dropped by the merge.
+                var at = 0
+                BARE_LINK.findAll(text).forEach { match ->
+                    val url = match.value
+                    out += style.span(text.substring(at, match.range.first))
+                    out += style.copy(link = if (url.startsWith("www.", true)) "https://$url" else url).span(url)
+                    at = match.range.last + 1
+                }
+                out += style.span(text.substring(at))
             }
             is Element -> {
                 val tag = node.normalName()
@@ -195,6 +241,19 @@ private fun MutableList<NovelCommentSpan>.collapseBlankLines() {
     }
 }
 
+/** The spans without the whitespace at either end, or null when there is nothing but whitespace. */
+private fun List<NovelCommentSpan>.trimmed(): List<NovelCommentSpan>? {
+    val first = indexOfFirst { it.text.isNotBlank() }
+    if (first < 0) return null
+    val last = indexOfLast { it.text.isNotBlank() }
+    return subList(first, last + 1).mapIndexed { index, span ->
+        var text = span.text
+        if (index == 0) text = text.trimStart()
+        if (index == last - first) text = text.trimEnd()
+        span.copy(text = text)
+    }
+}
+
 /** A line break, then one blank line; a third in a row is padding. */
 private const val MAX_BREAKS = 2
 private const val NEWLINE = '\n'
@@ -217,6 +276,9 @@ private fun Element.linkTarget(): String? {
 }
 
 private val SAFE_SCHEMES = listOf("http://", "https://", "mailto:")
+
+/** An address in plain text, without the full stop or bracket that usually follows one. */
+private val BARE_LINK = Regex("""(?:https?://|www\.)[^\s<>"]*[^\s<>"'.,;:!?)\]}]""", RegexOption.IGNORE_CASE)
 
 /**
  * The absolute address of an `<img>`, or null when there is no web address to load.
@@ -254,8 +316,7 @@ data class NovelCommentSpan(
      * A picture or a video GIF rather than text, with an empty [text]: absolute, and only ever
      * `http` or `https`.
      *
-     * The sheet draws a comment's pictures beneath its words, since a picture cannot sit inside a
-     * line of an `AnnotatedString` without knowing its size first.
+     * The sheet draws a picture between the lines around it, as a [NovelCommentBlock.Media].
      */
     val image: String? = null,
 ) {
@@ -273,4 +334,12 @@ data class NovelCommentSpan(
             heading == other.heading &&
             spoiler == other.spoiler &&
             link == other.link
+}
+
+/** A piece of a comment the sheet stacks, in the order the site gave: a run of text, or pictures. */
+sealed interface NovelCommentBlock {
+    data class Text(val spans: List<NovelCommentSpan>) : NovelCommentBlock
+
+    /** One or more pictures or video GIFs with nothing between them. */
+    data class Media(val urls: List<String>) : NovelCommentBlock
 }

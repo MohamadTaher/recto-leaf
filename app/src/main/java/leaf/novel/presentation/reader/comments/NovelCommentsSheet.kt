@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -45,7 +45,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +63,7 @@ import leaf.novel.ui.reader.comments.NovelCommentKind
 import leaf.novel.ui.reader.comments.NovelCommentLocalSort
 import leaf.novel.ui.reader.comments.NovelCommentRow
 import leaf.novel.ui.reader.comments.NovelCommentTree
+import leaf.novel.ui.reader.comments.NovelCommentVerification
 import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.comments.NovelCommentsState
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
@@ -106,7 +106,7 @@ fun NovelCommentsSheet(
     val capabilities = state.capabilities ?: return
     val showAvatars by preferences.commentsShowAvatars.collectAsState()
     val spoilerGuard by preferences.commentsSpoilerGuard.collectAsState()
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -138,6 +138,11 @@ fun NovelCommentsSheet(
         if (closing) scrollBackTo(comment.id)
     }
 
+    // The WebView browses as the extension, so a check cleared there is cleared for it too.
+    fun openInWebView(site: NovelCommentVerification) {
+        context.startActivity(WebViewActivity.newIntent(context, site.url, site.sourceId, site.name))
+    }
+
     AdaptiveSheet(onDismissRequest = onDismissRequest) {
         Column(modifier = Modifier.fillMaxHeight(0.9f).navigationBarsPadding().imePadding()) {
             NovelCommentsHeader(
@@ -145,19 +150,12 @@ fun NovelCommentsSheet(
                 onRefresh = comments::reload,
                 onSetKind = comments::setKind,
                 onSetOriginFilter = comments::setOriginFilter,
+                onClearOriginFilter = comments::clearOriginFilter,
                 onSetSort = comments::setSort,
                 onCollapseAll = comments::collapseAll,
                 onExpandAll = comments::expandAll,
                 onClearFocus = { comments.focus(null) },
                 onDismiss = onDismissRequest,
-                onNextComment = {
-                    scope.launch {
-                        val from = listState.firstVisibleItemIndex + 1
-                        val next = state.rows.withIndex()
-                            .firstOrNull { (index, row) -> index >= from && row.ancestors.isEmpty() }
-                        next?.let { listState.animateScrollToItem(it.index) }
-                    }
-                },
             )
 
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -175,20 +173,13 @@ fun NovelCommentsSheet(
                         // A site that will not answer is worth looking at by hand: some guard
                         // themselves with a check only a person can pass, and the WebView carries
                         // the same cookies, so clearing it there clears it for the extension too.
-                        val context = LocalContext.current
                         val verification = remember(state.error) { comments.verification() }
                         Message(
                             text = state.error.orEmpty(),
                             action = stringResource(MR.strings.action_retry),
                             onAction = comments::reload,
                             secondary = verification?.let { stringResource(MR.strings.action_open_in_web_view) },
-                            onSecondary = verification?.let { target ->
-                                {
-                                    context.startActivity(
-                                        WebViewActivity.newIntent(context, target.url, target.sourceId, target.name),
-                                    )
-                                }
-                            },
+                            onSecondary = verification?.let { { openInWebView(it) } },
                         )
                     }
 
@@ -207,7 +198,10 @@ fun NovelCommentsSheet(
                         modifier = Modifier.fillMaxHeight(),
                         contentPadding = ListPadding,
                     ) {
-                        items(state.rows, key = { it.key }) { row ->
+                        itemsIndexed(state.rows, key = { _, row -> row.key }) { index, row ->
+                            // A thread's rule sits under the last of the rows that close it, not
+                            // above them and not between them.
+                            val ruled = state.rows.getOrNull(index + 1) !is NovelCommentRow.HideReplies
                             NovelCommentThreadRow(
                                 ancestors = row.ancestors,
                                 onCollapse = { id ->
@@ -215,27 +209,32 @@ fun NovelCommentsSheet(
                                 },
                             ) {
                                 when (row) {
-                                    is NovelCommentRow.Body -> NovelCommentItem(
-                                        comment = row.comment,
-                                        depth = row.ancestors.size,
-                                        collapsed = row.collapsed,
-                                        hiddenCount = row.hiddenCount,
-                                        capabilities = comments.capabilities(row.comment) ?: capabilities,
-                                        feedback = comments.feedback(row.comment),
-                                        sourceName = comments.sourceName(row.comment),
-                                        showChapter = state.scope == NovelCommentScope.NOVEL,
-                                        voting = row.comment.id in state.voting,
-                                        repliesExpanded = row.comment.id in state.expandedReplies,
-                                        loadingReplies = row.comment.id in state.loadingReplies,
-                                        showAvatar = showAvatars,
-                                        spoilerGuard = spoilerGuard,
-                                        onToggleCollapsed = { comments.toggleCollapsed(row.comment.id) },
-                                        onVote = { vote -> comments.vote(row.comment, vote) },
-                                        onToggleReplies = { toggleReplies(row.comment) },
-                                        onFocus = { comments.focus(row.comment.id) },
-                                        onOpenLink = uriHandler::openUri,
-                                        onShrink = { scrollBackTo(row.comment.id) },
-                                    )
+                                    is NovelCommentRow.Body -> {
+                                        val page = comments.page(row.comment)
+                                        NovelCommentItem(
+                                            comment = row.comment,
+                                            depth = row.ancestors.size,
+                                            collapsed = row.collapsed,
+                                            hiddenCount = row.hiddenCount,
+                                            ruled = ruled,
+                                            capabilities = comments.capabilities(row.comment) ?: capabilities,
+                                            feedback = comments.feedback(row.comment),
+                                            sourceName = comments.sourceName(row.comment),
+                                            showChapter = state.scope == NovelCommentScope.NOVEL,
+                                            voting = row.comment.id in state.voting,
+                                            repliesExpanded = row.comment.id in state.expandedReplies,
+                                            loadingReplies = row.comment.id in state.loadingReplies,
+                                            showAvatar = showAvatars,
+                                            spoilerGuard = spoilerGuard,
+                                            onToggleCollapsed = { comments.toggleCollapsed(row.comment.id) },
+                                            onVote = { vote -> comments.vote(row.comment, vote) },
+                                            onToggleReplies = { toggleReplies(row.comment) },
+                                            onFocus = { comments.focus(row.comment.id) },
+                                            page = page?.url,
+                                            onOpenPage = { page?.let(::openInWebView) },
+                                            onShrink = { scrollBackTo(row.comment.id) },
+                                        )
+                                    }
 
                                     is NovelCommentRow.MoreReplies -> ThreadAction(
                                         label = stringResource(
@@ -251,6 +250,7 @@ fun NovelCommentsSheet(
                                         label = stringResource(MR.strings.leaf_novel_comments_collapse_replies),
                                         open = true,
                                         loading = row.loading,
+                                        ruled = ruled,
                                         onClick = { toggleReplies(row.comment) },
                                     )
 
@@ -311,11 +311,11 @@ private fun NovelCommentsHeader(
     onRefresh: () -> Unit,
     onSetKind: (NovelCommentKind) -> Unit,
     onSetOriginFilter: (Long, TriState) -> Unit,
+    onClearOriginFilter: () -> Unit,
     onSetSort: (NovelCommentLocalSort) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
     onClearFocus: () -> Unit,
-    onNextComment: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (state.capabilities == null) return
@@ -398,7 +398,7 @@ private fun NovelCommentsHeader(
                     },
                 )
             }
-            NovelCommentsMenu(state, onRefresh, onNextComment, onCollapseAll, onExpandAll)
+            NovelCommentsMenu(state, onRefresh, onCollapseAll, onExpandAll)
             IconButton(onClick = onDismiss) {
                 Icon(MaterialSymbols.Rounded.Close, contentDescription = stringResource(MR.strings.action_close))
             }
@@ -424,6 +424,7 @@ private fun NovelCommentsHeader(
         NovelCommentsSettingsDialog(
             state = state,
             onSetOriginFilter = onSetOriginFilter,
+            onClearOriginFilter = onClearOriginFilter,
             onSetSort = onSetSort,
             onDismissRequest = { settingsOpen = false },
         )
@@ -438,6 +439,7 @@ private fun NovelCommentsHeader(
 private fun NovelCommentsSettingsDialog(
     state: NovelCommentsState,
     onSetOriginFilter: (Long, TriState) -> Unit,
+    onClearOriginFilter: () -> Unit,
     onSetSort: (NovelCommentLocalSort) -> Unit,
     onDismissRequest: () -> Unit,
 ) {
@@ -452,7 +454,16 @@ private fun NovelCommentsSettingsDialog(
         ) {
             when (page) {
                 0 -> {
-                    HeadingItem(MR.strings.label_extensions)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { HeadingItem(MR.strings.label_extensions) }
+                        TextButton(
+                            onClick = onClearOriginFilter,
+                            enabled = state.originFilter.isNotEmpty(),
+                            modifier = Modifier.padding(end = 8.dp),
+                        ) {
+                            Text(stringResource(MR.strings.action_reset))
+                        }
+                    }
                     // With one extension there is nothing to choose between.
                     val choosable = state.origins.size > 1
                     state.origins.forEach { origin ->
@@ -485,7 +496,6 @@ private fun NovelCommentsSettingsDialog(
 private fun NovelCommentsMenu(
     state: NovelCommentsState,
     onRefresh: () -> Unit,
-    onNextComment: () -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
 ) {
@@ -497,7 +507,6 @@ private fun NovelCommentsMenu(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             listOf(
                 MR.strings.action_webview_refresh to onRefresh,
-                MR.strings.leaf_novel_comments_next to onNextComment,
                 MR.strings.leaf_novel_comments_collapse_all to onCollapseAll,
                 MR.strings.leaf_novel_comments_expand_all to onExpandAll,
             ).forEach { (title, action) ->
@@ -511,7 +520,6 @@ private fun NovelCommentsMenu(
                     },
                     enabled = when (title) {
                         MR.strings.action_webview_refresh -> !state.loading && !state.posting && state.voting.isEmpty()
-                        MR.strings.leaf_novel_comments_next -> state.rows.isNotEmpty()
                         else -> true
                     },
                     modifier = Modifier.height(MENU_ITEM_HEIGHT),

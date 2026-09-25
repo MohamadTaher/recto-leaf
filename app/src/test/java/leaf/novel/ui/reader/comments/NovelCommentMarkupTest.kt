@@ -74,6 +74,19 @@ class NovelCommentMarkupTest {
     }
 
     @Test
+    fun `keeps a picture where it stood among the words`() {
+        val html = "before<br>" +
+            """<img src="https://example.com/a.gif"> <img src="https://example.com/b.gif">""" +
+            "<br>after"
+
+        NovelCommentMarkup.blocks(NovelCommentMarkup.parse(html)) shouldBe listOf(
+            NovelCommentBlock.Text(listOf(NovelCommentSpan("before"))),
+            NovelCommentBlock.Media(listOf("https://example.com/a.gif", "https://example.com/b.gif")),
+            NovelCommentBlock.Text(listOf(NovelCommentSpan("after"))),
+        )
+    }
+
+    @Test
     fun `keeps a video GIF the same way as a picture`() {
         NovelCommentMarkup.parse("""<video src="https://example.com/clip.mp4"></video>""")
             .mapNotNull { it.image } shouldBe listOf("https://example.com/clip.mp4")
@@ -107,6 +120,14 @@ class NovelCommentMarkupTest {
         NovelCommentMarkup.parse("""<a href="https://example.com">here</a>""")
             .single()
             .link shouldBe "https://example.com"
+    }
+
+    @Test
+    fun `makes a pasted address a link, leaving the full stop after it`() {
+        val spans = NovelCommentMarkup.parse("see https://example.com/a?b=1. and www.example.org")
+
+        spans.map { it.text } shouldBe listOf("see ", "https://example.com/a?b=1", ". and ", "www.example.org")
+        spans.map { it.link } shouldBe listOf(null, "https://example.com/a?b=1", null, "https://www.example.org")
     }
 
     /** The words are the comment; the scheme is the attack. Keep one, drop the other. */

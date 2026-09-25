@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -42,14 +44,18 @@ import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
+import coil3.network.NetworkHeaders
+import coil3.network.httpHeaders
+import coil3.request.ImageRequest
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Close
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.clickableNoIndication
 
 /**
- * The pictures in a comment, beneath its words, with GIFs moving.
+ * Pictures in a comment, drawn where they stood among its words, with GIFs moving.
  *
  * The app's own image loader decodes a GIF to its first frame, which is right for a cover and wrong
  * for a reaction GIF. So comments load through a copy of it with an animated decoder added — the
@@ -59,30 +65,41 @@ import tachiyomi.presentation.core.util.clickableNoIndication
  * site plays them, muted and looping, in the platform's own video view.
  *
  * A tap opens the picture full screen, still moving, where it can be pinched; another tap closes it.
+ *
+ * Each is drawn at the size a browser gives it, one dp to an image pixel and never past [MAX_SIZE]:
+ * left alone a picture takes one screen pixel per image pixel, which shrinks a site's 50-pixel
+ * sticker to a third of the size its own page shows it at.
+ *
+ * Each is asked for with the comment's own site as its Referer, as a browser showing that comment
+ * would: sticker and picture hosts commonly refuse anyone else. Only the origin is sent, which is
+ * all a browser sends to another host.
  */
 @Composable
-internal fun NovelCommentImages(urls: List<String>, modifier: Modifier = Modifier) {
+internal fun NovelCommentImages(urls: List<String>, pageUrl: String?, modifier: Modifier = Modifier) {
     if (urls.isEmpty()) return
     var viewing by remember { mutableStateOf<String?>(null) }
+    val referer = remember(pageUrl) { pageUrl?.toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}/" } }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         urls.forEach { url ->
             CommentMedia(
                 url = url,
+                referer = referer,
                 contentScale = ContentScale.Fit,
+                bounds = MAX_SIZE,
                 modifier = Modifier
-                    .heightIn(max = 240.dp)
-                    .widthIn(max = 320.dp)
+                    .heightIn(max = MAX_SIZE.height)
+                    .widthIn(max = MAX_SIZE.width)
                     .clip(RoundedCornerShape(8.dp))
                     .clickable { viewing = url },
             )
         }
     }
-    viewing?.let { url -> CommentMediaDialog(url, onDismissRequest = { viewing = null }) }
+    viewing?.let { url -> CommentMediaDialog(url, referer, onDismissRequest = { viewing = null }) }
 }
 
 /** One picture or video GIF, full screen over a dark scrim: pinch to zoom, tap to leave. */
 @Composable
-private fun CommentMediaDialog(url: String, onDismissRequest: () -> Unit) {
+private fun CommentMediaDialog(url: String, referer: String?, onDismissRequest: () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     val state = rememberTransformableState { zoom, pan, _ ->
@@ -100,6 +117,7 @@ private fun CommentMediaDialog(url: String, onDismissRequest: () -> Unit) {
         ) {
             CommentMedia(
                 url = url,
+                referer = referer,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
@@ -120,7 +138,14 @@ private fun CommentMediaDialog(url: String, onDismissRequest: () -> Unit) {
 }
 
 @Composable
-private fun CommentMedia(url: String, contentScale: ContentScale, modifier: Modifier) {
+private fun CommentMedia(
+    url: String,
+    referer: String?,
+    contentScale: ContentScale,
+    modifier: Modifier,
+    /** Set to size the picture as a browser would, within these bounds; null leaves it to [modifier]. */
+    bounds: DpSize? = null,
+) {
     if (VIDEO.containsMatchIn(url.substringBefore('?'))) {
         AndroidView(
             factory = { context ->
@@ -132,22 +157,39 @@ private fun CommentMedia(url: String, contentScale: ContentScale, modifier: Modi
                     }
                     // A clip that will not play leaves an empty box, not a dialog.
                     setOnErrorListener { _, _, _ -> true }
-                    setVideoURI(url.toUri())
+                    setVideoURI(url.toUri(), referer?.let { mapOf("Referer" to it) })
                 }
             },
             onRelease = { it.stopPlayback() },
             modifier = modifier,
         )
     } else {
+        val context = LocalContext.current
+        var size by remember(url) { mutableStateOf<DpSize?>(null) }
         AsyncImage(
-            model = url,
-            imageLoader = commentImageLoader(LocalContext.current),
+            model = remember(url, referer) {
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .apply { referer?.let { httpHeaders(NetworkHeaders.Builder().set("Referer", it).build()) } }
+                    .build()
+            },
+            imageLoader = commentImageLoader(context),
             contentDescription = null,
             contentScale = contentScale,
-            modifier = modifier,
+            onSuccess = { state ->
+                if (bounds != null) {
+                    val width = state.result.image.width.toFloat()
+                    val height = state.result.image.height.toFloat()
+                    val scale = minOf(1f, bounds.width.value / width, bounds.height.value / height)
+                    size = DpSize((width * scale).dp, (height * scale).dp)
+                }
+            },
+            modifier = modifier.then(size?.let { Modifier.size(it) } ?: Modifier),
         )
     }
 }
+
+private val MAX_SIZE = DpSize(320.dp, 240.dp)
 
 private val VIDEO = Regex("""\.(mp4|webm)$""", RegexOption.IGNORE_CASE)
 

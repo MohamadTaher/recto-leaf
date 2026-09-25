@@ -28,24 +28,28 @@ import tachiyomi.presentation.core.util.collectAsState
  * point for [NovelCommentScope.NOVEL] — one place each, chosen by where the reader already is.
  *
  * Written as a composable that both draws the sheet and *returns the action that opens it*, which
- * is unusual and deliberate: [NovelInfoLine], already under the novel's title, offers it with no
- * controller, visibility flag or dismiss callback threaded through
- * [eu.kanade.presentation.manga.MangaScreen] and both of its layouts — every line of which would be
- * an upstream file the fork has to merge for ever.
+ * is unusual and deliberate. The alternative was threading a controller, a visibility flag and a
+ * dismiss callback from the view model through [eu.kanade.presentation.manga.MangaScreen] and both
+ * of its layouts, and every one of those lines is an upstream file the fork has to merge for ever.
+ * This way the seam is a nullable lambda: the action row gains one parameter with a default and one
+ * guarded button, and everything else lives here.
  *
- * Returns null — which is what withdraws the link — when the reader has turned comments off. A
- * novel whose own source has no novel feed can still have comments elsewhere.
+ * Returns null — which is what withdraws the button — on a manga and when the reader has turned
+ * comments off. A novel whose own source has no novel feed can still have comments elsewhere.
  */
 @Composable
 fun novelCommentsAction(manga: Manga, source: Source): (() -> Unit)? {
+    // A screen's entry is a manga or a novel for its whole life, so the slots below are never skipped
+    // on one composition and run on the next.
+    if (!manga.isNovel) return null
     val context = LocalContext.current
     val graph = remember { context.appGraph }
     val preferences = graph.novelReaderPreferences
     val enabled by preferences.commentsEnabled.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // Bound once per novel. The scope is the title block's, so leaving the screen, or scrolling the
-    // title away, cancels whatever is still being fetched; what arrived is in the cache.
+    // Bound once per novel. The scope is the action row's, so leaving the screen, or scrolling the
+    // row away, cancels whatever is still being fetched; what arrived is in the cache.
     val comments = remember(manga.id, source.id) {
         NovelComments(
             scope = scope,

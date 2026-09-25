@@ -3,7 +3,6 @@ package leaf.novel.presentation.manga
 import android.icu.text.CompactDecimalFormat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -61,25 +60,21 @@ import java.text.NumberFormat
 import java.util.Locale
 
 /**
- * A novel's rating and its discussion, under its title: its own site's rating, the one across every
- * site that has it, and the way into its comments.
+ * A novel's rating, under its title: its own site's, and the one across every site that has it.
  *
  * Drawn from the title block upstream owns, so everything it needs it finds for itself from [manga]
- * — the source, the search, the fetches — and the seam there is one call. The discussion is here
- * rather than in the action row for the same reason: a fifth action button cost that row a
- * parameter, the padding of every button in it and both of `MangaScreen`'s layouts. Draws nothing
- * on a manga.
+ * — the source, the search, the fetches — and the seam there is one call. Draws nothing on a manga,
+ * and nothing on a novel until some site has a rating for it.
  *
- * Tapping the rating lists every site, with how much each counts towards the rating across them.
+ * Tapping it lists every site, with how much each counts towards the rating across them.
  */
 @Composable
-fun NovelInfoLine(manga: Manga, modifier: Modifier = Modifier) {
+fun NovelRatingLine(manga: Manga, modifier: Modifier = Modifier) {
     if (!manga.isNovel) return
     val context = LocalContext.current
     val graph = remember { context.appGraph }
     val scope = rememberCoroutineScope()
     val source by produceState<Source?>(null, manga.source) { value = graph.sourceManager.getOrStub(manga.source) }
-    val onDiscuss = source?.let { novelCommentsAction(manga, it) }
     val saved = remember(manga.memo) { NovelRating.read(manga.memo) }
     val ratings = remember(manga.id) {
         NovelRatings(scope, NovelCommentMatcher.installed(graph.sourceManager, graph.sourcePreferences))
@@ -96,8 +91,7 @@ fun NovelInfoLine(manga: Manga, modifier: Modifier = Modifier) {
     val global = acrossSites(sites.map { it.rating })
         // Across sites means more than one: the own site's figure alone is already drawn beside it.
         ?.takeIf { sites.any { !it.own && (it.rating.count ?: 0) > 0 } }
-    val rated = own != null || global != null
-    if (!rated && onDiscuss == null) return
+    if (own == null && global == null) return
 
     val description = listOfNotNull(
         own?.let {
@@ -117,57 +111,28 @@ fun NovelInfoLine(manga: Manga, modifier: Modifier = Modifier) {
         },
     ).joinToString(". ")
 
-    // Flowing rather than one row: under the cover on a phone there is not always room for both
-    // ratings and the discussion, and the discussion wrapping is better than it being cut off.
-    FlowRow(
-        modifier = modifier.padding(top = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        itemVerticalAlignment = Alignment.CenterVertically,
+    Row(
+        modifier = modifier
+            .padding(top = 2.dp)
+            .clickableNoIndication { showing = true }
+            .semantics(mergeDescendants = true) { contentDescription = description },
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
-            if (rated) {
-                Row(
-                    modifier = Modifier
-                        .clickableNoIndication { showing = true }
-                        .semantics(mergeDescendants = true) { contentDescription = description },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (own != null) {
-                        RatingFigure(NovelCommentGlyphs.FilledStar, MaterialTheme.colorScheme.primary, own.rating)
-                    }
-                    if (own != null && global != null) DotSeparatorText()
-                    if (global != null) {
-                        RatingFigure(MaterialSymbols.Rounded.Public, LocalContentColor.current, global)
-                    }
-                    if (state.searching) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(start = 6.dp)
-                                .size(12.dp),
-                            strokeWidth = 1.5.dp,
-                        )
-                    }
-                }
+            if (own != null) {
+                RatingFigure(NovelCommentGlyphs.FilledStar, MaterialTheme.colorScheme.primary, own.rating)
             }
-            if (onDiscuss != null) {
-                Row(
-                    modifier = Modifier.clickableNoIndication(onClick = onDiscuss),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = NovelCommentGlyphs.Comments,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .size(16.dp),
-                    )
-                    Text(
-                        text = stringResource(MR.strings.leaf_novel_comments_novel),
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                    )
-                }
+            if (own != null && global != null) DotSeparatorText()
+            if (global != null) {
+                RatingFigure(MaterialSymbols.Rounded.Public, LocalContentColor.current, global)
+            }
+            if (state.searching) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(12.dp),
+                    strokeWidth = 1.5.dp,
+                )
             }
         }
     }

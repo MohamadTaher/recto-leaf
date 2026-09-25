@@ -1344,7 +1344,6 @@
     <string name="leaf_novel_comments_expand_all">Expand all</string>
     <string name="leaf_novel_comments_back_to_thread">Back to all comments</string>
     <string name="leaf_novel_comments_focus">Open this thread</string>
-    <string name="leaf_novel_comments_next">Next comment</string>
     <string name="leaf_novel_comments_pinned">Pinned</string>
     <string name="leaf_novel_comments_deleted">Comment removed</string>
     <string name="leaf_novel_comments_spoiler">Spoiler — tap to show</string>

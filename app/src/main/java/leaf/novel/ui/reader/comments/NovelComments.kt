@@ -969,6 +969,21 @@ class NovelComments(
         return NovelCommentVerification(sourceId = source.id, name = source.name, url = url)
     }
 
+    /**
+     * Where a comment can be read on its site: its own page where the source gives one, and the
+     * page its thread is on otherwise — so every comment can be opened, whatever the extension set.
+     */
+    fun page(comment: NovelComment): NovelCommentVerification? {
+        val drain = drainOf(comment.id) ?: return null
+        val source = drain.origin.source as? HttpSource ?: return null
+        val target = drain.target
+        val url = comment.permalink
+            ?: target?.chapter?.let { runCatching { source.getChapterUrl(it) }.getOrNull() }
+            ?: runCatching { source.getMangaUrl(target?.novel ?: drain.origin.novel) }.getOrNull()
+            ?: source.baseUrl
+        return NovelCommentVerification(sourceId = source.id, name = source.name, url = url)
+    }
+
     /** The thread on screen a comment belongs to, read off its id's tag. */
     private fun drainOf(id: String): Drain? {
         val shown = shown
@@ -1216,8 +1231,8 @@ internal suspend fun <T> withCommentTimeout(timeout: Duration = COMMENT_TIMEOUT,
     throw Exception("Timed out after $timeout", e)
 }
 
-/** How much a vote moves a score, for the optimistic update. */
-private val NovelCommentVote.delta: Int
+/** How much a vote moves a score, here and in the row that counts a vote the site will not keep. */
+internal val NovelCommentVote.delta: Int
     get() = when (this) {
         NovelCommentVote.UP -> 1
         NovelCommentVote.NONE -> 0

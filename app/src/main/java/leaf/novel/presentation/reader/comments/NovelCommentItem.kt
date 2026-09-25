@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,6 +70,7 @@ import leaf.novel.api.NovelCommentCapabilities
 import leaf.novel.api.NovelCommentFeedback
 import leaf.novel.api.NovelCommentSentiment
 import leaf.novel.api.NovelCommentVote
+import leaf.novel.ui.reader.comments.NovelCommentBlock
 import leaf.novel.ui.reader.comments.NovelCommentMarkup
 import leaf.novel.ui.reader.comments.NovelCommentReview
 import leaf.novel.ui.reader.comments.NovelCommentSpan
@@ -106,6 +108,8 @@ fun NovelCommentItem(
     depth: Int,
     collapsed: Boolean,
     hiddenCount: Int,
+    /** Whether the rule under a comment is drawn here, rather than under the rows that close its thread. */
+    ruled: Boolean,
     capabilities: NovelCommentCapabilities,
     feedback: NovelCommentFeedback,
     /** The extension the comment came from, set unless the sheet is filtered to one. */
@@ -121,7 +125,9 @@ fun NovelCommentItem(
     onVote: (NovelCommentVote) -> Unit,
     onToggleReplies: () -> Unit,
     onFocus: () -> Unit,
-    onOpenLink: (String) -> Unit,
+    /** The comment's page on its site, or its thread's when the source gives it none. */
+    page: String?,
+    onOpenPage: () -> Unit,
     /** Called when a long comment is closed again, so the sheet can bring its top back into view. */
     onShrink: () -> Unit,
     modifier: Modifier = Modifier,
@@ -133,11 +139,12 @@ fun NovelCommentItem(
         if (!expanded) onShrink()
     }
     val review = remember(comment.body) { NovelCommentReview.parse(comment.body) }
-    val spans = remember(review.body, comment.permalink) { NovelCommentMarkup.parse(review.body, comment.permalink) }
+    val spans = remember(review.body, page) { NovelCommentMarkup.parse(review.body, page) }
     val hasSpoilers = remember(spans) { spans.any { it.spoiler } }
-    val hasText = remember(spans) { spans.any { it.image == null } }
+    val blocks = remember(spans) { NovelCommentMarkup.blocks(spans) }
+    // Per text block, as last laid out closed: its line count, and whether it ran past its share.
+    val layouts = remember(comment.body) { mutableStateMapOf<Int, Pair<Int, Boolean>>() }
     var revealed by remember(comment.id) { mutableStateOf(false) }
-    var overflows by remember(comment.body) { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var viewingAvatar by remember { mutableStateOf<String?>(null) }
     val hidden = (spoilerGuard || hasSpoilers) && !revealed
@@ -149,7 +156,6 @@ fun NovelCommentItem(
         .takeUnless { comment.deleted || hidden || rating != null }
     val avatar = avatarSize(depth)
     val lineColor = MaterialTheme.colorScheme.outlineVariant
-    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = DIVIDER_ALPHA)
     val replyCount = maxOf(
         NovelCommentTree.count(comment.replies),
         if (capabilities.lazyReplies) comment.replyCount else 0,
@@ -160,23 +166,8 @@ fun NovelCommentItem(
 
     Column(
         modifier = modifier.fillMaxWidth()
-            .drawBehind {
-                // A rule under the comment, except where its thread line carries on below it: edge
-                // to edge, fading in from nothing at either end to full by the last 18% of the width.
-                if (!continues) {
-                    drawLine(
-                        brush = Brush.horizontalGradient(
-                            0f to Color.Transparent,
-                            DIVIDER_FADE to dividerColor,
-                            1f - DIVIDER_FADE to dividerColor,
-                            1f to Color.Transparent,
-                        ),
-                        start = Offset(0f, size.height),
-                        end = Offset(size.width, size.height),
-                        strokeWidth = 1.dp.toPx(),
-                    )
-                }
-            }
+            // A rule under the comment, except where its thread line carries on below it.
+            .rule(ruled && !continues)
             .padding(top = 10.dp, bottom = if (collapsed) 10.dp else 0.dp),
     ) {
         Row(
@@ -299,11 +290,12 @@ fun NovelCommentItem(
                             context.copyToClipboard(comment.author, NovelCommentMarkup.plainText(comment.body))
                         }
                     }
-                    comment.permalink?.let { url ->
+                    if (page != null) {
                         Action(
-                            stringResource(MR.strings.action_open_in_browser),
+                            stringResource(MR.strings.action_open_in_web_view),
                             MaterialSymbols.AutoMirroredRounded.OpenInNew,
-                        ) { onOpenLink(url) }
+                            onOpenPage,
+                        )
                     }
                 }
             }
@@ -343,30 +335,56 @@ fun NovelCommentItem(
                             .clickable(role = Role.Button, onClick = { revealed = true }).padding(12.dp),
                     )
                     else -> {
-                        // The body itself is the control: a tap opens a long comment, and another
-                        // closes it. The label below only says which a tap will do. A comment that is
-                        // only a picture has no line of text to hold a place above it.
-                        if (hasText) {
-                            Text(
-                                text = spans.toAnnotatedString(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.onSurfaceVariant,
-                                ),
-                                // bodyLarge's own leading is set for paragraphs of prose; a comment is a
-                                // few lines, and reads as one block with the lines closer together.
-                                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.3.em),
-                                maxLines = if (expanded) Int.MAX_VALUE else 4,
-                                overflow = TextOverflow.Ellipsis,
-                                onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
-                                modifier = Modifier.clickable(
-                                    enabled = expanded || overflows,
-                                    interactionSource = null,
-                                    indication = null,
-                                    onClick = toggleBody,
-                                ),
-                            )
+                        // Closed, a long comment shows its first lines, and the pictures among them,
+                        // until those lines run out; each block is given what the ones above it left.
+                        val shown = buildList {
+                            var budget = if (expanded) Int.MAX_VALUE else COLLAPSED_LINES
+                            blocks.forEachIndexed { index, block ->
+                                if (budget <= 0) return@buildList
+                                add(IndexedValue(index, budget))
+                                if (block is NovelCommentBlock.Text && !expanded) {
+                                    budget -= layouts[index]?.first ?: budget
+                                }
+                            }
                         }
-                        if (expanded || overflows) {
+                        // Cut short only once the text above the cut has been measured, so the label
+                        // does not flash for a frame on every comment with a picture below its words.
+                        val measured = shown.all { blocks[it.index] !is NovelCommentBlock.Text || it.index in layouts }
+                        val long = (measured && shown.size < blocks.size) ||
+                            shown.any { layouts[it.index]?.second == true }
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            shown.forEach { (index, maxLines) ->
+                                when (val block = blocks[index]) {
+                                    is NovelCommentBlock.Media -> NovelCommentImages(block.urls, page)
+                                    // The text itself is the control: a tap opens a long comment,
+                                    // and another closes it. The label below only says which a tap
+                                    // will do.
+                                    is NovelCommentBlock.Text -> Text(
+                                        text = block.spans.toAnnotatedString(
+                                            MaterialTheme.colorScheme.primary,
+                                            MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
+                                        // bodyLarge's own leading is set for paragraphs of prose; a
+                                        // comment is a few lines, and reads as one block with the
+                                        // lines closer together.
+                                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.3.em),
+                                        maxLines = maxLines,
+                                        overflow = TextOverflow.Ellipsis,
+                                        onTextLayout = {
+                                            val layout = it.lineCount to it.hasVisualOverflow
+                                            if (!expanded && layouts[index] != layout) layouts[index] = layout
+                                        },
+                                        modifier = Modifier.clickable(
+                                            enabled = expanded || long,
+                                            interactionSource = null,
+                                            indication = null,
+                                            onClick = toggleBody,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                        if (expanded || long) {
                             Text(
                                 text = stringResource(
                                     if (expanded) {
@@ -382,10 +400,6 @@ fun NovelCommentItem(
                                     .padding(vertical = 4.dp),
                             )
                         }
-                        NovelCommentImages(
-                            remember(spans) { spans.mapNotNull { it.image } },
-                            modifier = Modifier.padding(top = if (hasText) 8.dp else 4.dp),
-                        )
                     }
                 }
                 if (!comment.deleted) {
@@ -447,6 +461,8 @@ fun NovelCommentRepliesRow(
     loading: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Whether this row ends a thread, and so carries the rule the comments above it left out. */
+    ruled: Boolean = false,
 ) {
     val avatar = avatarSize(depth)
     val lineColor = MaterialTheme.colorScheme.outlineVariant
@@ -454,6 +470,7 @@ fun NovelCommentRepliesRow(
         // Shorter than a touch row and padded below instead, so the label sits as far under the
         // votes as the rule sits under it.
         modifier = modifier
+            .rule(ruled)
             .padding(bottom = REPLIES_ROW_GAP)
             .fillMaxWidth()
             .height(REPLIES_ROW_HEIGHT)
@@ -649,10 +666,36 @@ fun NovelCommentThreadRow(
     }
 }
 
+/**
+ * The rule between comments: along the bottom edge, fading in from nothing at either end to full by
+ * the last 18% of the width.
+ */
+@Composable
+private fun Modifier.rule(visible: Boolean): Modifier {
+    if (!visible) return this
+    val color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = DIVIDER_ALPHA)
+    return drawBehind {
+        drawLine(
+            brush = Brush.horizontalGradient(
+                0f to Color.Transparent,
+                DIVIDER_FADE to color,
+                1f - DIVIDER_FADE to color,
+                1f to Color.Transparent,
+            ),
+            start = Offset(0f, size.height),
+            end = Offset(size.width, size.height),
+            strokeWidth = 1.dp.toPx(),
+        )
+    }
+}
+
 /** A top-level comment's avatar, and the smaller one every reply gets, as YouTube does. */
 private fun avatarSize(depth: Int): Dp = if (depth == 0) 32.dp else 24.dp
 
 private val GAP = 10.dp
+
+/** How many lines of text a closed comment shows. */
+private const val COLLAPSED_LINES = 4
 private val HEADER_HEIGHT = 40.dp
 private val REPLIES_ROW_HEIGHT = 32.dp
 private val REPLIES_ROW_GAP = 8.dp

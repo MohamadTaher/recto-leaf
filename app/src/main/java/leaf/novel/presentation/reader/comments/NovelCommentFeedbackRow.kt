@@ -37,6 +37,7 @@ import leaf.novel.api.NovelCommentRating
 import leaf.novel.api.NovelCommentReaction
 import leaf.novel.api.NovelCommentSentiment
 import leaf.novel.api.NovelCommentVote
+import leaf.novel.ui.reader.comments.delta
 import leaf.novel.ui.reader.comments.outOfFive
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -145,11 +146,18 @@ fun NovelCommentFeedbackRow(
     val chosen = if (capabilities.voting) comment.vote else localVote
     val likes = feedback.likes ?: comment.score.takeIf { capabilities.scored && !capabilities.downvotes }
     val dislikes = feedback.dislikes
+    // A site that only gives its net total shows it between the thumbs, as such sites' own pages do,
+    // without inventing either count.
+    val net = comment.score.takeIf { capabilities.scored && likes == null && dislikes == null }
+        ?.plus(if (capabilities.voting) 0 else localVote.delta)
     // Pulled back by the buttons' own padding, so the first thumb lines up with the text above it.
     Row(modifier = Modifier.offset(x = -VOTE_PADDING), verticalAlignment = Alignment.CenterVertically) {
         listOf(NovelCommentVote.UP to likes, NovelCommentVote.DOWN to dislikes).forEach { (vote, siteCount) ->
+            if (vote == NovelCommentVote.DOWN && net != null) {
+                Text(net.toString(), style = MaterialTheme.typography.labelMedium)
+            }
             if (vote == NovelCommentVote.DOWN && !capabilities.downvotes && siteCount == null) return@forEach
-            if (siteCount == null && !capabilities.voting) return@forEach
+            if (siteCount == null && !capabilities.voting && net == null) return@forEach
             val count = siteCount?.plus(if (!capabilities.voting && localVote == vote) 1 else 0)
             val label = when (vote) {
                 NovelCommentVote.UP -> stringResource(MR.strings.leaf_novel_comments_like)
@@ -190,10 +198,6 @@ fun NovelCommentFeedbackRow(
                     Text(count.toString(), style = MaterialTheme.typography.labelMedium)
                 }
             }
-        }
-        // Old extensions may supply only a net total. Keep it without inventing either count.
-        if (likes == null && dislikes == null && capabilities.scored && comment.score != null) {
-            Text(comment.score.toString(), style = MaterialTheme.typography.labelMedium)
         }
     }
 }

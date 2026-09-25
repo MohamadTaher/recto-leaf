@@ -96,40 +96,38 @@ object NovelCommentGlyphs {
     }
 
     /**
-     * Two bubbles, one behind the other: the novel's own comments, on the screen that describes it.
+     * Two bubbles answering each other, tails on opposite corners: the novel's discussion, in its
+     * action row.
      *
-     * A second bubble rather than a different shape entirely, because it is the same feature about a
-     * different thing — and the row it sits in is labelled, so the glyph only has to say "comments"
-     * and "more than one chapter's worth".
+     * Material's own "forum" shape, redrawn in the outline weight above. A conversation rather than
+     * a stack of comments, which is what sets it apart from the reader's [Comment] at a glance: one
+     * is a chapter's remarks, this is people talking about the book.
      */
-    val Comments: ImageVector by lazy {
-        glyph("NovelComments") {
-            // The bubble in front, clockwise, with the same tail as [Comment].
-            moveTo(5f, 8f)
-            lineTo(13f, 8f)
-            arcTo(2.5f, 2.5f, 0f, false, true, 15.5f, 10.5f)
-            lineTo(15.5f, 15f)
-            arcTo(2.5f, 2.5f, 0f, false, true, 13f, 17.5f)
-            lineTo(9.5f, 17.5f)
-            lineTo(6.2f, 20.8f)
-            lineTo(6.2f, 17.5f)
-            lineTo(5f, 17.5f)
-            arcTo(2.5f, 2.5f, 0f, false, true, 2.5f, 15f)
-            lineTo(2.5f, 10.5f)
-            arcTo(2.5f, 2.5f, 0f, false, true, 5f, 8f)
+    val Discussion: ImageVector by lazy {
+        glyph("NovelDiscussion") {
+            // The bubble in front, clockwise, its tail running down the left edge.
+            moveTo(5f, 3f)
+            lineTo(14f, 3f)
+            arcTo(2f, 2f, 0f, false, true, 16f, 5f)
+            lineTo(16f, 10.5f)
+            arcTo(2f, 2f, 0f, false, true, 14f, 12.5f)
+            lineTo(7.5f, 12.5f)
+            lineTo(3f, 17f)
+            lineTo(3f, 5f)
+            arcTo(2f, 2f, 0f, false, true, 5f, 3f)
             close()
 
-            // Only the part of the bubble behind that the one in front does not cover, so the two
-            // read as stacked rather than as a rectangle with a line through it. Left open at both
-            // ends for the same reason: each end stops on an edge of the bubble in front.
-            moveTo(8f, 8f)
-            lineTo(8f, 5.5f)
-            arcTo(2.5f, 2.5f, 0f, false, true, 10.5f, 3f)
-            lineTo(19f, 3f)
-            arcTo(2.5f, 2.5f, 0f, false, true, 21.5f, 5.5f)
-            lineTo(21.5f, 11f)
-            arcTo(2.5f, 2.5f, 0f, false, true, 19f, 13.5f)
-            lineTo(15.5f, 13.5f)
+            // Only the part of the bubble behind that the one in front does not cover, its tail
+            // down the right edge. Left open at both ends, each stopping on an edge of the bubble
+            // in front, so the two read as overlapping rather than as one outline.
+            moveTo(16f, 7f)
+            lineTo(19f, 7f)
+            arcTo(2f, 2f, 0f, false, true, 21f, 9f)
+            lineTo(21f, 21f)
+            lineTo(16.5f, 16.5f)
+            lineTo(11f, 16.5f)
+            arcTo(2f, 2f, 0f, false, true, 9f, 14.5f)
+            lineTo(9f, 12.5f)
         }
     }
 
