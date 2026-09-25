@@ -58,7 +58,6 @@ app/google-services.json
 app/src/main/res/drawable/ic_launcher_background.xml
 app/src/main/res/drawable/ic_launcher_foreground.xml
 app/src/main/res/drawable/ic_launcher_monochrome.xml
-gradle.properties
 gradle/build-logic/src/main/kotlin/mihon/gradle/BuildConfig.kt
 "
 
