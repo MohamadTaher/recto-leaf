@@ -104,19 +104,32 @@ class NovelEpubReader(private val reader: ArchiveReader) : Closeable by reader {
     fun resolve(base: String, relative: String): String = EpubPath.resolve(base, relative, separator)
 
     private fun findPackagePath(): String {
-        val encryptionPath = withSeparator(ENCRYPTION_PATH)
-        if (entryNames.any { it.equals(encryptionPath, ignoreCase = true) }) {
-            throw NovelEpubException(NovelEpubFailure.DRM_PROTECTED)
-        }
+        if (isDrmProtected()) throw NovelEpubException(NovelEpubFailure.DRM_PROTECTED)
 
         val container = readDocument(withSeparator(CONTAINER_PATH), xml = true)
         val declared = container?.getElementsByTag("rootfile")?.firstOrNull()?.attr("full-path")
             ?.takeIf { it.isNotEmpty() }
-            ?.let(EpubPath::decodeHref)
+            ?.let { withSeparator(EpubPath.decodeHref(it)) }
 
         return listOfNotNull(declared, withSeparator(FALLBACK_PACKAGE_PATH))
             .firstOrNull { it in entryNames }
             ?: throw NovelEpubException(NovelEpubFailure.MISSING_PACKAGE)
+    }
+
+    /**
+     * Whether anything but the fonts is encrypted.
+     *
+     * `encryption.xml` alone does not mean DRM: publishing tools also use it to obfuscate embedded
+     * fonts, which leaves the text readable and costs nothing here but the book's own typeface.
+     * An unreadable file is taken as locked, since it could be hiding either.
+     */
+    private fun isDrmProtected(): Boolean {
+        val path = withSeparator(ENCRYPTION_PATH)
+        val entry = entryNames.firstOrNull { it.equals(path, ignoreCase = true) } ?: return false
+        val document = readDocument(entry, xml = true) ?: return true
+        return document.allElements
+            .filter { it.tagName().substringAfter(':') == "EncryptionMethod" }
+            .any { it.attr("Algorithm") !in FONT_OBFUSCATION }
     }
 
     private fun parseMetadata(): NovelMetadata {
@@ -258,6 +271,9 @@ class NovelEpubReader(private val reader: ArchiveReader) : Closeable by reader {
         const val ENCRYPTION_PATH = "META-INF/encryption.xml"
         const val FALLBACK_PACKAGE_PATH = "OEBPS/content.opf"
         const val NCX_MEDIA_TYPE = "application/x-dtbncx+xml"
+
+        /** The IDPF's font obfuscation and Adobe's older one, the only two in use. */
+        val FONT_OBFUSCATION = setOf("http://www.idpf.org/2008/embedding", "http://ns.adobe.com/pdf/enc#RC")
 
         val DATE_FORMATS = listOf("yyyy-MM-dd'T'HH:mm:ssXXX", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd")
     }

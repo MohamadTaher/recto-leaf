@@ -60,6 +60,7 @@ import eu.kanade.tachiyomi.source.getNameForMangaInfo
 import eu.kanade.tachiyomi.ui.manga.ChapterList
 import eu.kanade.tachiyomi.ui.manga.MangaViewModel
 import eu.kanade.tachiyomi.util.system.copyToClipboard
+import leaf.novel.presentation.manga.novelCommentsAction
 import leaf.novel.source.isLocalNovel
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.roundedfilled.PlayArrow
@@ -401,6 +402,8 @@ private fun MangaScreenSmallImpl(
                             onTrackingClicked = onTrackingClicked,
                             onEditIntervalClicked = onEditIntervalClicked,
                             onEditCategory = onEditCategoryClicked,
+                            // [recto-leaf] the novel's discussion; null on a manga
+                            onNovelCommentsClicked = novelCommentsAction(state.manga, state.source),
                         )
                     }
 
@@ -631,6 +634,8 @@ fun MangaScreenLargeImpl(
                             onTrackingClicked = onTrackingClicked,
                             onEditIntervalClicked = onEditIntervalClicked,
                             onEditCategory = onEditCategoryClicked,
+                            // [recto-leaf] the novel's discussion; null on a manga
+                            onNovelCommentsClicked = novelCommentsAction(state.manga, state.source),
                         )
                         ExpandableMangaDescription(
                             defaultExpandState = true,

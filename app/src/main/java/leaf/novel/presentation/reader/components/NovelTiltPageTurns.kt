@@ -4,6 +4,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.view.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -15,8 +16,9 @@ import kotlin.math.abs
 /**
  * Turns the page when the phone is tilted, while [enabled].
  *
- * Tilt is measured on the accelerometer's X axis, which in portrait is the left-right lean — the
- * gesture is rocking the phone the way you would tip a book, not raising or lowering it.
+ * Tilt is the left-right lean of the screen as it is held — the gesture is rocking the phone the
+ * way you would tip a book, not raising or lowering it. See [leanOf] for why that is not simply the
+ * accelerometer's X axis.
  *
  * A tilt has to *cross* the threshold to count, and has to come back inside a smaller one before it
  * can count again. Without that hysteresis a phone held at an angle turns pages continuously, which
@@ -35,12 +37,13 @@ fun NovelTiltPageTurns(enabled: Boolean, onTurn: (forward: Boolean) -> Unit) {
         val sensors = ContextCompat.getSystemService(context, SensorManager::class.java)
         val accelerometer = sensors?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
             ?: return@DisposableEffect onDispose {}
+        val display = ContextCompat.getDisplayOrDefault(context)
 
         val listener = object : SensorEventListener {
             private var armed = true
 
             override fun onSensorChanged(event: SensorEvent) {
-                val tilt = event.values.firstOrNull() ?: return
+                val tilt = leanOf(event.values, display.rotation) ?: return
                 when {
                     armed && tilt > TURN_THRESHOLD -> {
                         armed = false
@@ -59,6 +62,23 @@ fun NovelTiltPageTurns(enabled: Boolean, onTurn: (forward: Boolean) -> Unit) {
 
         sensors.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_UI)
         onDispose { sensors.unregisterListener(listener) }
+    }
+}
+
+/**
+ * The accelerometer's reading along the screen's width, however the screen is turned.
+ *
+ * The sensor's axes belong to the device, not the display. Held in landscape, its X axis runs up the
+ * screen and reads gravity itself, which would turn one page and never re-arm. The mapping is the
+ * one Android's own accelerometer sample uses.
+ */
+private fun leanOf(values: FloatArray, rotation: Int): Float? {
+    if (values.size < 2) return null
+    return when (rotation) {
+        Surface.ROTATION_90 -> -values[1]
+        Surface.ROTATION_180 -> -values[0]
+        Surface.ROTATION_270 -> values[1]
+        else -> values[0]
     }
 }
 

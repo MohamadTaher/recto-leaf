@@ -105,6 +105,12 @@ class NovelReaderActivity : BaseActivity() {
         super.onPause()
     }
 
+    /** Where the image reader deletes the chapters it has read, and so where this one does. */
+    override fun finish() {
+        viewModel.onActivityFinish()
+        super.finish()
+    }
+
     /**
      * Opens the entry screen, by the route the image reader takes to the same place.
      *

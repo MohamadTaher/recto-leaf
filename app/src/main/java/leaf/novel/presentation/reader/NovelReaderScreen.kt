@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +34,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -54,11 +56,14 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
+import leaf.novel.presentation.reader.comments.NovelCommentsSheet
 import leaf.novel.presentation.reader.components.NovelChapterWebView
 import leaf.novel.presentation.reader.components.NovelImageDialog
 import leaf.novel.presentation.reader.components.NovelStatusBar
@@ -130,6 +135,7 @@ fun NovelReaderScreen(
 
     var additionalOptionsExpanded by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+    var showComments by rememberSaveable { mutableStateOf(false) }
     // A look, not a mode: it lasts until it is turned off again and stores nothing.
     var publisherFormatting by remember { mutableStateOf(false) }
     var openImage by remember { mutableStateOf<String?>(null) }
@@ -248,6 +254,18 @@ fun NovelReaderScreen(
         return true
     }
 
+    // Whether this novel's source serves comments, and whether the reader wants them offered.
+    // Collected as the one flag rather than as the whole comment state: the sheet's own
+    // recompositions have no business reaching the chapter behind it. Read before the dispatcher
+    // below, which is the thing that has to honour it.
+    val commentsAllowed by viewModel.novelReaderPreferences.commentsEnabled.collectAsState()
+    val commentsSupported by remember(viewModel) {
+        viewModel.comments.state
+            .map { it.capabilities != null }
+            .distinctUntilChanged()
+    }.collectAsState(initial = false)
+    val commentsOffered = commentsAllowed && commentsSupported
+
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
         when (action) {
@@ -265,6 +283,14 @@ fun NovelReaderScreen(
             }
             NovelReaderAction.READING_RULER -> viewModel.novelReaderPreferences.readingRuler.toggle()
             NovelReaderAction.SHOW_CHAPTERS -> showChapters = true
+            // Gated here and not only where the button is drawn: the same action is also a tap
+            // zone, a key, a swipe and a status-bar binding, and a sheet whose source serves no
+            // comments draws nothing at all — leaving the reader with a tap that did nothing
+            // visible and a flag that nothing would ever put back.
+            NovelReaderAction.COMMENTS -> if (commentsOffered) {
+                viewModel.comments.open()
+                showComments = true
+            }
             NovelReaderAction.BOOK_INFORMATION -> onOpenEntry()
             NovelReaderAction.SEARCH -> {
                 closeSpeechControls()
@@ -435,9 +461,12 @@ fun NovelReaderScreen(
     val pinchFontSize by viewModel.novelReaderPreferences.pinchFontSize.collectAsState()
     val tapImageToOpen by viewModel.novelReaderPreferences.tapImageToOpen.collectAsState()
 
-    // Whichever buttons the reader has put on the bottom bar, resolved from their slots.
+    // Whichever buttons the reader has put on the bottom bar, resolved from their slots. A comments
+    // button is dropped rather than disabled on a source that has none: the bar has six slots and
+    // one that does nothing on this novel is worth more as the button beside it.
     val barButtons = NovelBarButtons.resolve(
-        viewModel.novelReaderPreferences.barButtons.map { it.collectAsState().value },
+        chosen = viewModel.novelReaderPreferences.barButtons.map { it.collectAsState().value },
+        unavailable = if (commentsOffered) emptySet() else setOf(NovelReaderAction.COMMENTS),
     )
 
     // The paging settings stage 17 stored and left inert. The three that only mean anything to a
@@ -451,6 +480,13 @@ fun NovelReaderScreen(
             documentStartChapterId = state.currentChapter?.id
         }
         documentPaged = paged
+    }
+    // Speech carries on into the next chapter by itself. A continuous document already holds that
+    // chapter; a paged one holds only its own, so it is opened where the voice has gone.
+    LaunchedEffect(paged, chapter?.id) {
+        if (paged && documentStartChapterId != null && chapter != null && chapter.id != documentStartChapterId) {
+            documentStartChapterId = chapter.id
+        }
     }
     val keepOneLine by viewModel.novelReaderPreferences.keepOneLineWhenPaging.collectAsState()
     val pageTurnSound by viewModel.novelReaderPreferences.pageTurnSound.collectAsState()
@@ -788,6 +824,7 @@ fun NovelReaderScreen(
             onAdditionalOptionsExpandedChange = { additionalOptionsExpanded = it },
             additionalOptions = { dismiss ->
                 AdditionalOptions(
+                    commentsOffered = commentsOffered,
                     autoScrolling = state.autoScrolling,
                     readingRuler = readingRuler,
                     publisherPreview = publisherPreview,
@@ -914,6 +951,14 @@ fun NovelReaderScreen(
         )
     }
 
+    if (showComments) {
+        NovelCommentsSheet(
+            comments = viewModel.comments,
+            preferences = viewModel.novelReaderPreferences,
+            onDismissRequest = { showComments = false },
+        )
+    }
+
     if (showChapters) {
         NovelChapterSheet(
             chapters = state.chapters,
@@ -958,7 +1003,11 @@ private fun ChapterContent(
     val assetServer = remember(viewModel) { viewModel.assetServer() }
     val continuous = !paged
 
-    val loaded by produceState<NovelReaderViewModel.LoadedChapter?>(initialValue = null, startIndex) {
+    // Bumped by Retry. Choosing the same chapter again leaves the key alone, so nothing else would
+    // fetch a chapter that failed.
+    var attempt by remember(startIndex) { mutableIntStateOf(0) }
+    val loaded by produceState<NovelReaderViewModel.LoadedChapter?>(initialValue = null, startIndex, attempt) {
+        value = null
         value = viewModel.loadedChapter(startIndex)
     }
 
@@ -971,13 +1020,24 @@ private fun ChapterContent(
             }
         }
         chapterContent == null -> {
-            Box(modifier = Modifier.fillMaxSize()) {
-                NovelReaderErrorMessage(
-                    error = NovelReaderError.CHAPTER_MISSING,
+            // The page is what a tap opens the menu from, and there is no page: the error takes
+            // the tap instead, or the only way out would be Back.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickableNoIndication(onClick = viewModel::toggleMenu),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .padding(MaterialTheme.padding.large),
-                )
+                ) {
+                    NovelReaderErrorMessage(error = NovelReaderError.CHAPTER_MISSING)
+                    TextButton(onClick = { attempt++ }) {
+                        Text(stringResource(MR.strings.action_retry))
+                    }
+                }
             }
         }
         else -> {
@@ -1327,6 +1387,7 @@ private fun adjustFontSize(preferences: NovelReaderPreferences, steps: Int) {
  */
 @Composable
 private fun ColumnScope.AdditionalOptions(
+    commentsOffered: Boolean,
     autoScrolling: Boolean,
     readingRuler: Boolean,
     publisherPreview: Boolean,
@@ -1341,6 +1402,14 @@ private fun ColumnScope.AdditionalOptions(
         text = { Text(stringResource(MR.strings.chapters)) },
         onClick = { onSelect(NovelReaderAction.SHOW_CHAPTERS) },
     )
+
+    // Withdrawn on a source with no comments, for the same reason the bar button is.
+    if (commentsOffered) {
+        DropdownMenuItem(
+            text = { Text(stringResource(MR.strings.leaf_novel_comments)) },
+            onClick = { onSelect(NovelReaderAction.COMMENTS) },
+        )
+    }
 
     DropdownMenuItem(
         text = { Text(stringResource(MR.strings.leaf_novel_action_book_information)) },

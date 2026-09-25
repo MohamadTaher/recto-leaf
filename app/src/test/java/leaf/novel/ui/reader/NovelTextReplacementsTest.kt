@@ -34,6 +34,19 @@ class NovelTextReplacementsTest {
         NovelTextReplacements.apply("abc a.c", json) shouldBe "abc X"
     }
 
+    /** The same promise holds for what it is replaced with: `$` and `\` are not group references. */
+    @Test
+    fun `treats a literal replacement literally`() {
+        val json = rules(
+            NovelTextReplacement(pattern = "dollars", replacement = "$"),
+            NovelTextReplacement(pattern = "five", replacement = "$5"),
+            NovelTextReplacement(pattern = "slash", replacement = "\\"),
+            NovelTextReplacement(pattern = "all", replacement = "[$0]"),
+        )
+
+        NovelTextReplacements.apply("dollars five slash all", json) shouldBe "$ $5 \\ [$0]"
+    }
+
     @Test
     fun `uses groups and backreferences when it is a regular expression`() {
         val json = rules(

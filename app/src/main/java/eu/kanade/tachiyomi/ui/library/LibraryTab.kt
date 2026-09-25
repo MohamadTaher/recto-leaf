@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.graphics.res.animatedVectorResource
 import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
 import androidx.compose.animation.graphics.vector.AnimatedImageVector
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -47,7 +46,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import leaf.novel.presentation.library.LibraryContentTypeRow
 import leaf.novel.source.isLocalNovel
 import mihon.feature.migration.config.MigrationConfigScreen
 import mihon.icons.materialsymbols.MaterialSymbols
@@ -116,38 +114,33 @@ data object LibraryTab : Tab {
                     defaultCategoryTitle = stringResource(MR.strings.label_default),
                     page = state.coercedActiveCategoryIndex,
                 )
-                // [recto-leaf] The selector rides in topBar so LibraryContent, LibraryTabs,
-                // LibraryPager and LibraryToolbar all stay untouched.
-                Column {
-                    LibraryToolbar(
-                        hasActiveFilters = state.hasActiveFilters,
-                        selectedCount = state.selection.size,
-                        title = title,
-                        onClickUnselectAll = viewModel::clearSelection,
-                        onClickSelectAll = viewModel::selectAll,
-                        onClickInvertSelection = viewModel::invertSelection,
-                        onClickFilter = viewModel::showSettingsDialog,
-                        onClickRefresh = { onClickRefresh(state.activeCategory) },
-                        onClickGlobalUpdate = { onClickRefresh(null) },
-                        onClickOpenRandomManga = {
-                            scope.launch {
-                                val randomItem = viewModel.getRandomLibraryItemForCurrentCategory()
-                                if (randomItem != null) {
-                                    navigator.push(MangaScreen(randomItem.libraryManga.manga.id))
-                                } else {
-                                    snackbarHostState.showSnackbar(
-                                        context.stringResource(MR.strings.information_no_entries_found),
-                                    )
-                                }
+                LibraryToolbar(
+                    hasActiveFilters = state.hasActiveFilters,
+                    selectedCount = state.selection.size,
+                    title = title,
+                    onClickUnselectAll = viewModel::clearSelection,
+                    onClickSelectAll = viewModel::selectAll,
+                    onClickInvertSelection = viewModel::invertSelection,
+                    onClickFilter = viewModel::showSettingsDialog,
+                    onClickRefresh = { onClickRefresh(state.activeCategory) },
+                    onClickGlobalUpdate = { onClickRefresh(null) },
+                    onClickOpenRandomManga = {
+                        scope.launch {
+                            val randomItem = viewModel.getRandomLibraryItemForCurrentCategory()
+                            if (randomItem != null) {
+                                navigator.push(MangaScreen(randomItem.libraryManga.manga.id))
+                            } else {
+                                snackbarHostState.showSnackbar(
+                                    context.stringResource(MR.strings.information_no_entries_found),
+                                )
                             }
-                        },
-                        searchQuery = state.searchQuery,
-                        onSearchQueryChange = viewModel::search,
-                        // For scroll overlay when no tab
-                        scrollBehavior = scrollBehavior.takeIf { !state.showCategoryTabs },
-                    )
-                    LibraryContentTypeRow(selectionMode = state.selectionMode)
-                }
+                        }
+                    },
+                    searchQuery = state.searchQuery,
+                    onSearchQueryChange = viewModel::search,
+                    // For scroll overlay when no tab
+                    scrollBehavior = scrollBehavior.takeIf { !state.showCategoryTabs },
+                )
             },
             bottomBar = {
                 LibraryBottomActionMenu(
@@ -156,7 +149,7 @@ data object LibraryTab : Tab {
                     onMarkAsReadClicked = { viewModel.markReadSelection(true) },
                     onMarkAsUnreadClicked = { viewModel.markReadSelection(false) },
                     onDownloadClicked = viewModel::performDownloadAction
-                        // [recto-leaf] Novels have no page list, so they can never be downloaded.
+                        // [recto-leaf] An imported novel, like a local manga, has nothing to download.
                         .takeIf { state.selectedManga.fastAll { !it.isLocal() && !it.isLocalNovel() } },
                     onDeleteClicked = viewModel::openDeleteMangaDialog,
                     onMigrateClicked = {

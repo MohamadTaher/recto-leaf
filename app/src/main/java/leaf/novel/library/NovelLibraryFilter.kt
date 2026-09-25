@@ -10,11 +10,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import tachiyomi.core.common.preference.TriState
 import tachiyomi.data.Database
 import tachiyomi.data.subscribeToOne
 
 /**
- * Narrows the library to one content type.
+ * Mihon's library filters have no hook to extend, so the fork's "Novels" filter is applied here.
  *
  * It hangs off `LibraryViewModel.getFavoritesFlow()` because that is the one place the *unfiltered*
  * favourites exist as a flow. Filtering there means `applyFilters`, the search DSL, `applyGrouping`
@@ -25,21 +26,32 @@ import tachiyomi.data.subscribeToOne
  * than a scan of the emitted list, so [apply] is a pure transform and the preference writes it used
  * to perform as a side effect now live in [keepPreferencesCurrent].
  */
-@Inject
 @SingleIn(AppScope::class)
-class LibraryContentTypeFilter(
+class NovelLibraryFilter internal constructor(
     private val preferences: NovelLibraryPreferences,
-    database: Database,
+    /** Whether the library holds a novel at all; everything here is gated on it. */
+    private val hasAnyNovel: Flow<Boolean>,
 ) {
 
-    private val hasAnyNovel: Flow<Boolean> = database.mangasQueries
-        .hasNovelInLibrary()
-        .subscribeToOne()
+    @Inject
+    constructor(preferences: NovelLibraryPreferences, database: Database) : this(
+        preferences = preferences,
+        hasAnyNovel = database.mangasQueries.hasNovelInLibrary().subscribeToOne().distinctUntilChanged(),
+    )
+
+    /** The filter's state, for upstream's "any filter active" indicator. */
+    val filter: Flow<TriState> = combine(
+        preferences.filterNovels.changes(),
+        hasAnyNovel,
+    ) { filter, anyNovel ->
+        if (anyNovel) filter else TriState.DISABLED
+    }
         .distinctUntilChanged()
 
     /**
-     * Maintains the cold-start cache the toolbar reads before the library flow has emitted, and
-     * clears a stale choice so importing a novel later does not drop the user into a filtered view.
+     * Maintains the cold-start cache the filter sheet reads before the library flow has emitted,
+     * and clears a stale choice so importing a novel later does not drop the user into a filtered
+     * view.
      *
      * Kept out of [apply] so that stays a pure transform: writing preferences from inside a
      * `combine` lambda ran the write on every emission and made the flow's output depend on it.
@@ -50,27 +62,19 @@ class LibraryContentTypeFilter(
                 if (preferences.hasAnyNovel.get() != anyNovel) {
                     preferences.hasAnyNovel.set(anyNovel)
                 }
-                if (!anyNovel && preferences.libraryContentType.get() != LibraryContentType.ALL) {
-                    preferences.libraryContentType.set(LibraryContentType.ALL)
+                if (!anyNovel && preferences.filterNovels.get() != TriState.DISABLED) {
+                    preferences.filterNovels.set(TriState.DISABLED)
                 }
             }
             .launchIn(scope)
     }
 
     fun apply(favorites: Flow<List<LibraryItem>>): Flow<List<LibraryItem>> =
-        combine(
-            favorites,
-            preferences.libraryContentType.changes(),
-            hasAnyNovel,
-        ) { items, contentType, anyNovel ->
-            // With nothing to choose between, the selector is hidden; ignore any stale choice here
-            // rather than waiting for keepPreferencesCurrent to reset it, so the list never blinks.
-            if (!anyNovel) return@combine items
-
-            when (contentType) {
-                LibraryContentType.ALL -> items
-                LibraryContentType.MANGA -> items.filterNot { it.libraryManga.manga.isNovel }
-                LibraryContentType.NOVELS -> items.filter { it.libraryManga.manga.isNovel }
+        combine(favorites, filter) { items, filter ->
+            when (filter) {
+                TriState.DISABLED -> items
+                TriState.ENABLED_IS -> items.filter { it.libraryManga.manga.isNovel }
+                TriState.ENABLED_NOT -> items.filterNot { it.libraryManga.manga.isNovel }
             }
         }
 }

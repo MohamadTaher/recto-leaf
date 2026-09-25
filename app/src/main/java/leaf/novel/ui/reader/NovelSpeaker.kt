@@ -92,7 +92,7 @@ class NovelSpeaker(context: Context) {
 
                     private fun finishIfLast(utteranceId: String?) {
                         val group = groupOf(utteranceId) ?: return
-                        if (group.last == utterances.lastIndex) this@NovelSpeaker.stop()
+                        if (group.last == utterances.lastIndex) end(finished = true)
                     }
                 },
             )
@@ -189,13 +189,15 @@ class NovelSpeaker(context: Context) {
         }
     }
 
-    fun stop() {
+    fun stop() = end(finished = false)
+
+    private fun end(finished: Boolean) {
         run.incrementAndGet()
         pending = null
         resumeAfterFocusGain = false
         engine?.stop()
         abandonAudioFocus()
-        state.update { it.copy(speaking = false, paused = false) }
+        state.update { it.copy(speaking = false, paused = false, finished = finished) }
     }
 
     private fun queueFrom(requestedIndex: Int) {
@@ -223,7 +225,7 @@ class NovelSpeaker(context: Context) {
             }
         }
 
-        if (accepted) state.update { it.copy(speaking = true, paused = false, index = fromIndex) }
+        if (accepted) state.update { it.copy(speaking = true, paused = false, finished = false, index = fromIndex) }
     }
 
     private fun applyAudioFocus() {
@@ -273,6 +275,8 @@ class NovelSpeaker(context: Context) {
         val speaking: Boolean = false,
         val paused: Boolean = false,
         val index: Int = 0,
+        /** Whether speech last ended by saying its final unit, rather than by being stopped. */
+        val finished: Boolean = false,
     )
 
     private data class Configuration(

@@ -17,6 +17,7 @@ enum class NovelReaderAction(val titleRes: StringResource) {
     READING_RULER(MR.strings.leaf_novel_reader_reading_ruler),
     SEARCH(MR.strings.action_search),
     SHOW_CHAPTERS(MR.strings.chapters),
+    COMMENTS(MR.strings.leaf_novel_comments),
     BOOK_INFORMATION(MR.strings.leaf_novel_action_book_information),
     DAY_NIGHT_MODE(MR.strings.leaf_novel_reader_day_night_mode),
     CHANGE_THEME(MR.strings.leaf_novel_action_change_theme),

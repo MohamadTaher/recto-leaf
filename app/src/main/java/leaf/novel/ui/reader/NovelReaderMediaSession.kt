@@ -12,6 +12,8 @@ import androidx.core.content.IntentCompat
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
 
 /**
  * One media session shared by the loaded reader and background speech. Stopping speech leaves
@@ -130,10 +132,21 @@ internal object NovelReaderMediaSession {
      * Android selects media-button recipients by audio playback UID. TTS plays under its engine's
      * UID, so a short silent buffer registers this app when speech resumes or an idle reader opens.
      * It does not loop or request audio focus.
+     *
+     * Only a routing hint, so a device out of audio tracks, or one refusing this format, loses the
+     * hint rather than the reader: both throw from the builder or from `play`.
      */
     private fun registerAudioPlayback() {
         routingAudio?.release()
         routingAudio = null
+        runCatching(::playSilence).onFailure {
+            routingAudio?.release()
+            routingAudio = null
+            logcat(LogPriority.WARN, it) { "Could not register for media buttons" }
+        }
+    }
+
+    private fun playSilence() {
         val silence = ByteArray(4800) // 2400 mono PCM16 frames at 24 kHz.
         val track = AudioTrack.Builder()
             .setAudioAttributes(

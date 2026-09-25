@@ -129,10 +129,12 @@ object NovelSpeechSession : NovelSpeechService.Controls {
      */
     private fun observe(speaker: NovelSpeaker) {
         val lifecycle = NovelSpeechLifecycle()
+        var previous = speaker.speech.value.index
         observerJob = speaker.speech
             .onEach { state ->
                 val ended = lifecycle.observe(state.speaking) == NovelSpeechLifecycle.Transition.ENDED
-                if (!attachment.attached) persistProgress(state.index)
+                if (!attachment.attached && queue.records) persistProgress(previous, state)
+                previous = state.index
                 if (attachment.mayResetOn(ended)) reset()
             }
             .launchIn(scope)
@@ -140,15 +142,26 @@ object NovelSpeechSession : NovelSpeechService.Controls {
 
     /**
      * Writes the chapter position speech has reached, so it is not lost with no reader attached to
-     * report it. Only `lastPageRead` is touched — marking a chapter read, and pushing it to a
-     * tracker, stays [NovelReaderViewModel.persistProgress]'s job for whenever a reader next opens
-     * onto this manga, so this does not have to duplicate that bookkeeping.
+     * report it, and marks read a chapter it finishes, since no reader is there to see it end.
+     *
+     * Pushing that to a tracker stays [NovelReaderViewModel]'s job, which the app graph gives it
+     * and this object has no seam for. Trackers keep the highest chapter they are told, so the next
+     * chapter a reader marks read carries the tracker past this one.
      */
-    private suspend fun persistProgress(index: Int) {
+    private suspend fun persistProgress(previous: Int, state: NovelSpeaker.State) {
         val context = appContext ?: return
-        val (chapterId, percent) = queue.chapterProgress(index) ?: return
+        val updateChapter = context.appGraph.updateChapter
+        val finished = listOfNotNull(
+            queue.chapterFinished(previous, state.index),
+            queue.lastChapterId.takeIf { state.finished },
+        )
         runCatching {
-            context.appGraph.updateChapter.await(ChapterUpdate(id = chapterId, lastPageRead = percent.toLong()))
+            queue.chapterProgress(state.index)?.let { (chapterId, percent) ->
+                if (chapterId !in finished) {
+                    updateChapter.await(ChapterUpdate(id = chapterId, lastPageRead = percent.toLong()))
+                }
+            }
+            finished.forEach { updateChapter.await(ChapterUpdate(id = it, read = true, lastPageRead = 100)) }
         }
     }
 
@@ -188,11 +201,16 @@ class NovelSpeechQueue {
     var chapterIndex: Int = 0
         private set
 
+    /** False for a novel read in incognito, whose progress nothing may write. */
+    var records: Boolean = true
+        private set
+
     /** Starts a fresh run for [mangaId], replacing whatever was queued before, for any novel. */
-    fun start(mangaId: Long, positions: List<NovelSpeech.Position>, chapterIndex: Int) {
+    fun start(mangaId: Long, positions: List<NovelSpeech.Position>, chapterIndex: Int, records: Boolean = true) {
         this.mangaId = mangaId
         this.positions = positions
         this.chapterIndex = chapterIndex
+        this.records = records
     }
 
     /** Appends the next chapter's pieces as speech carries across the boundary. */
@@ -205,6 +223,7 @@ class NovelSpeechQueue {
         mangaId = NO_MANGA
         positions = emptyList()
         chapterIndex = 0
+        records = true
     }
 
     /** Whether a reader for [mangaId] is the one this queue is currently speaking for. */
@@ -224,6 +243,23 @@ class NovelSpeechQueue {
         }
         return chapterId to NovelSpeech.percentAt(localIndex, chapterTexts)
     }
+
+    /**
+     * The chapter speech finished by moving from unit [from] to unit [to], or null if it left none.
+     *
+     * Progress is recorded where a unit starts, so the last unit of a chapter reads short of its end:
+     * a chapter of twelve even paragraphs stops at 91, under the 95 that marks one read. Moving on
+     * past it is what says the chapter was finished. Only forwards, since a seek back finishes nothing.
+     */
+    fun chapterFinished(from: Int, to: Int): Long? {
+        if (to <= from) return null
+        val left = positions.getOrNull(from)?.chapterId ?: return null
+        val entered = positions.getOrNull(to)?.chapterId ?: return null
+        return left.takeIf { it != entered }
+    }
+
+    /** The chapter the last queued unit belongs to, which speech finishes by saying that unit. */
+    val lastChapterId: Long? get() = positions.lastOrNull()?.chapterId
 
     /** What a reader attaching now should show, built from the engine's own report. */
     fun snapshot(engine: NovelSpeaker.State) = Snapshot(

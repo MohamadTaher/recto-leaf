@@ -482,6 +482,38 @@ private fun ColumnScope.MiscellaneousPage(
         }
     }
 
+    SectionHeading(MR.strings.leaf_novel_reader_heading_comments)
+
+    CheckboxItem(
+        label = stringResource(MR.strings.leaf_novel_comments_setting_enabled),
+        pref = novelReaderPreferences.commentsEnabled,
+    )
+
+    // The rest configure a sheet that is not offered, so they follow the switch that offers it —
+    // the same rule the status bar rows follow above.
+    val commentsEnabled by novelReaderPreferences.commentsEnabled.collectAsState()
+    if (commentsEnabled) {
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_auto_load),
+            pref = novelReaderPreferences.commentsAutoLoad,
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_collapse),
+            pref = novelReaderPreferences.commentsCollapseReplies,
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_avatars),
+            pref = novelReaderPreferences.commentsShowAvatars,
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_spoiler_guard),
+            pref = novelReaderPreferences.commentsSpoilerGuard,
+        )
+    }
+
     SectionHeading(MR.strings.leaf_novel_reader_heading_bar_buttons)
 
     // One row per position rather than a list that reorders: the order of the rows is the order of

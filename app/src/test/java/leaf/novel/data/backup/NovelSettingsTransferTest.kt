@@ -1,8 +1,11 @@
 package leaf.novel.data.backup
 
 import io.kotest.matchers.shouldBe
+import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
+import tachiyomi.core.common.preference.PreferenceStore
 
 /**
  * What the file is for is surviving the fork's own churn, so the cases that matter are the ones
@@ -101,5 +104,24 @@ class NovelSettingsTransferTest {
     @Test
     fun `has nothing to say about a device with no reader settings yet`() {
         NovelSettingsTransfer.capture(emptyMap<String, Any>()) shouldBe NovelSettingsBackup()
+    }
+
+    /** A shared file is outside data: one naming an app key must not reach it. */
+    @Test
+    fun `restores only what the reader owns`() {
+        val store = mockk<PreferenceStore>(relaxed = true)
+        val backup = NovelSettingsBackup(
+            booleans = mapOf("leaf_novel_bold" to true, "fullscreen" to false),
+            strings = mapOf("leaf_novel_font" to "serif", "pref_reader_theme" to "0"),
+            stringSets = mapOf("__APP_STATE_trusted_extensions" to listOf("evil:1:abc")),
+        )
+
+        NovelSettingsTransfer.apply(backup, store)
+
+        verify { store.getBoolean("leaf_novel_bold", any()) }
+        verify { store.getString("leaf_novel_font", any()) }
+        verify(exactly = 0) { store.getBoolean("fullscreen", any()) }
+        verify(exactly = 0) { store.getString("pref_reader_theme", any()) }
+        verify(exactly = 0) { store.getStringSet(any(), any()) }
     }
 }
