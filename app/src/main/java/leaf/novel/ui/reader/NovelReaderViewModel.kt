@@ -17,6 +17,7 @@ import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactory
 import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactoryKey
 import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.source.interactor.GetIncognitoState
+import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.data.download.DownloadManager
@@ -49,6 +50,9 @@ import leaf.novel.data.epub.NovelEpubException
 import leaf.novel.data.epub.novelEpubReader
 import leaf.novel.source.local.LocalNovelSource
 import leaf.novel.source.local.io.NovelFileSystem
+import leaf.novel.ui.reader.comments.NovelCommentCache
+import leaf.novel.ui.reader.comments.NovelCommentMatcher
+import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.loader.EpubContentProvider
 import leaf.novel.ui.reader.loader.NovelContentProvider
 import leaf.novel.ui.reader.loader.NovelEpubAssetServer
@@ -120,6 +124,7 @@ class NovelReaderViewModel(
     private val downloadManager: DownloadManager,
     private val downloadPreferences: DownloadPreferences,
     private val sourceManager: SourceManager,
+    private val sourcePreferences: SourcePreferences,
     private val preferenceStore: PreferenceStore,
     val readerPreferences: ReaderPreferences,
     val novelReaderPreferences: NovelReaderPreferences,
@@ -150,6 +155,20 @@ class NovelReaderViewModel(
 
     private val mutableState = MutableStateFlow(State())
     val state: StateFlow<State> = mutableState.asStateFlow()
+
+    /**
+     * The discussion under whatever chapter is open, for a source that serves one.
+     *
+     * Not part of [State]: nothing about a comment changes how the chapter is drawn, and folding a
+     * reply has no business recomposing the reader. The chapter's own comments only — the novel's
+     * belong to the screen that describes the novel, not to a tab over the chapter being read.
+     */
+    val comments = NovelComments(
+        scope = viewModelScope,
+        preferences = novelReaderPreferences,
+        matcher = NovelCommentMatcher.installed(sourceManager, sourcePreferences),
+        cache = NovelCommentCache.shared,
+    )
 
     private var provider: NovelContentProvider? = null
 
@@ -266,6 +285,8 @@ class NovelReaderViewModel(
                 isLoading = false,
             )
         }
+        comments.bind(source, manga)
+        comments.setChapter(chapters[startIndex])
         preloadChapters(startIndex)
         // Speech may already be running from a reader that has since been destroyed — attach to
         // it rather than showing a stopped reader over audio that is still playing. Only when it
@@ -308,6 +329,20 @@ class NovelReaderViewModel(
             .drop(index.coerceAtLeast(0))
             .take(PRELOAD_CHAPTER_COUNT + 1)
             .forEach(::chapterLoad)
+        preloadComments(index)
+    }
+
+    /**
+     * Starts the comments on the chapters either side of the open one.
+     *
+     * Either side rather than the same three-chapter lookahead the text gets: comments are one
+     * request per page at a site that may be rate limiting, where a chapter's text is one request
+     * at a host that expects to serve it. The open chapter's own are already started by
+     * [NovelComments.setChapter].
+     */
+    private fun preloadComments(index: Int) {
+        val chapters = state.value.chapters
+        comments.prefetch(listOfNotNull(chapters.getOrNull(index - 1), chapters.getOrNull(index + 1)))
     }
 
     /** Keeps one chapter behind and the same three-chapter lookahead in the in-memory cache. */
@@ -317,6 +352,7 @@ class NovelReaderViewModel(
             .take(PRELOAD_CHAPTER_COUNT + 2)
             .mapTo(mutableSetOf()) { it.id }
         chapterLoads.keys.filterNot(keep::contains).forEach(chapterLoads::remove)
+        comments.trim(keep)
     }
 
     /** A fetched chapter paired back to the row whose title and progress identify it. */
@@ -371,6 +407,9 @@ class NovelReaderViewModel(
         }
         restoredChapterId = chapter.id
         restartReadTimer()
+        // Comments belong to the chapter they are under, so crossing a boundary invalidates them
+        // exactly as it invalidates the search and the auto scroll below.
+        comments.setChapter(chapter)
         // Neither auto scroll nor a search carries across a chapter boundary. Speech does, and a
         // continuous document is one the reader crosses by scrolling, so neither stops there.
         if (!continuous) stopSpeaking()

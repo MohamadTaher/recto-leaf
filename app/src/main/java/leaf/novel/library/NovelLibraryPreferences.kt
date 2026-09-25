@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
+import tachiyomi.core.common.preference.TriState
 import tachiyomi.core.common.preference.getEnum
 
 /**
@@ -18,18 +19,19 @@ class NovelLibraryPreferences(
 ) {
 
     /**
-     * Persists across restarts rather than living in app state: this is a view mode, and a user
-     * expects a view mode to still be set when they come back.
+     * Novels as one of Mihon's own library filters: ignored, only novels, or everything but novels.
+     *
+     * A [TriState] rather than a three-way view mode because that is exactly what the filter sheet
+     * already renders, and because it makes the toolbar's "filters active" dot work for free.
      */
-    val libraryContentType: Preference<LibraryContentType> =
-        preferenceStore.getEnum("leaf_library_content_type", LibraryContentType.ALL)
+    val filterNovels: Preference<TriState> =
+        preferenceStore.getEnum("leaf_library_filter_novels", TriState.DISABLED)
 
     /**
-     * Cached answer to "does the library hold a novel?", written by [LibraryContentTypeFilter].
+     * Cached answer to "does the library hold a novel?", written by [NovelLibraryFilter].
      *
-     * It is derived state, but it has to be readable *before* the library flow's first emission:
-     * the selector lives in the toolbar, which composes first, so without a cached value the
-     * library would visibly jump down on every cold start as the row appeared.
+     * It is derived state, but the filter sheet can be opened before the library flow has emitted,
+     * so without a cached value the Novels row would pop in after the sheet was already on screen.
      */
     val hasAnyNovel: Preference<Boolean> =
         preferenceStore.getBoolean(Preference.appStateKey("leaf_library_has_novel"), false)
