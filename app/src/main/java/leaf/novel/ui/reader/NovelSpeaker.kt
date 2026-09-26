@@ -151,7 +151,7 @@ class NovelSpeaker(context: Context) {
                     "$current$ID_SEPARATOR$SILENCE${group.first}",
                 )
             }
-            tts.speak(textOf(group), TextToSpeech.QUEUE_ADD, null, idOf(current, group))
+            say(tts, group, TextToSpeech.QUEUE_ADD, current)
         }
     }
 
@@ -213,9 +213,7 @@ class NovelSpeaker(context: Context) {
         var accepted = false
         groupsFrom(fromIndex).forEachIndexed { offset, group ->
             val mode = if (offset == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-            if (tts.speak(textOf(group), mode, null, idOf(current, group)) == TextToSpeech.SUCCESS) {
-                accepted = true
-            }
+            if (say(tts, group, mode, current)) accepted = true
             if (configuration.intervalMs > 0 && group.last < utterances.lastIndex) {
                 tts.playSilentUtterance(
                     configuration.intervalMs.toLong(),
@@ -225,7 +223,24 @@ class NovelSpeaker(context: Context) {
             }
         }
 
-        if (accepted) state.update { it.copy(speaking = true, paused = false, finished = false, index = fromIndex) }
+        // Nothing said means the stand-ins are all that is queued, and they must not finish a run
+        // that never started.
+        if (accepted) {
+            state.update { it.copy(speaking = true, paused = false, finished = false, index = fromIndex) }
+        } else {
+            tts.stop()
+        }
+    }
+
+    /**
+     * Queues [group], or silence under its id when the engine refuses it: nothing reports back on a
+     * refused utterance, and a refused last one would otherwise leave the run never ending.
+     */
+    private fun say(tts: TextToSpeech, group: IntRange, mode: Int, run: Int): Boolean {
+        val id = idOf(run, group)
+        if (tts.speak(textOf(group), mode, null, id) == TextToSpeech.SUCCESS) return true
+        tts.playSilentUtterance(1, mode, id)
+        return false
     }
 
     private fun applyAudioFocus() {

@@ -1,6 +1,7 @@
 package leaf.novel.ui.reader.loader
 
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.data.epub.EpubPath
 import leaf.novel.data.epub.NovelEpubReader
 import org.jsoup.Jsoup
 import tachiyomi.core.common.util.lang.withIOContext
@@ -30,8 +31,9 @@ class EpubContentProvider(
     override suspend fun content(chapter: Chapter): NovelChapterContent = withIOContext {
         val entry = entryPathOf(chapter)
         val bytes = readEntryBytes(entry) ?: throw NovelChapterMissingException(entry)
+        val baseUrl = VIRTUAL_ORIGIN + EpubPath.urlPathOf(entry)
 
-        val document = ByteArrayInputStream(bytes).use { Jsoup.parse(it, null, VIRTUAL_ORIGIN + entry) }
+        val document = ByteArrayInputStream(bytes).use { Jsoup.parse(it, null, baseUrl) }
 
         // The reader's document policy prevents book scripts from running, but there is no reason
         // to hand them to the engine at all; dropping them keeps the fragment to what is readable.
@@ -40,7 +42,7 @@ class EpubContentProvider(
         NovelChapterContent(
             html = document.body().html(),
             head = document.head().select("style, link[rel=stylesheet]").joinToString("\n") { it.outerHtml() },
-            baseUrl = VIRTUAL_ORIGIN + entry,
+            baseUrl = baseUrl,
             title = document.title().trim().takeIf { it.isNotEmpty() },
         )
     }

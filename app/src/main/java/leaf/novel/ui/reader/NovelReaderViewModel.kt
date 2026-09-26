@@ -2,6 +2,7 @@ package leaf.novel.ui.reader
 
 import android.content.Context
 import android.net.Uri
+import android.speech.tts.TextToSpeech
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -46,6 +47,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.api.NovelSource
 import leaf.novel.data.backup.NovelSettingsTransfer
+import leaf.novel.data.epub.EpubPath
 import leaf.novel.data.epub.NovelEpubException
 import leaf.novel.data.epub.novelEpubReader
 import leaf.novel.source.local.LocalNovelSource
@@ -367,7 +369,7 @@ class NovelReaderViewModel(
         val content = awaitChapter(chapter)
         if (state.value.currentIndex == index) {
             content.getOrNull()?.let {
-                currentHtml = it.html
+                loadedHtml = chapter.id to it.html
                 val words = withIOContext { NovelReadingTime.wordsIn(it.html) }
                 if (state.value.currentIndex == index) {
                     mutableState.update { state -> state.copy(chapterWords = words) }
@@ -427,7 +429,9 @@ class NovelReaderViewModel(
 
         viewModelScope.launch {
             awaitChapter(chapter).getOrNull()?.let { content ->
-                currentHtml = content.html
+                // A chapter opened after this one was asked for owns the reader now.
+                if (state.value.currentChapter?.id != chapter.id) return@launch
+                loadedHtml = chapter.id to content.html
                 val words = withIOContext { NovelReadingTime.wordsIn(content.html) }
                 if (state.value.currentIndex == index) {
                     mutableState.update { it.copy(chapterWords = words) }
@@ -452,7 +456,8 @@ class NovelReaderViewModel(
      */
     fun chapterIndexByEntry(entry: String): Int? {
         val novelUrl = state.value.manga?.url ?: return null
-        val target = "$novelUrl/${entry.substringBefore('#')}"
+        // Stored decoded, as the archive names it; the link arrives as the browser escaped it.
+        val target = "$novelUrl/${EpubPath.decodeHref(entry)}"
         val index = state.value.chapters.indexOfFirst { it.url == target }
         return index.takeIf { it >= 0 }
     }
@@ -477,8 +482,16 @@ class NovelReaderViewModel(
 
     // region Speech
 
-    /** The chapter's own markup, kept so speech can be cut from it without re-fetching. */
-    private var currentHtml: String? = null
+    /**
+     * The chapter's own markup, kept so speech can be cut from it without re-fetching.
+     *
+     * Paired with the chapter it came from, so a chapter still loading never reads as the one
+     * before it.
+     */
+    private var loadedHtml: Pair<Long, String>? = null
+
+    private fun currentHtml(): String? =
+        loadedHtml?.takeIf { it.first == state.value.currentChapter?.id }?.second
 
     /**
      * Which [NovelSpeechSession.generation] this ViewModel last wired into [state], or
@@ -521,11 +534,16 @@ class NovelReaderViewModel(
                 novelTextReplacements(),
             ),
         )
-        return NovelSpeech.positions(spokenHtml, novelReaderPreferences.speechDivision.get(), chapterId)
+        return NovelSpeech.positions(
+            spokenHtml,
+            novelReaderPreferences.speechDivision.get(),
+            chapterId,
+            TextToSpeech.getMaxSpeechInputLength(),
+        )
     }
 
     private fun queueSpeech(percentRead: Int, anchor: NovelSpeech.Anchor?) {
-        val html = currentHtml ?: return
+        val html = currentHtml() ?: return
         val chapterId = state.value.chapters.getOrNull(state.value.currentIndex)?.id ?: return
         val utterances = utterancesOf(html, chapterId)
         if (utterances.isEmpty()) return
@@ -786,7 +804,7 @@ class NovelReaderViewModel(
             return
         }
 
-        val html = currentHtml ?: return
+        val html = currentHtml() ?: return
         val chunk = novelReaderPreferences.speedReadChunk.get()
             .coerceIn(NovelReaderPreferences.SPEED_READ_CHUNK_RANGE)
         val phrases = NovelReadingTime.words(html)
