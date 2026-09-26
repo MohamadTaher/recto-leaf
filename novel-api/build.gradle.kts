@@ -5,6 +5,10 @@ plugins {
 
 android {
     namespace = "leaf.novel.api"
+
+    defaultConfig {
+        consumerProguardFiles("consumer-proguard.pro")
+    }
 }
 
 dependencies {
