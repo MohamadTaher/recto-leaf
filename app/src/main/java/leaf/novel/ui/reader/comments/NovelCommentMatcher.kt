@@ -1,6 +1,5 @@
 package leaf.novel.ui.reader.comments
 
-import eu.kanade.domain.manga.model.toSManga
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.SChapter
@@ -16,7 +15,6 @@ import leaf.novel.api.NovelCommentFeedSource
 import leaf.novel.api.NovelCommentScope
 import leaf.novel.api.NovelCommentSource
 import logcat.LogPriority
-import mihon.feature.migration.list.search.SmartSourceSearchEngine
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.service.ChapterRecognition
 import tachiyomi.domain.source.service.SourceManager
@@ -27,11 +25,12 @@ import kotlin.time.Duration.Companion.minutes
 /**
  * The same novel on the other installed comment sources, so its comments can be read together.
  *
- * Found the way migration finds a novel's new home — [SmartSourceSearchEngine] searching each source
- * by title — and then held to a much stricter standard. Migration shows its guess to someone who
- * confirms it; this merges comments without asking, and another novel's discussion in the sheet is
- * worse than none. So a result only counts when its title is the same once case and punctuation are
- * set aside, which also covers the engine accepting a search's only result whatever it is called.
+ * Found by searching each source for the title, as migration finds a novel's new home, but held to a
+ * much stricter standard. Migration shows its guess to someone who confirms it; this merges comments
+ * without asking, and another novel's discussion in the sheet is worse than none. So a result only
+ * counts when its title is the same once case and punctuation are set aside. Migration's own
+ * `SmartSourceSearchEngine` is not used: it ranks by case-sensitive similarity first, so a sequel
+ * can win the ranking and hide the one result this rule accepts.
  *
  * A chapter is matched by number, as migration carries read progress across, using the same
  * [ChapterRecognition] the library applies to its own chapters.
@@ -46,8 +45,6 @@ class NovelCommentMatcher(
     /** Every source a match may come from. */
     private val sources: suspend () -> List<Source>,
 ) {
-
-    private val search = SmartSourceSearchEngine(null)
 
     /** One lock per chapter list, so the reader's prefetch cannot fetch the same long list three times. */
     private val locks = ConcurrentHashMap<ChaptersKey, Mutex>()
@@ -149,9 +146,9 @@ class NovelCommentMatcher(
         val key = MatchKey(source.id, normalize(title))
         matches.get<Match>(key)?.let { return it.novel }
         val found = try {
-            withCommentTimeout(timeout) { search.regularSearch(source, title) }
-                ?.takeIf { sameTitle(it.title, title) }
-                ?.toSManga()
+            withCommentTimeout(timeout) { source.getSearchManga(1, title, source.getFilterList()) }
+                .mangas
+                .firstOrNull { sameTitle(it.title, title) }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             logcat(LogPriority.WARN, e) { "Could not search ${source.name} for $title" }

@@ -232,6 +232,28 @@ class NovelCommentMarkupTest {
     }
 
     @Test
+    fun `marks a spoiler set on the picture itself`() {
+        listOf(
+            """<img class="spoiler" src="https://example.com/twist.png">""",
+            """<img data-spoiler src="https://example.com/twist.png">""",
+            """<video class="spoiler" src="https://example.com/twist.mp4"></video>""",
+        ).forEach { html ->
+            NovelCommentMarkup.parse(html).single { it.image != null }.spoiler shouldBe true
+        }
+    }
+
+    @Test
+    fun `plays a video named by its source element, preferring its own address`() {
+        NovelCommentMarkup.parse("""<video><source src="https://example.com/a.mp4" type="video/mp4"></video>""")
+            .mapNotNull { it.image } shouldBe listOf("https://example.com/a.mp4")
+        NovelCommentMarkup.parse(
+            """<video src="https://example.com/own.mp4"><source src="https://example.com/a.mp4"></video>""",
+        ).mapNotNull { it.image } shouldBe listOf("https://example.com/own.mp4")
+        NovelCommentMarkup.parse("""<video><source src="javascript:alert(1)"></video>""")
+            .mapNotNull { it.image } shouldBe emptyList()
+    }
+
+    @Test
     fun `survives an empty comment`() {
         NovelCommentMarkup.parse("") shouldBe emptyList()
     }

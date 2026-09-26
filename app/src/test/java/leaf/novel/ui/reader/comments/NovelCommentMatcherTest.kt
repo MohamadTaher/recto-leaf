@@ -40,6 +40,19 @@ class NovelCommentMatcherTest {
         own.searches shouldBe emptyList()
     }
 
+    /** A sequel that wins on raw similarity must not hide the title the rule accepts. */
+    @Test
+    fun `finds the same title even when a closer-looking one ranks above it`() = runBlocking<Unit> {
+        val own = FakeCommentSource(id = 1L, respond = empty)
+        val other = FakeCommentSource(id = 2L, respond = empty).apply {
+            search = { listOf(novel("shadow slave", url = "/original"), novel("SHADOW SLAVE 2", url = "/sequel")) }
+        }
+        val matcher = NovelCommentMatcher(NovelCommentCache(), NovelCommentCache()) { listOf(own, other) }
+
+        matcher.find(own, novel("SHADOW SLAVE"), NovelCommentScope.CHAPTER).toList()
+            .map { it.novel.url } shouldBe listOf("/original")
+    }
+
     @Test
     fun `only searches other comment sources that serve the scope`() = runBlocking<Unit> {
         val own = FakeCommentSource(id = 1L, respond = empty)
