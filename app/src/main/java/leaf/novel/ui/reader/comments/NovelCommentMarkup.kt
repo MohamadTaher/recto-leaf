@@ -139,8 +139,12 @@ object NovelCommentMarkup {
                     return
                 }
                 // A GIF from a picker is a short video now as often as it is a GIF.
+                // A video may name its file only in a `<source>`, and a spoiler may be marked on the
+                // picture itself rather than around it.
                 if (tag == "img" || tag == "video") {
-                    node.imageSource()?.let { out += style.span("").copy(image = it) }
+                    val source = node.imageSource()
+                        ?: node.select("source").firstNotNullOfOrNull { it.imageSource() }
+                    source?.let { out += style.with(node).span("").copy(image = it) }
                     return
                 }
 

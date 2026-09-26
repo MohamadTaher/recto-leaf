@@ -2,7 +2,10 @@ package leaf.novel.ui.reader
 
 import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.jsoup.nodes.Node
+import org.jsoup.nodes.TextNode
 
 /**
  * Cutting a chapter into the pieces speech reads out, and working out where in the page a piece is.
@@ -29,7 +32,16 @@ object NovelSpeech {
     /** The top visible character, also used by speech to advance the shared reading location. */
     data class Anchor(val chapterId: Long, val block: Int, val start: Int)
 
-    fun positions(html: String, division: NovelSpeechDivision, chapterId: Long): List<Position> =
+    /**
+     * [utterances] with where each one sits. No piece is longer than [maxLength], the most the
+     * engine accepts in one go, even when its paragraph is.
+     */
+    fun positions(
+        html: String,
+        division: NovelSpeechDivision,
+        chapterId: Long,
+        maxLength: Int = Int.MAX_VALUE,
+    ): List<Position> =
         blocks(Jsoup.parse(html)).flatMapIndexed { block, element ->
             val paragraph = element.text().trim()
             val pieces = when (division) {
@@ -39,7 +51,7 @@ object NovelSpeech {
                     Regex("(?<=[,，،])"),
                 ).map(String::trim).filter(String::isNotBlank)
                 NovelSpeechDivision.WORD -> paragraph.split(Regex("\\s+")).filter(String::isNotBlank)
-            }
+            }.flatMap { bounded(it, maxLength) }
             var cursor = 0
             pieces.map { text ->
                 val start = paragraph.indexOf(text, cursor)
@@ -57,8 +69,58 @@ object NovelSpeech {
         return document.body().html()
     }
 
-    private fun blocks(root: Element): List<Element> = root.select(BLOCK_SELECTOR)
-        .filter { it.children().select(BLOCK_SELECTOR).isEmpty() && it.text().isNotBlank() }
+    /**
+     * Every run of prose in reading order, each said once.
+     *
+     * A block holding no other block is one run. One that does is split around them, its own loose
+     * prose wrapped in a span so the page can name it too: otherwise a paragraph-less chapter, or
+     * the words a list item says before its nested list, would be silent.
+     */
+    private fun blocks(document: Document): List<Element> {
+        val body = document.body()
+        val runs = mutableListOf<Element>()
+        fun visit(element: Element) {
+            // The body is never a run itself: its attributes do not survive the page being built.
+            if (element !== body && element.children().none(Element::isBlock)) {
+                if (element.text().isNotBlank()) runs.add(element)
+                return
+            }
+            val run = mutableListOf<Node>()
+            fun flush() {
+                if (run.any { (it is TextNode && !it.isBlank) || (it is Element && it.text().isNotBlank()) }) {
+                    val span = Element("span")
+                    run.first().before(span)
+                    span.appendChildren(run)
+                    runs.add(span)
+                }
+                run.clear()
+            }
+            element.childNodes().toList().forEach {
+                if (it is Element && it.isBlock) {
+                    flush()
+                    visit(it)
+                } else {
+                    run += it
+                }
+            }
+            flush()
+        }
+        visit(body)
+        return runs
+    }
+
+    /** [text] in pieces of at most [maxLength], cut at a space where there is one. */
+    private fun bounded(text: String, maxLength: Int): List<String> {
+        val pieces = mutableListOf<String>()
+        var rest = text
+        while (rest.length > maxLength) {
+            var cut = rest.lastIndexOf(' ', maxLength).takeIf { it > 0 } ?: maxLength
+            if (rest[cut - 1].isHighSurrogate()) cut--
+            pieces += rest.substring(0, cut).trim()
+            rest = rest.substring(cut).trim()
+        }
+        return pieces + rest
+    }
 
     /** The unit nearest [fraction] through the prose, weighted by text length. */
     fun indexAt(fraction: Float, utterances: List<String>): Int {
@@ -188,7 +250,4 @@ object NovelSpeech {
 
     /** The attribute [anchorBlocks] stamps a block with, so speech can name one from Kotlin. */
     const val BLOCK_ATTRIBUTE = "data-leaf-speech-block"
-
-    /** The blocks a chapter's prose lives in. A longer list is a dictionary, not a splitter. */
-    private const val BLOCK_SELECTOR = "p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, dt"
 }
