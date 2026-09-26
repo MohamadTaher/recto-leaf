@@ -67,13 +67,21 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
+      - name: Decode signing keystore
+        run: |
+          if [ -n "$SIGNING_KEY" ]; then
+            echo "$SIGNING_KEY" | base64 -d > "${{ runner.temp }}/leaf.keystore"
+          fi
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+
       - name: Build
         run: ./gradlew assembleRelease
         env:
           # Only take over the signing config when a signing key is actually configured;
           # otherwise the release build falls back to the local debug keystore.
           MIHON_GITHUB_RELEASE: ${{ secrets.SIGNING_KEY != '' }}
-          storeFileBase64: ${{ secrets.SIGNING_KEY }}
+          storeFile: ${{ runner.temp }}/leaf.keystore
           storePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyAlias: ${{ secrets.ALIAS }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}

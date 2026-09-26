@@ -111,4 +111,15 @@ class EpubPathTest {
     fun `percentDecode accepts both hex cases`() {
         EpubPath.percentDecode("%2f%2F") shouldBe "//"
     }
+
+    @Test
+    fun `percentDecode keeps a supplementary character beside an escape`() {
+        EpubPath.percentDecode("Text/😀%20chapter.xhtml") shouldBe "Text/😀 chapter.xhtml"
+    }
+
+    @Test
+    fun `urlPathOf escapes each segment and keeps the hierarchy`() {
+        EpubPath.urlPathOf("OEBPS/Part#1/Chapter 2%.xhtml") shouldBe "OEBPS/Part%231/Chapter%202%25.xhtml"
+        EpubPath.urlPathOf("""OEBPS\Text\ch1.xhtml""") shouldBe "OEBPS/Text/ch1.xhtml"
+    }
 }

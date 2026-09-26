@@ -1,6 +1,8 @@
 package leaf.novel.ui.reader.loader
 
 import io.kotest.matchers.shouldBe
+import leaf.novel.data.epub.EpubPath
+import org.jsoup.Jsoup
 import org.junit.jupiter.api.Test
 
 /**
@@ -66,5 +68,21 @@ class NovelEpubAssetServerTest {
     fun `falls back to octet-stream for an unknown extension`() {
         NovelEpubAssetServer.mimeTypeOf("OEBPS/mystery.dat") shouldBe "application/octet-stream"
         NovelEpubAssetServer.mimeTypeOf("noextension") shouldBe "application/octet-stream"
+    }
+
+    @Test
+    fun `an archive entry survives the round trip through a url`() {
+        listOf("OEBPS/Text/Chapter 2.xhtml", "OEBPS/100%/Part#1.xhtml", "序章/😀 one.xhtml").forEach {
+            NovelEpubAssetServer.pathFor(VIRTUAL_ORIGIN + EpubPath.urlPathOf(it)) shouldBe it
+        }
+    }
+
+    @Test
+    fun `a relative resource resolves inside a directory whose name needs escaping`() {
+        val base = VIRTUAL_ORIGIN + EpubPath.urlPathOf("OEBPS/Part#1/ch1.xhtml")
+        val url = Jsoup.parseBodyFragment("""<img src="../Images/cover.png">""", base)
+            .selectFirst("img")!!.absUrl("src")
+
+        NovelEpubAssetServer.pathFor(url) shouldBe "OEBPS/Images/cover.png"
     }
 }

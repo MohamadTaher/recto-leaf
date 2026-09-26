@@ -1,6 +1,7 @@
 package leaf.novel.data.epub
 
 import java.io.ByteArrayOutputStream
+import java.net.URLEncoder
 
 /**
  * Path arithmetic for archive-internal EPUB references.
@@ -56,6 +57,14 @@ object EpubPath {
     /** Rewrites a `/`-separated literal to the archive's separator. */
     fun withSeparator(path: String, separator: String): String = path.replace(FORWARD_SLASH, separator)
 
+    /**
+     * An archive path as a URL path, [percentDecode]'s inverse. Each segment is escaped on its own,
+     * so a `#` or `%` in a name stays part of it rather than ending or re-encoding the URL.
+     */
+    fun urlPathOf(path: String): String = path.split(SEPARATORS).joinToString(FORWARD_SLASH) {
+        URLEncoder.encode(it, "UTF-8").replace("+", "%20")
+    }
+
     /** Strips the fragment and percent-decodes, since OPF and TOC hrefs are URL references. */
     fun decodeHref(href: String): String = percentDecode(href.substringBefore('#'))
 
@@ -80,8 +89,11 @@ object EpubPath {
                 out.write((high shl 4) or low)
                 index += 3
             } else {
-                out.write(char.toString().toByteArray(Charsets.UTF_8))
-                index++
+                // The literal run up to the next escape at once: a surrogate pair written one half
+                // at a time is lost.
+                val end = value.indexOf('%', index + 1).takeIf { it >= 0 } ?: value.length
+                out.write(value.substring(index, end).toByteArray(Charsets.UTF_8))
+                index = end
             }
         }
         return String(out.toByteArray(), Charsets.UTF_8)

@@ -98,6 +98,46 @@ class NovelSpeechTest {
     }
 
     @Test
+    fun `says prose kept directly in divs`() {
+        val html = "<div>Opening prose.</div><div>More prose.</div>"
+
+        NovelSpeech.utterances(html, NovelSpeechDivision.PARAGRAPH) shouldBe
+            listOf("Opening prose.", "More prose.")
+    }
+
+    /** The parent's own words are neither lost to the nested block nor said again with it. */
+    @Test
+    fun `says a parent's prose around a nested block once`() {
+        val html = "<ul><li>Parent <em>prose</em>.<ul><li>Child prose.</li></ul>After.</li></ul>"
+
+        NovelSpeech.utterances(html, NovelSpeechDivision.PARAGRAPH) shouldBe
+            listOf("Parent prose.", "Child prose.", "After.")
+    }
+
+    @Test
+    fun `says prose loose in the body`() {
+        NovelSpeech.utterances("Loose prose.<p>Kept.</p>", NovelSpeechDivision.PARAGRAPH) shouldBe
+            listOf("Loose prose.", "Kept.")
+    }
+
+    @Test
+    fun `cuts a paragraph longer than the engine accepts at a space`() {
+        val paragraph = (1..1000).joinToString(" ") { "word$it" }
+
+        val positions = NovelSpeech.positions("<p>$paragraph</p>", NovelSpeechDivision.PARAGRAPH, 7, maxLength = 100)
+
+        (positions.size > 1) shouldBe true
+        positions.forEach {
+            (it.text.length <= 100) shouldBe true
+            paragraph.substring(it.start, it.start + it.text.length) shouldBe it.text
+        }
+        positions.joinToString(" ") { it.text } shouldBe paragraph
+        NovelSpeech.groups(positions, 0, 100, acrossParagraphs = true).forEach { group ->
+            (positions.slice(group).joinToString(" ") { it.text }.length <= 100) shouldBe true
+        }
+    }
+
+    @Test
     fun `splits a paragraph into sentences when asked`() {
         val html = "<p>One. Two! Three?</p>"
 
@@ -162,13 +202,14 @@ class NovelSpeechTest {
 
     @Test
     fun `rendered anchors agree with speech after blank and nested blocks are filtered`() {
-        val html = "<p> </p><blockquote><p>One <em>word</em>.</p><p>Again.</p></blockquote><p>Again.</p>"
+        val html = "<p> </p><blockquote><p>One <em>word</em>.</p><p>Again.</p></blockquote><p>Again.</p>" +
+            "<div>Loose.<p>Inner.</p>Tail.</div>"
         val positions = NovelSpeech.positions(html, NovelSpeechDivision.PARAGRAPH, chapterId = 42)
         val document = Jsoup.parse(NovelSpeech.anchorBlocks(html))
         positions.forEach { position ->
             document.select("[${NovelSpeech.BLOCK_ATTRIBUTE}=${position.block}]").single().text() shouldBe position.text
         }
-        positions.map { it.block } shouldBe listOf(0, 1, 2)
+        positions.map { it.block } shouldBe listOf(0, 1, 2, 3, 4, 5)
     }
 
     @Test
