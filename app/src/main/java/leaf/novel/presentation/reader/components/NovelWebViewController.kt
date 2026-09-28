@@ -35,7 +35,7 @@ class NovelWebViewController {
     private var webView: WebView? = null
     private var activeQuery: String? = null
     private var speechHighlight: NovelSpeech.Position? = null
-    private var speechHighlighter: ((NovelSpeech.Position?) -> Unit)? = null
+    private var speechHighlighter: ((NovelSpeech.Position?, Boolean) -> Unit)? = null
     private var chapterAppender: ((String) -> Unit)? = null
     private var chapterPrepender: ((String) -> Unit)? = null
     private var chapterScroller: ((Long, Int) -> Unit)? = null
@@ -55,7 +55,7 @@ class NovelWebViewController {
         prependChapter: (String) -> Unit,
         scrollToChapter: (Long, Int) -> Unit,
         keepChapters: (List<Long>) -> Unit,
-        highlightSpeech: (NovelSpeech.Position?) -> Unit,
+        highlightSpeech: (NovelSpeech.Position?, Boolean) -> Unit,
         applyStylesheet: (String) -> Unit,
     ) {
         webView = view
@@ -158,7 +158,7 @@ class NovelWebViewController {
     fun find(query: String) {
         trackManualProgress()
         speechHighlight = null
-        speechHighlighter?.invoke(null)
+        speechHighlighter?.invoke(null, false)
         activeQuery = query
         webView?.findAllAsync(query)
     }
@@ -184,12 +184,19 @@ class NovelWebViewController {
         activeQuery = null
         findMatches = FindMatches.NONE
         webView?.clearMatches()
-        speechHighlighter?.invoke(highlight)
+        speechHighlighter?.invoke(highlight, false)
     }
 
-    fun clearSpeechHighlight() {
+    /**
+     * Drops the speech highlight, leaving the page at [stoppedAt] if speech still owns the location.
+     *
+     * The page follows speech only while the reader is composed, so speech that ended with the
+     * screen off left it where the voice started, and the first drag would save that spot over
+     * speech's progress. Where the page did follow, the place is already on screen and nothing moves.
+     */
+    fun clearSpeechHighlight(stoppedAt: NovelSpeech.Position? = null) {
         speechHighlight = null
-        speechHighlighter?.invoke(null)
+        speechHighlighter?.invoke(stoppedAt.takeUnless { tracksScrollProgress }, true)
         webView?.clearMatches()
         activeQuery?.let { webView?.findAllAsync(it) }
     }
@@ -211,7 +218,7 @@ class NovelWebViewController {
         findMatches = FindMatches.NONE
         val highlight = speechHighlight
         if (highlight != null) {
-            speechHighlighter?.invoke(highlight)
+            speechHighlighter?.invoke(highlight, false)
         } else {
             activeQuery?.let { webView?.findAllAsync(it) }
         }
