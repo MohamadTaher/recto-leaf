@@ -39,6 +39,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -182,6 +184,9 @@ class NovelReaderViewModel(
 
     /** Latest reported scroll percent per chapter, flushed on pause and on chapter change. */
     private val pendingProgress = ConcurrentHashMap<Long, Int>()
+
+    /** Lets one [flushProgress] finish writing before the next begins. */
+    private val flushLock = Mutex()
 
     private val chaptersMarkedRead = mutableSetOf<Long>()
 
@@ -968,14 +973,20 @@ class NovelReaderViewModel(
         progressTicks.tryEmit(Unit)
     }
 
-    /** Writes every pending position. Called on pause, on chapter change and on close. */
-    suspend fun flushProgress() {
+    /**
+     * Writes every pending position. Called on pause, on chapter change and on close.
+     *
+     * The debounce flushes on the main thread and the pause and chapter-change flushes on IO, so
+     * two can overlap. [flushLock] makes them write in turn, so an older percent never lands after
+     * a newer one, and a percent reported after the snapshot is left pending rather than dropped.
+     */
+    suspend fun flushProgress() = flushLock.withLock {
         if (incognitoMode) {
             pendingProgress.clear()
-            return
+            return@withLock
         }
         val snapshot = pendingProgress.toMap()
-        pendingProgress.keys.removeAll(snapshot.keys)
+        snapshot.forEach { (chapterId, percent) -> pendingProgress.remove(chapterId, percent) }
         snapshot.forEach { (chapterId, percent) -> persistProgress(chapterId, percent) }
     }
 

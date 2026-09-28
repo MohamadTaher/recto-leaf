@@ -95,7 +95,8 @@ internal const val NOVEL_SPEECH_SCRIPT = """
         return null;
       };
 
-      const follow = position => {
+      // `mark` false only scrolls: where speech stopped, for a page that could not follow it.
+      const follow = (position, mark) => {
         clear();
         if (!position) return;
         const chapters = Array.from(document.querySelectorAll('[data-leaf-chapter]'));
@@ -103,7 +104,7 @@ internal const val NOVEL_SPEECH_SCRIPT = """
           ? chapters.find(it => it.dataset.leafChapter === position.chapterId)
           : (position.chapterId === rectoLeafChapterId ? document.body : null);
         // A read-ahead request can arrive before its chapter has been appended. Never search elsewhere.
-        if (!chapter) { pending = position; return; }
+        if (!chapter) { pending = {position, mark}; return; }
         const block = chapter.querySelector('[data-leaf-speech-block="' + position.block + '"]');
         if (!block) return;
 
@@ -128,9 +129,9 @@ internal const val NOVEL_SPEECH_SCRIPT = """
         range.setEnd(last.node, last.offset + 1);
         const rect = range.getClientRects()[0];
         if (!rect || (!rect.width && !rect.height)) return;
-        if (window.CSS && CSS.highlights && window.Highlight) {
+        if (mark && window.CSS && CSS.highlights && window.Highlight) {
           CSS.highlights.set('recto-leaf-speech', new Highlight(range));
-        } else {
+        } else if (mark) {
           const selection = window.getSelection();
           selection.removeAllRanges();
           selection.addRange(range);
@@ -147,12 +148,13 @@ internal const val NOVEL_SPEECH_SCRIPT = """
 
       window.rectoLeafSpeech = {
         firstVisible,
-        highlight: position => { pending = null; follow(position); },
+        highlight: position => { pending = null; follow(position, true); },
+        reveal: position => { pending = null; follow(position, false); },
         retry: () => {
           if (!pending) return;
-          const position = pending;
+          const {position, mark} = pending;
           pending = null;
-          follow(position);
+          follow(position, mark);
         },
       };
     })();

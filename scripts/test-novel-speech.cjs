@@ -78,6 +78,26 @@ const script = source.split('internal const val NOVEL_SPEECH_SCRIPT = """')[1].s
     });
     assert.equal(await selected(), null);
 
+    // Where speech stopped, a page that could not follow it is moved there with nothing left
+    // highlighted, including into a chapter appended only afterwards.
+    const reveal = position => page.evaluate(position => window.rectoLeafSpeech.reveal(position), position);
+    const onScreen = id => page.evaluate(id => {
+      const top = document.querySelector(`[data-leaf-chapter="${id}"]`).getBoundingClientRect().top;
+      return top >= 0 && top < innerHeight;
+    }, id);
+    await page.evaluate(() => scrollTo(0, 0));
+    await reveal({ chapterId: '30', block: 0, start: 0, text: 'Yes.' });
+    assert.equal(await selected(), null);
+    assert(await onScreen('30'), 'Reveal must scroll to the stopped chapter');
+    await reveal({ chapterId: '60', block: 0, start: 0, text: 'Yes.' });
+    await page.evaluate(() => {
+      document.body.insertAdjacentHTML('beforeend',
+        '<section data-leaf-chapter="60"><p data-leaf-speech-block="0">Yes.</p></section>');
+      window.rectoLeafSpeech.retry();
+    });
+    assert.equal(await selected(), null);
+    assert(await onScreen('60'), 'A pending reveal must scroll once its chapter arrives');
+
     await reset('<p data-leaf-speech-block="0">One&nbsp; <em>word</em>.<br>Yes. Yes.</p>');
     await highlight({ chapterId: '20', block: 0, start: 15, text: 'Yes.' });
     assert.equal((await selected()).text, 'Yes.');
@@ -133,8 +153,12 @@ const script = source.split('internal const val NOVEL_SPEECH_SCRIPT = """')[1].s
       const range = Array.from(CSS.highlights.get('recto-leaf-speech'))[0];
       return range.startContainer.parentElement.closest('section').dataset.leafChapter;
     }), '21');
+    await bridgePage.evaluate(() => window.rectoLeafChapters.command(JSON.stringify({
+      type: 'speech', reveal: true, position: { chapterId: '21', block: 0, start: 0, text: 'Yes.' },
+    })));
+    assert.equal(await bridgePage.evaluate(() => CSS.highlights.has('recto-leaf-speech')), false);
     assert.deepEqual(errors, []);
-    console.log('PASS: repeated text, chapter scope, backward seeks, read-ahead, cancellation, inline markup, mismatches, pagination, selection fallback and chapter bridge');
+    console.log('PASS: repeated text, chapter scope, backward seeks, read-ahead, cancellation, stopped-position reveal, inline markup, mismatches, pagination, selection fallback and chapter bridge');
   } finally {
     await browser.close();
   }
