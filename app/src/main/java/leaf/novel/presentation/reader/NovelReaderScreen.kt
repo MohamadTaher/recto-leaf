@@ -641,6 +641,7 @@ fun NovelReaderScreen(
                             onEdgeDrag = ::performEdgeDrag,
                             // A continuous document already carries on into the chapter on either
                             // side, so the drag scrolls into it. Only a paged one has to be opened.
+                            onSpeechBeyondWindow = { documentStartChapterId = it },
                             onPastEdge = { forward ->
                                 if (paged) openChapter(state.currentIndex + if (forward) 1 else -1)
                             },
@@ -998,6 +999,7 @@ private fun ChapterContent(
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
     onPastEdge: (forward: Boolean) -> Unit,
+    onSpeechBeyondWindow: (chapterId: Long) -> Unit,
     onChapterChange: (index: Int, percent: Int) -> Unit,
     onTapCell: (Int) -> Unit,
     onLongPress: () -> Boolean,
@@ -1081,12 +1083,17 @@ private fun ChapterContent(
             }
 
             // While speech owns the location, the window is centred on speech rather than on the
-            // page. The page follows speech only while the reader is composed, so speech that ran on
-            // with the screen off can be chapters past the window, where the page can never scroll
-            // to reach it — and the page, still showing where it was left, reports that chapter
-            // after every command, which used to drag the window straight back before it got there.
+            // page, whose reports would drag it back to where the page was left. The page follows
+            // speech only while the reader is composed, so speech that ran on with the screen off
+            // can be many chapters past the window: rolling the window there would fetch every
+            // chapter in between first, so the document is opened at speech's chapter instead, as
+            // a paged one is.
             LaunchedEffect(speechChapterId, continuous) {
                 if (!continuous || speechChapterId == null || controller.tracksScrollProgress) return@LaunchedEffect
+                if (loadedPages.none { it.id == speechChapterId }) {
+                    onSpeechBeyondWindow(speechChapterId)
+                    return@LaunchedEffect
+                }
                 val index = viewModel.state.value.chapters.indexOfFirst { it.id == speechChapterId }
                 if (index >= 0) activeIndex = index
             }
