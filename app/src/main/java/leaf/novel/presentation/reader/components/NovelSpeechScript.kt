@@ -5,8 +5,60 @@ internal const val NOVEL_SPEECH_SCRIPT = """
     (() => {
       let pending = null;
       let selectionRange = null;
+      let marked = null;
+      let pills = [];
+
+      /**
+       * One rounded pill behind each line of the marked range.
+       *
+       * A CSS highlight can only recolour the glyphs' own boxes, so it cannot round its ends or
+       * fill out the line. Absolutely positioned under the root, so columns do not split them, and
+       * redrawn whenever the page reflows beneath them.
+       */
+      const draw = () => {
+        pills.forEach(pill => pill.remove());
+        pills = [];
+        if (!marked) return;
+        const lines = [];
+        for (const rect of marked.range.getClientRects()) {
+          if (!rect.width || !rect.height) continue;
+          const line = lines.find(it => rect.top < it.bottom && rect.bottom > it.top &&
+            rect.left <= it.right + rect.height && rect.right >= it.left - rect.height);
+          if (line) {
+            line.left = Math.min(line.left, rect.left);
+            line.right = Math.max(line.right, rect.right);
+            line.top = Math.min(line.top, rect.top);
+            line.bottom = Math.max(line.bottom, rect.bottom);
+          } else {
+            lines.push({left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom});
+          }
+        }
+        const lineHeight = parseFloat(getComputedStyle(marked.block).lineHeight);
+        for (const line of lines) {
+          const height = line.bottom - line.top;
+          // Fill most of the line, leaving a gap between pills on consecutive lines.
+          const padY = lineHeight > 0
+            ? Math.max(0, Math.min(height * 0.3, (lineHeight - height) / 2 - 2))
+            : height * 0.1;
+          const padX = height * 0.15;
+          const pill = document.createElement('div');
+          pill.className = 'recto-leaf-speech-mark';
+          pill.style.cssText = 'position:absolute;z-index:-1;pointer-events:none;' +
+            'left:' + (line.left + scrollX - padX) + 'px;top:' + (line.top + scrollY - padY) + 'px;' +
+            'width:' + (line.right - line.left + 2 * padX) + 'px;height:' + (height + 2 * padY) + 'px;' +
+            'border-radius:' + ((height + 2 * padY) * 0.3) + 'px;';
+          document.documentElement.appendChild(pill);
+          pills.push(pill);
+        }
+      };
+      const reflow = window.ResizeObserver ? new ResizeObserver(() => draw()) : null;
+      addEventListener('resize', () => draw());
+
       const clear = () => {
         if (window.CSS && CSS.highlights) CSS.highlights.delete('recto-leaf-speech');
+        marked = null;
+        if (reflow) reflow.disconnect();
+        draw();
         if (selectionRange) {
           const selection = window.getSelection();
           if (selection.rangeCount && selection.getRangeAt(0) === selectionRange) selection.removeAllRanges();
@@ -131,6 +183,12 @@ internal const val NOVEL_SPEECH_SCRIPT = """
         if (!rect || (!rect.width && !rect.height)) return;
         if (mark && window.CSS && CSS.highlights && window.Highlight) {
           CSS.highlights.set('recto-leaf-speech', new Highlight(range));
+          marked = {range, block};
+          draw();
+          if (reflow) {
+            reflow.observe(document.body);
+            reflow.observe(block);
+          }
         } else if (mark) {
           const selection = window.getSelection();
           selection.removeAllRanges();
@@ -151,6 +209,7 @@ internal const val NOVEL_SPEECH_SCRIPT = """
         highlight: position => { pending = null; follow(position, true); },
         reveal: position => { pending = null; follow(position, false); },
         retry: () => {
+          draw();
           if (!pending) return;
           const {position, mark} = pending;
           pending = null;

@@ -108,7 +108,7 @@ object NovelReaderCss {
 
         return """
         :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
-        html { -webkit-text-size-adjust: 100%; ${if (style.paged) PAGED_HTML else ""} }
+        html { -webkit-text-size-adjust: 100%; background: none !important; ${if (style.paged) PAGED_HTML else ""} }
         ${if (style.paged) pagedBody(style) else ""}
         body {
           background: $background !important;
@@ -160,9 +160,8 @@ object NovelReaderCss {
           padding-bottom: 0.6em;
           border-bottom: 1px solid $muted;
         }
-        ::selection { background: $SPEECH_HIGHLIGHT; }
-        ::search-text { background: $SPEECH_HIGHLIGHT; }
-        ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
+        ${highlightRules(colors)}
+        ::search-text { background: ${speechHighlight(colors)}; }
         """.trimIndent()
     }
 
@@ -331,13 +330,25 @@ object NovelReaderCss {
     private fun publisherStylesheet(colors: NovelReaderColors): String {
         return """
             :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
-            html { -webkit-text-size-adjust: 100%; }
+            html { -webkit-text-size-adjust: 100%; background: none !important; }
             body { background: ${colors.background.toCssColor()} !important; color: ${colors.foreground.toCssColor()}; }
             img, svg, video { max-width: 100%; height: auto; }
-            ::selection { background: $SPEECH_HIGHLIGHT; }
-            ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
+            ${highlightRules(colors)}
         """.trimIndent()
     }
+
+    /**
+     * The speech highlight is drawn by the speech script as rounded pills behind the text, so the
+     * CSS highlight itself stays clear; a selection is the fallback where that API is missing.
+     */
+    private fun highlightRules(colors: NovelReaderColors): String {
+        val highlight = speechHighlight(colors)
+        return "::selection { background: $highlight; } .recto-leaf-speech-mark { background: $highlight; }"
+    }
+
+    /** A deep teal under light text on a dark page; a pale blue under dark text on a light one. */
+    private fun speechHighlight(colors: NovelReaderColors): String =
+        if (isDark(colors.background)) SPEECH_HIGHLIGHT_DARK else SPEECH_HIGHLIGHT_LIGHT
 
     /**
      * One line of the page, in CSS pixels — which the viewport meta tag makes equal to dp.
@@ -449,6 +460,7 @@ object NovelReaderCss {
     /** Marks the line naming the chapter, so the stylesheet can find it. */
     private const val CHAPTER_TITLE_CLASS = "leaf-chapter-title"
 
-    private const val SPEECH_HIGHLIGHT = "#5ac8f5"
+    private const val SPEECH_HIGHLIGHT_LIGHT = "#5ac8f5"
+    private const val SPEECH_HIGHLIGHT_DARK = "#08739c"
     private const val DARK_LUMINANCE_THRESHOLD = 128
 }

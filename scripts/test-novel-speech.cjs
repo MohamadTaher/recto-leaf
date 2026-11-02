@@ -109,6 +109,18 @@ const script = source.split('internal const val NOVEL_SPEECH_SCRIPT = """')[1].s
     // Prose a reading aid removed outright matches nothing, and leaves the page still.
     await highlight({ chapterId: '20', block: 0, start: 0, text: 'Never said.' });
     assert.equal(await selected(), null);
+
+    // The highlight is drawn as one rounded pill per line, gone once speech moves off the text.
+    await reset('<p data-leaf-speech-block="0" style="width: 120px; line-height: 2">Yes yes yes yes yes yes yes.</p>');
+    await highlight({ chapterId: '20', block: 0, start: 0, text: 'Yes yes yes yes yes yes yes.' });
+    const pills = () => page.evaluate(() => Array.from(document.querySelectorAll('.recto-leaf-speech-mark'))
+      .map(it => ({ top: it.getBoundingClientRect().top, radius: parseFloat(it.style.borderRadius) })));
+    const drawn = await pills();
+    assert(drawn.length > 1, `Expected a pill per line, got ${drawn.length}`);
+    assert.equal(new Set(drawn.map(it => it.top)).size, drawn.length, 'Pills on one line must merge');
+    assert(drawn.every(it => it.radius > 0), 'Pills must be rounded');
+    await highlight(null);
+    assert.equal((await pills()).length, 0);
     await highlight({ chapterId: '21', block: 0, start: 15, text: 'Yes.' });
     assert.equal(await selected(), null);
 

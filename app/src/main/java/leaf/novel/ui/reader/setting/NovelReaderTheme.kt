@@ -29,7 +29,7 @@ enum class NovelReaderTheme(
     WHITE(MR.strings.leaf_novel_theme_white, 0xFFFFFFFF.toInt(), 0xFF1F1F1F.toInt()),
     PAPER(MR.strings.leaf_novel_theme_paper, 0xFFF3EEE3.toInt(), 0xFF33302B.toInt()),
     SEPIA(MR.strings.leaf_novel_theme_sepia, 0xFFEAD9BD.toInt(), 0xFF4A3A28.toInt()),
-    NIGHT(MR.strings.leaf_novel_theme_night, 0xFF121212.toInt(), 0xFFC8C8C8.toInt()),
+    NIGHT(MR.strings.leaf_novel_theme_night, 0xFF3A3A3A.toInt(), 0xFFF2F2F2.toInt()),
     BLACK(MR.strings.leaf_novel_theme_black, 0xFF000000.toInt(), 0xFFB4B4B4.toInt()),
     SOLARIZED(MR.strings.leaf_novel_theme_solarized, 0xFF002B36.toInt(), 0xFF93A1A1.toInt()),
     CUSTOM_1(MR.strings.leaf_novel_theme_custom_1, null, null, slot = 0),
