@@ -158,10 +158,17 @@ object NovelSpeechSession : NovelSpeechService.Controls {
         runCatching {
             queue.chapterProgress(state.index)?.let { (chapterId, percent) ->
                 if (chapterId !in finished) {
-                    updateChapter.await(ChapterUpdate(id = chapterId, lastPageRead = percent.toLong()))
+                    updateChapter.await(ChapterUpdate(chapterId) { lastPageRead = percent })
                 }
             }
-            finished.forEach { updateChapter.await(ChapterUpdate(id = it, read = true, lastPageRead = 100)) }
+            finished.forEach {
+                updateChapter.await(
+                    ChapterUpdate(it) {
+                        read = true
+                        lastPageRead = 100
+                    },
+                )
+            }
         }
     }
 

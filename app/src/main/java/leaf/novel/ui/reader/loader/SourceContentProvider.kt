@@ -5,7 +5,9 @@ import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.source.online.HttpSource
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.api.NovelSource
@@ -13,7 +15,6 @@ import leaf.novel.data.download.StoredNovelChapter
 import leaf.novel.data.download.readStoredChapter
 import leaf.novel.ui.reader.NovelHtmlSanitizer
 import okhttp3.OkHttpClient
-import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.io.ByteArrayInputStream
@@ -39,7 +40,7 @@ class SourceContentProvider(
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    override suspend fun content(chapter: Chapter): NovelChapterContent = withIOContext {
+    override suspend fun content(chapter: Chapter): NovelChapterContent = withContext(Dispatchers.IO) {
         val raw = storedChapter(chapter)?.let {
             NovelChapterContent(html = it.html, baseUrl = it.baseUrl, title = it.title)
         } ?: source.getChapterContent(chapter.toSChapter())
@@ -59,7 +60,7 @@ class SourceContentProvider(
     }
 
     /** The chapter's downloaded copy, or null when it was never downloaded. */
-    private fun storedChapter(chapter: Chapter): StoredNovelChapter? {
+    private suspend fun storedChapter(chapter: Chapter): StoredNovelChapter? {
         val directory = downloadProvider.findChapterDir(
             chapterName = chapter.name,
             chapterScanlator = chapter.scanlator,

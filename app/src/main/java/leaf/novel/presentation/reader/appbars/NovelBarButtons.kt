@@ -7,12 +7,12 @@ import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.FormatListNumbered
 import mihon.icons.materialsymbols.rounded.Info
+import mihon.icons.materialsymbols.rounded.MobileRotate
 import mihon.icons.materialsymbols.rounded.Palette
-import mihon.icons.materialsymbols.rounded.ScreenRotation
 import mihon.icons.materialsymbols.rounded.Search
 import mihon.icons.materialsymbols.rounded.Settings
-import mihon.icons.materialsymbols.rounded.ViewModule
 import mihon.icons.materialsymbols.roundedfilled.PlayArrow
+import mihon.icons.materialsymbols.roundedfilled.ViewModule
 
 /**
  * Which of the reader's actions can go on the bottom bar, and what each looks like there.
@@ -92,8 +92,8 @@ object NovelBarButtons {
     fun iconFor(action: NovelReaderAction): ImageVector? = when (action) {
         NovelReaderAction.VISUAL_OPTIONS -> MaterialSymbols.Rounded.Palette
         // The controls group takes the rotation glyph because orientation is one of its settings.
-        NovelReaderAction.CONTROL_OPTIONS -> MaterialSymbols.Rounded.ScreenRotation
-        NovelReaderAction.MISCELLANEOUS -> MaterialSymbols.Rounded.ViewModule
+        NovelReaderAction.CONTROL_OPTIONS -> MaterialSymbols.Rounded.MobileRotate
+        NovelReaderAction.MISCELLANEOUS -> MaterialSymbols.RoundedFilled.ViewModule
         NovelReaderAction.ADVANCED_OPTIONS -> MaterialSymbols.Rounded.Settings
         NovelReaderAction.ADDITIONAL_OPTIONS -> MaterialSymbols.AutoMirroredRounded.Sort
         NovelReaderAction.COMMENTS -> NovelCommentGlyphs.Comment

@@ -184,6 +184,9 @@ fun NovelReaderScreen(
 
     fun openChapter(index: Int) {
         val target = state.chapters.getOrNull(index) ?: return
+        // A chapter asked for by name is the reader's own navigation: the speech this stops must
+        // not pull the page back to the place it stopped.
+        webViewController.trackManualProgress()
         documentStartChapterId = target.id
         viewModel.setCurrentChapter(index)
     }
@@ -542,7 +545,7 @@ fun NovelReaderScreen(
         if (state.speaking && position != null) {
             webViewController.highlightSpeech(position)
         } else {
-            webViewController.clearSpeechHighlight()
+            webViewController.clearSpeechHighlight(stoppedAt = position)
         }
     }
 
@@ -618,6 +621,7 @@ fun NovelReaderScreen(
                             colors = colors,
                             percentRead = livePercent,
                             onPercentChange = { visiblePercent = it },
+                            speechChapterId = state.speechPosition?.chapterId,
                             seekRequests = seekRequests,
                             controller = webViewController,
                             ignoreEdgeTaps = disableTouchEdge,
@@ -979,6 +983,7 @@ private fun ChapterContent(
     colors: NovelReaderColors,
     percentRead: Int,
     onPercentChange: (Int) -> Unit,
+    speechChapterId: Long?,
     seekRequests: Flow<Int>,
     controller: NovelWebViewController,
     ignoreEdgeTaps: Boolean,
@@ -1073,6 +1078,16 @@ private fun ChapterContent(
             // the text reader's version of Mihon recolouring its container and being done.
             LaunchedEffect(colors, style, publisherFormatting) {
                 controller.applyStylesheet(NovelReaderCss.stylesheet(style, colors, publisherFormatting))
+            }
+
+            // Only the page's own scrolling moves the window, and the page follows speech only while
+            // the reader is composed. Speech that ran on with the screen off can be chapters past
+            // the window, where the page can never scroll to reach it, so the window goes to it.
+            LaunchedEffect(speechChapterId, continuous) {
+                if (!continuous || speechChapterId == null || controller.tracksScrollProgress) return@LaunchedEffect
+                if (loadedPages.any { it.id == speechChapterId }) return@LaunchedEffect
+                val index = viewModel.state.value.chapters.indexOfFirst { it.id == speechChapterId }
+                if (index >= 0) activeIndex = index
             }
 
             // As soon as the active section changes, the window of loaded chapters moves with it.

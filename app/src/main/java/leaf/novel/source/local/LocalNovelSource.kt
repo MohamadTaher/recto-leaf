@@ -14,6 +14,8 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.source.model.UpdateStrategy
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import leaf.novel.data.epub.NovelEpubReader
@@ -25,7 +27,6 @@ import leaf.novel.source.local.io.NOVEL_TMP_SUFFIX
 import leaf.novel.source.local.io.NovelFileSystem
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
-import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.core.metadata.tachiyomi.MangaDetails
 import tachiyomi.i18n.MR
@@ -71,7 +72,9 @@ class LocalNovelSource(
 
     override suspend fun getLatestUpdates(page: Int) = getSearchManga(page, "", latestFilters)
 
-    override suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage = withIOContext {
+    override suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage = withContext(
+        Dispatchers.IO,
+    ) {
         var novelDirs = fileSystem.getFilesInBaseDirectory()
             .filter { it.isNovelDirectory() }
             .distinctBy { it.name }
@@ -117,13 +120,13 @@ class LocalNovelSource(
         chapters: List<SChapter>,
         fetchDetails: Boolean,
         fetchChapters: Boolean,
-    ): SMangaUpdate = withIOContext {
+    ): SMangaUpdate = withContext(Dispatchers.IO) {
         // Re-assert the update strategy on every refresh, whatever was asked for:
         // UpdateMangaFromRemote writes update_strategy back regardless of the flags.
         manga.update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
 
         val bookFile = fileSystem.getBookFile(manga.url)
-            ?: return@withIOContext SMangaUpdate(manga, chapters)
+            ?: return@withContext SMangaUpdate(manga, chapters)
 
         bookFile.novelEpubReader(context).use { epub ->
             if (fetchDetails) fillDetails(manga, epub)

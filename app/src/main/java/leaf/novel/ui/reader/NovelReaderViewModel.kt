@@ -25,7 +25,9 @@ import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -39,6 +41,9 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -66,9 +71,6 @@ import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import logcat.LogPriority
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getAndSet
-import tachiyomi.core.common.util.lang.launchIO
-import tachiyomi.core.common.util.lang.launchNonCancellable
-import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.UpdateChapter
@@ -80,9 +82,9 @@ import tachiyomi.domain.history.interactor.UpsertHistory
 import tachiyomi.domain.history.model.HistoryUpdate
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
-import tachiyomi.domain.manga.model.MangaUpdate
+import tachiyomi.domain.manga.model.MangaRemoteUpdate
+import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
-import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
@@ -115,6 +117,7 @@ class NovelReaderViewModel(
     private val context: Context,
     private val getManga: GetManga,
     private val updateManga: UpdateManga,
+    private val mangaRepository: MangaRepository,
     private val getChaptersByMangaId: GetChaptersByMangaId,
     private val updateChapter: UpdateChapter,
     private val upsertHistory: UpsertHistory,
@@ -182,6 +185,9 @@ class NovelReaderViewModel(
 
     /** Latest reported scroll percent per chapter, flushed on pause and on chapter change. */
     private val pendingProgress = ConcurrentHashMap<Long, Int>()
+
+    /** Lets one [flushProgress] finish writing before the next begins. */
+    private val flushLock = Mutex()
 
     private val chaptersMarkedRead = mutableSetOf<Long>()
 
@@ -252,7 +258,7 @@ class NovelReaderViewModel(
                 return
             }
 
-            val opened = withIOContext {
+            val opened = withContext(Dispatchers.IO) {
                 runCatching { EpubContentProvider(bookFile.novelEpubReader(context), manga.url) }
             }
             contentProvider = opened.getOrElse { failure ->
@@ -370,7 +376,7 @@ class NovelReaderViewModel(
         if (state.value.currentIndex == index) {
             content.getOrNull()?.let {
                 loadedHtml = chapter.id to it.html
-                val words = withIOContext { NovelReadingTime.wordsIn(it.html) }
+                val words = withContext(Dispatchers.IO) { NovelReadingTime.wordsIn(it.html) }
                 if (state.value.currentIndex == index) {
                     mutableState.update { state -> state.copy(chapterWords = words) }
                 }
@@ -388,8 +394,8 @@ class NovelReaderViewModel(
      * remote URL the WebView already refused to load or a data URI the page has inline, and neither
      * has bytes to fetch from here.
      */
-    suspend fun imageBytes(url: String): ByteArray? = withIOContext {
-        val path = NovelEpubAssetServer.pathFor(url) ?: return@withIOContext null
+    suspend fun imageBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
+        val path = NovelEpubAssetServer.pathFor(url) ?: return@withContext null
         runCatching { provider?.resourceStream(path)?.use { it.readBytes() } }
             .onFailure { logcat(LogPriority.WARN, it) { "Could not read image $path" } }
             .getOrNull()
@@ -403,7 +409,7 @@ class NovelReaderViewModel(
         // The time spent in the chapter being left is written against it before the clock restarts,
         // as ReaderViewModel does on every chapter change.
         val history = historyUpdate()
-        viewModelScope.launchNonCancellable {
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) {
             flushProgress()
             history?.let { upsertHistory.await(it) }
         }
@@ -432,7 +438,7 @@ class NovelReaderViewModel(
                 // A chapter opened after this one was asked for owns the reader now.
                 if (state.value.currentChapter?.id != chapter.id) return@launch
                 loadedHtml = chapter.id to content.html
-                val words = withIOContext { NovelReadingTime.wordsIn(content.html) }
+                val words = withContext(Dispatchers.IO) { NovelReadingTime.wordsIn(content.html) }
                 if (state.value.currentIndex == index) {
                     mutableState.update { it.copy(chapterWords = words) }
                 }
@@ -840,7 +846,27 @@ class NovelReaderViewModel(
         val updated = manga.copy(memo = memo)
         mutableState.update { it.copy(manga = updated) }
         viewModelScope.launch {
-            runCatching { updateManga.await(MangaUpdate(id = manga.id, memo = memo)) }
+            // The memo is only written with the rest of the source's details, which are passed through as they are
+            runCatching {
+                check(
+                    mangaRepository.updateRemote(
+                        MangaRemoteUpdate(
+                            id = manga.id,
+                            title = manga.title,
+                            author = manga.author,
+                            artist = manga.artist,
+                            description = manga.description,
+                            genre = manga.genre,
+                            status = manga.status,
+                            thumbnailUrl = manga.thumbnailUrl,
+                            updateStrategy = manga.updateStrategy,
+                            memo = memo,
+                            initialized = manga.initialized,
+                            coverLastModified = null,
+                        ),
+                    ),
+                )
+            }
                 .onFailure { logcat(LogPriority.WARN, it) { "Could not save text replacements" } }
         }
     }
@@ -863,7 +889,7 @@ class NovelReaderViewModel(
      * Through the document picker's own URI, so the file lands wherever the reader keeps things and
      * no storage permission is involved.
      */
-    suspend fun exportSettings(target: Uri): Boolean = withIOContext {
+    suspend fun exportSettings(target: Uri): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val backup = NovelSettingsTransfer.capture(preferenceStore.getAll())
             context.contentResolver.openOutputStream(target, "wt")?.use { out ->
@@ -875,7 +901,7 @@ class NovelReaderViewModel(
     }
 
     /** Reads a settings file back over the current settings. Overwrites; the caller confirms. */
-    suspend fun importSettings(source: Uri): Boolean = withIOContext {
+    suspend fun importSettings(source: Uri): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val text = context.contentResolver.openInputStream(source)?.use { it.readBytes() }
                 ?: error("Could not open $source")
@@ -968,14 +994,20 @@ class NovelReaderViewModel(
         progressTicks.tryEmit(Unit)
     }
 
-    /** Writes every pending position. Called on pause, on chapter change and on close. */
-    suspend fun flushProgress() {
+    /**
+     * Writes every pending position. Called on pause, on chapter change and on close.
+     *
+     * The debounce flushes on the main thread and the pause and chapter-change flushes on IO, so
+     * two can overlap. [flushLock] makes them write in turn, so an older percent never lands after
+     * a newer one, and a percent reported after the snapshot is left pending rather than dropped.
+     */
+    suspend fun flushProgress() = flushLock.withLock {
         if (incognitoMode) {
             pendingProgress.clear()
-            return
+            return@withLock
         }
         val snapshot = pendingProgress.toMap()
-        pendingProgress.keys.removeAll(snapshot.keys)
+        snapshot.forEach { (chapterId, percent) -> pendingProgress.remove(chapterId, percent) }
         snapshot.forEach { (chapterId, percent) -> persistProgress(chapterId, percent) }
     }
 
@@ -985,11 +1017,10 @@ class NovelReaderViewModel(
         val alreadyRead = chapterId in chaptersMarkedRead
 
         updateChapter.await(
-            ChapterUpdate(
-                id = chapterId,
-                read = alreadyRead || completed,
-                lastPageRead = percent.toLong(),
-            ),
+            ChapterUpdate(chapterId) {
+                read = alreadyRead || completed
+                lastPageRead = percent
+            },
         )
 
         if (completed && !alreadyRead) {
@@ -1018,8 +1049,8 @@ class NovelReaderViewModel(
         val current = chapters.getOrNull(index) ?: return
         val next = chapters.getOrNull(index + 1) ?: return
 
-        viewModelScope.launchIO {
-            if (!current.isDownloaded(manga) || !next.isDownloaded(manga)) return@launchIO
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!current.isDownloaded(manga) || !next.isDownloaded(manga)) return@launch
             val toDownload = chapters.drop(index + 1).filterNot { it.read }.take(amount)
             downloadManager.downloadChapters(manga, toDownload)
         }
@@ -1044,7 +1075,7 @@ class NovelReaderViewModel(
 
     /** Deletes what [deleteChapterIfNeeded] queued. Called as the reader is left, as Mihon's is. */
     fun onActivityFinish() {
-        viewModelScope.launchNonCancellable { downloadManager.deletePendingChapters() }
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) { downloadManager.deletePendingChapters() }
     }
 
     // endregion
@@ -1068,8 +1099,8 @@ class NovelReaderViewModel(
     private fun historyUpdate(): HistoryUpdate? {
         if (incognitoMode) return null
         val chapter = state.value.currentChapter ?: return null
-        val endTime = Date()
-        val duration = chapterReadStartTime?.let { endTime.time - it } ?: 0
+        val endTime = Clock.System.now()
+        val duration = chapterReadStartTime?.let { endTime.toEpochMilliseconds() - it } ?: 0
         chapterReadStartTime = null
         return HistoryUpdate(chapter.id, endTime, duration)
     }
@@ -1085,7 +1116,7 @@ class NovelReaderViewModel(
      */
     fun saveOnPause() {
         val history = historyUpdate()
-        viewModelScope.launchNonCancellable {
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) {
             flushProgress()
             history?.let { upsertHistory.await(it) }
         }
@@ -1094,8 +1125,8 @@ class NovelReaderViewModel(
     fun toggleBookmark() {
         val chapter = state.value.currentChapter ?: return
         val bookmarked = !chapter.bookmark
-        viewModelScope.launchNonCancellable {
-            updateChapter.await(ChapterUpdate(id = chapter.id, bookmark = bookmarked))
+        viewModelScope.launch(Dispatchers.IO + NonCancellable) {
+            updateChapter.await(ChapterUpdate(chapter.id) { bookmark = bookmarked })
             mutableState.update { current ->
                 current.copy(
                     chapters = current.chapters.map {
@@ -1136,7 +1167,7 @@ class NovelReaderViewModel(
             if (speaking && !fromSpeech) return this
             val index = chapters.indexOfFirst { it.id == chapterId }
             if (index < 0) return this
-            val position = percent.coerceIn(0, 100).toLong()
+            val position = percent.coerceIn(0, 100)
             if (chapters[index].lastPageRead == position) return this
             return copy(
                 chapters = chapters.toMutableList().apply { this[index] = this[index].copy(lastPageRead = position) },

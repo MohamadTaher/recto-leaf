@@ -42,8 +42,8 @@ import leaf.novel.presentation.reader.components.FindMatches
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.Sort
-import mihon.icons.materialsymbols.rounded.ExpandLess
-import mihon.icons.materialsymbols.rounded.ExpandMore
+import mihon.icons.materialsymbols.rounded.KeyboardArrowDown
+import mihon.icons.materialsymbols.rounded.KeyboardArrowUp
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -286,14 +286,14 @@ private fun NovelReaderSearchBar(
 
             IconButton(onClick = { onFindNext(false) }, enabled = matches.total > 0) {
                 Icon(
-                    imageVector = MaterialSymbols.Rounded.ExpandLess,
+                    imageVector = MaterialSymbols.Rounded.KeyboardArrowUp,
                     contentDescription = stringResource(MR.strings.leaf_novel_reader_find_previous),
                 )
             }
 
             IconButton(onClick = { onFindNext(true) }, enabled = matches.total > 0) {
                 Icon(
-                    imageVector = MaterialSymbols.Rounded.ExpandMore,
+                    imageVector = MaterialSymbols.Rounded.KeyboardArrowDown,
                     contentDescription = stringResource(MR.strings.leaf_novel_reader_find_next),
                 )
             }

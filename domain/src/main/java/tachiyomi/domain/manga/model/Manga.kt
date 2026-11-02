@@ -19,14 +19,13 @@ import java.io.Serializable as JavaSerializable
 data class Manga(
     val id: Long,
     val source: Long,
-    val favorite: Boolean,
-    val lastUpdate: Long,
-    val nextUpdate: Long,
+    val lastUpdate: Instant?,
+    val nextUpdate: Instant?,
     val fetchInterval: Int,
-    val dateAdded: Long,
+    val favoriteAt: Instant?,
     val viewerFlags: Long,
     val chapterFlags: Long,
-    val coverLastModified: Long,
+    val coverLastModified: Instant?,
     val url: String,
     val title: String,
     val artist: String?,
@@ -37,19 +36,17 @@ data class Manga(
     val thumbnailUrl: String?,
     val updateStrategy: UpdateStrategy,
     val initialized: Boolean,
-    val lastModifiedAt: Long,
-    val favoriteModifiedAt: Long?,
-    val version: Long,
     val notes: String,
     val memo: JsonObject,
     // [recto-leaf] novels are ordinary manga rows distinguished by this flag
     val isNovel: Boolean,
 ) : JavaSerializable {
 
+    val favorite: Boolean
+        get() = favoriteAt != null
+
     val expectedNextUpdate: Instant?
-        get() = nextUpdate
-            .takeIf { status != SManga.COMPLETED.toLong() }
-            ?.let { Instant.fromEpochMilliseconds(it) }
+        get() = nextUpdate?.takeIf { status != SManga.COMPLETED.toLong() }
 
     val sorting: Long
         get() = chapterFlags and CHAPTER_SORTING_MASK
@@ -114,19 +111,23 @@ data class Manga(
         const val CHAPTER_DISPLAY_NUMBER = 0x00100000L
         const val CHAPTER_DISPLAY_MASK = 0x00100000L
 
+        /**
+         * [favoriteAt] of an entry added to the library before the time it was added was recorded.
+         */
+        val UNKNOWN_FAVORITE_AT = Instant.fromEpochMilliseconds(0)
+
         fun create() = Manga(
             id = -1L,
             url = "",
             title = "",
             source = -1L,
-            favorite = false,
-            lastUpdate = 0L,
-            nextUpdate = 0L,
+            lastUpdate = null,
+            nextUpdate = null,
             fetchInterval = 0,
-            dateAdded = 0L,
+            favoriteAt = null,
             viewerFlags = 0L,
             chapterFlags = 0L,
-            coverLastModified = 0L,
+            coverLastModified = null,
             artist = null,
             author = null,
             description = null,
@@ -135,9 +136,6 @@ data class Manga(
             thumbnailUrl = null,
             updateStrategy = UpdateStrategy.ALWAYS_UPDATE,
             initialized = false,
-            lastModifiedAt = 0L,
-            favoriteModifiedAt = null,
-            version = 0L,
             notes = "",
             memo = JsonObject.EMPTY,
             isNovel = false,

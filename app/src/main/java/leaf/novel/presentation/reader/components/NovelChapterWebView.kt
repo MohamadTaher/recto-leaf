@@ -172,13 +172,14 @@ private class NovelWebView(context: Context) : WebView(context) {
         )
     }
 
-    fun highlightSpeech(position: NovelSpeech.Position?) {
+    /** Highlights [position], or with [reveal] only scrolls to it and leaves nothing highlighted. */
+    fun highlightSpeech(position: NovelSpeech.Position?, reveal: Boolean) {
         val value = position?.let {
             JSONObject().put("chapterId", it.chapterId.toString())
                 .put("block", it.block).put("start", it.start).put("text", it.text)
         } ?: JSONObject.NULL
         pendingChapterCommands.removeAll { JSONObject(it).optString("type") == "speech" }
-        chapterCommand(JSONObject().put("type", "speech").put("position", value).toString())
+        chapterCommand(JSONObject().put("type", "speech").put("position", value).put("reveal", reveal).toString())
     }
 
     fun keepChapters(chapterIds: List<Long>) {
@@ -873,7 +874,8 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         command: value => {
           const command = JSON.parse(value);
           if (command.type === 'speech') {
-            window.rectoLeafSpeech.highlight(command.position);
+            if (command.reveal) window.rectoLeafSpeech.reveal(command.position);
+            else window.rectoLeafSpeech.highlight(command.position);
           } else if (command.type === 'append') {
             const section = sectionOf(command.html);
             if (section) document.body.appendChild(section);

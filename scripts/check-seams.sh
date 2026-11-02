@@ -39,15 +39,17 @@ app/src/main/AndroidManifest.xml
 i18n/src/commonMain/moko-resources/base/strings.xml
 app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/BrowseSourceScreen.kt
 app/src/main/java/eu/kanade/domain/source/interactor/GetEnabledSources.kt
-data/src/main/sqldelight/tachiyomi/data/mangas.sq
-data/src/main/sqldelight/tachiyomi/migrations/15.sqm
+data/src/main/sqldelight/tachiyomi/data/manga.sq
+data/src/main/sqldelight/tachiyomi/view/libraryView.sq
+data/src/main/sqldelight/tachiyomi/migrations/20.sqm
+data/src/main/java/tachiyomi/data/DatabaseBindings.kt
+data/src/main/java/tachiyomi/data/backup/RestoreRepositoryImpl.kt
 domain/src/main/java/tachiyomi/domain/manga/model/Manga.kt
 domain/src/main/java/tachiyomi/domain/manga/model/MangaUpdate.kt
 data/src/main/java/tachiyomi/data/manga/MangaMapper.kt
 data/src/main/java/tachiyomi/data/manga/MangaRepositoryImpl.kt
 app/src/main/java/eu/kanade/tachiyomi/data/backup/models/BackupManga.kt
 app/src/main/java/eu/kanade/tachiyomi/data/backup/create/creators/MangaBackupCreator.kt
-app/src/main/java/eu/kanade/tachiyomi/data/backup/restore/restorers/MangaRestorer.kt
 settings.gradle.kts
 app/build.gradle.kts
 data/build.gradle.kts
@@ -69,17 +71,12 @@ gradle/gradle-daemon-jvm.properties
 # The schema surface the fork claims. Everything else under data/src/main/sqldelight/ must stay
 # byte-identical to upstream.
 SCHEMA_OWNED="
-data/src/main/sqldelight/tachiyomi/data/mangas.sq
-data/src/main/sqldelight/tachiyomi/migrations/15.sqm
+data/src/main/sqldelight/tachiyomi/data/manga.sq
+data/src/main/sqldelight/tachiyomi/view/libraryView.sq
+data/src/main/sqldelight/tachiyomi/migrations/20.sqm
 "
 
-# Upstream migrations we have renumbered because the fork already owns their number.
-# The CONTENT is upstream's; only the filename differs, so they show as a permanent diff and must
-# be listed somewhere. Add to this list in the same commit as the rename.
-#
-# When upstream lands its own 15.sqm this list is where its renamed copy goes. Renumber THEIRS,
-# never ours — a device that ran our 15.sqm records user_version 16, so a renumbered copy of ours
-# would re-run while upstream's would be skipped forever.
+# Upstream migrations are never renamed or edited: the fork's one migration always comes after them.
 RENUMBERED="
 "
 
@@ -134,23 +131,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
-# C2 / C4 — the fork owns exactly two schema files. SQLDelight derives
-# Database.Schema.version from the highest .sqm, so 15.sqm deliberately puts us one ahead of
-# upstream. When upstream lands its own 15.sqm, renumber THEIRS upward, never ours: a device that
-# already ran our 15.sqm records user_version 16, so a renumbered copy of ours would re-run and
-# upstream's would be skipped forever.
+# C2 / C4 — the fork owns exactly the schema files above. Its one migration, which adds is_novel,
+# is always the highest .sqm, after every upstream one. When upstream lands a migration with that
+# number, ours moves up past it, and leaf/novel/data/NovelColumnCarry.kt steps a database that ran
+# ours back one version and carries the flags across upstream's table rebuilds. Its version
+# numbers move with the file.
 # ---------------------------------------------------------------------------------------------
 
 SCHEMA="$(changed_files | grep '^data/src/main/sqldelight/' | grep -Fxv "$(listed "$SCHEMA_OWNED"; listed "$RENUMBERED")" || true)"
 if [ -n "$SCHEMA" ]; then
     fail 'C2 schema files changed that the fork does not claim:'
-    printf '        A renumbered upstream migration belongs in RENUMBERED above, added in the
-'
-    printf '        same commit as the rename. Never renumber OUR 15.sqm.
+    printf '        Upstream migrations stay as upstream wrote them; only the fork migration moves.
 '
     printf '%s\n' "$SCHEMA" | sed 's/^/          /'
 else
-    pass 'C2 only the two schema files the fork claims differ'
+    pass 'C2 only the schema files the fork claims differ'
 fi
 
 # ---------------------------------------------------------------------------------------------

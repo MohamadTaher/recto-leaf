@@ -5,12 +5,14 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import leaf.novel.api.NovelRating
 import leaf.novel.api.NovelSource
 import leaf.novel.api.novelRating
@@ -19,7 +21,6 @@ import leaf.novel.ui.reader.comments.NovelCommentCache
 import leaf.novel.ui.reader.comments.NovelCommentMatcher
 import leaf.novel.ui.reader.comments.withCommentTimeout
 import logcat.LogPriority
-import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
@@ -106,7 +107,7 @@ class NovelRatings(
         cache.get<Found>(key, MAX_AGE)?.let { return it.rating }
         val rating = try {
             withCommentTimeout(timeout) {
-                withIOContext {
+                withContext(Dispatchers.IO) {
                     source.getMangaUpdate(novel, emptyList(), fetchDetails = true, fetchChapters = false)
                 }
             }.manga.novelRating

@@ -230,7 +230,7 @@ class NovelImporter(
             update_strategy = UpdateStrategy.ONLY_FETCH_ONCE
         }
         val manga = networkToLocalManga(sManga.toDomainManga(LocalNovelSource.ID))
-        updateManga.await(MangaUpdate(id = manga.id, isNovel = true))
+        updateManga.await(MangaUpdate(manga.id) { isNovel = true })
 
         updateMangaFromRemote(manga, fetchDetails = true, fetchChapters = true, manualFetch = true)
             .onFailure { logcat(LogPriority.WARN, it) { "Could not refresh $folderName after import" } }

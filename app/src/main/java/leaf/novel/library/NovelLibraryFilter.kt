@@ -10,9 +10,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import leaf.novel.data.NovelLibraryQueries
 import tachiyomi.core.common.preference.TriState
-import tachiyomi.data.Database
-import tachiyomi.data.subscribeToOne
 
 /**
  * Mihon's library filters have no hook to extend, so the fork's "Novels" filter is applied here.
@@ -34,9 +33,9 @@ class NovelLibraryFilter internal constructor(
 ) {
 
     @Inject
-    constructor(preferences: NovelLibraryPreferences, database: Database) : this(
+    constructor(preferences: NovelLibraryPreferences, queries: NovelLibraryQueries) : this(
         preferences = preferences,
-        hasAnyNovel = database.mangasQueries.hasNovelInLibrary().subscribeToOne().distinctUntilChanged(),
+        hasAnyNovel = queries.hasNovelInLibrary(),
     )
 
     /** The filter's state, for upstream's "any filter active" indicator. */
