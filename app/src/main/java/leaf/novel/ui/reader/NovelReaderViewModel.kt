@@ -162,7 +162,8 @@ class NovelReaderViewModel(
     val state: StateFlow<State> = mutableState.asStateFlow()
 
     /**
-     * The discussion under whatever chapter is open, for a source that serves one.
+     * The discussion under whatever chapter is open, from its own source and any other installed
+     * source that has the same novel, so a source without comments still gets another site's.
      *
      * Not part of [State]: nothing about a comment changes how the chapter is drawn, and folding a
      * reply has no business recomposing the reader. The chapter's own comments only — the novel's
@@ -172,6 +173,7 @@ class NovelReaderViewModel(
         scope = viewModelScope,
         preferences = novelReaderPreferences,
         matcher = NovelCommentMatcher.installed(sourceManager, sourcePreferences),
+        allowCrossSourceOnly = true,
         cache = NovelCommentCache.shared,
     )
 

@@ -107,7 +107,7 @@ class NovelComments(
     private val commentScope: NovelCommentScope = NovelCommentScope.CHAPTER,
     /** Finds the novel on the other sources. Null keeps to the novel's own. */
     private val matcher: NovelCommentMatcher? = null,
-    /** Allows the novel screen to find comments elsewhere when this source has no novel feed. */
+    /** Finds comments elsewhere even when this source has no feed for [commentScope]. */
     private val allowCrossSourceOnly: Boolean = false,
     /**
      * Where fetched threads outlive this instance — [NovelCommentCache.shared] outside tests.
@@ -157,8 +157,8 @@ class NovelComments(
     private var generation = 0
 
     /**
-     * Whether the button can open this scope. The novel screen may search other sources even when
-     * its own source has no comments; the chapter reader still needs its own source to serve them.
+     * Whether the button can open this scope: when this source serves it, or when
+     * [allowCrossSourceOnly] lets the other sources be searched for it.
      */
     val supported: Boolean
         get() = state.value.capabilities?.scopes?.contains(commentScope) == true
@@ -202,8 +202,8 @@ class NovelComments(
     /**
      * Points this at a novel and its source.
      *
-     * Called once. Chapter comments still require this source's own feed; the novel screen may
-     * search other sources even when this one has none.
+     * Called once. With [allowCrossSourceOnly], other sources are searched even when this one has
+     * no feed of its own.
      */
     fun bind(source: Source?, manga: Manga?) {
         primarySource = source
