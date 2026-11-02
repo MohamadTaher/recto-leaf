@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import leaf.novel.api.NovelComment
 import leaf.novel.api.NovelCommentCapabilities
@@ -39,7 +41,6 @@ import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import logcat.LogPriority
 import tachiyomi.core.common.preference.TriState
-import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
@@ -931,7 +932,7 @@ class NovelComments(
      * with it is let it through.
      */
     private suspend fun <T> attempt(block: suspend () -> T): Result<T> = try {
-        Result.success(withCommentTimeout(timeout) { withIOContext { block() } })
+        Result.success(withCommentTimeout(timeout) { withContext(Dispatchers.IO) { block() } })
     } catch (e: Throwable) {
         if (e is CancellationException) throw e
         Result.failure(e)

@@ -72,8 +72,8 @@ import leaf.novel.ui.reader.setting.NovelStatusItem
 import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
 import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.rounded.ExpandLess
-import mihon.icons.materialsymbols.rounded.ExpandMore
+import mihon.icons.materialsymbols.rounded.KeyboardArrowDown
+import mihon.icons.materialsymbols.rounded.KeyboardArrowUp
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.i18n.MR
@@ -808,7 +808,11 @@ private fun KeyGroup(label: StringResource, keys: List<NovelReaderKey>, preferen
         ) {
             Text(stringResource(label), modifier = Modifier.weight(1f))
             Icon(
-                imageVector = if (expanded) MaterialSymbols.Rounded.ExpandLess else MaterialSymbols.Rounded.ExpandMore,
+                imageVector = if (expanded) {
+                    MaterialSymbols.Rounded.KeyboardArrowUp
+                } else {
+                    MaterialSymbols.Rounded.KeyboardArrowDown
+                },
                 contentDescription = null,
             )
         }

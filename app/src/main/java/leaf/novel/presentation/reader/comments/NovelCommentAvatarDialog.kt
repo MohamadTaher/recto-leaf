@@ -17,10 +17,11 @@ import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.saver.Location
 import eu.kanade.tachiyomi.util.system.getBitmapOrNull
 import eu.kanade.tachiyomi.util.system.toShareIntent
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
-import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.i18n.MR
@@ -81,9 +82,9 @@ internal fun NovelCommentAvatarDialog(url: String, author: String, onDismissRequ
 /** What `MangaCoverViewModel` does for a cover, for a picture with no library entry behind it. */
 private suspend fun save(context: Context, manga: Manga, temp: Boolean): Uri? {
     val request = ImageRequest.Builder(context).data(manga).size(Size.ORIGINAL).build()
-    return withIOContext {
+    return withContext(Dispatchers.IO) {
         val bitmap = context.imageLoader.execute(request).image?.asDrawable(context.resources)?.getBitmapOrNull()
-            ?: return@withIOContext null
+            ?: return@withContext null
         ImageSaver(context).save(
             Image.Cover(
                 bitmap = bitmap,

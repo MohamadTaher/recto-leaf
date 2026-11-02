@@ -70,9 +70,9 @@ import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Check
 import mihon.icons.materialsymbols.rounded.Close
-import mihon.icons.materialsymbols.rounded.ExpandLess
-import mihon.icons.materialsymbols.rounded.ExpandMore
 import mihon.icons.materialsymbols.rounded.FilterList
+import mihon.icons.materialsymbols.rounded.KeyboardArrowDown
+import mihon.icons.materialsymbols.rounded.KeyboardArrowUp
 import mihon.icons.materialsymbols.rounded.MoreVert
 import tachiyomi.core.common.preference.TriState
 import tachiyomi.i18n.MR
@@ -410,7 +410,7 @@ private fun NovelCommentsHeader(
                 contentPadding = PaddingValues(0.dp),
             ) {
                 Icon(
-                    imageVector = MaterialSymbols.Rounded.ExpandLess,
+                    imageVector = MaterialSymbols.Rounded.KeyboardArrowUp,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )

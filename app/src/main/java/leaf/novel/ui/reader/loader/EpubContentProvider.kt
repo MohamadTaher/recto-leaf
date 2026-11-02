@@ -1,10 +1,11 @@
 package leaf.novel.ui.reader.loader
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.data.epub.EpubPath
 import leaf.novel.data.epub.NovelEpubReader
 import org.jsoup.Jsoup
-import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.domain.chapter.model.Chapter
 import java.io.ByteArrayInputStream
 import java.io.InputStream
@@ -28,7 +29,7 @@ class EpubContentProvider(
     private val lock = Any()
     private var closed = false
 
-    override suspend fun content(chapter: Chapter): NovelChapterContent = withIOContext {
+    override suspend fun content(chapter: Chapter): NovelChapterContent = withContext(Dispatchers.IO) {
         val entry = entryPathOf(chapter)
         val bytes = readEntryBytes(entry) ?: throw NovelChapterMissingException(entry)
         val baseUrl = VIRTUAL_ORIGIN + EpubPath.urlPathOf(entry)

@@ -79,8 +79,8 @@ import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.ArrowForward
 import mihon.icons.materialsymbols.automirroredrounded.OpenInNew
 import mihon.icons.materialsymbols.rounded.ContentCopy
-import mihon.icons.materialsymbols.rounded.ExpandLess
-import mihon.icons.materialsymbols.rounded.ExpandMore
+import mihon.icons.materialsymbols.rounded.KeyboardArrowDown
+import mihon.icons.materialsymbols.rounded.KeyboardArrowUp
 import mihon.icons.materialsymbols.rounded.MoreVert
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -265,13 +265,13 @@ fun NovelCommentItem(
                     if (collapsed) {
                         Action(
                             stringResource(MR.strings.leaf_novel_comments_expand),
-                            MaterialSymbols.Rounded.ExpandMore,
+                            MaterialSymbols.Rounded.KeyboardArrowDown,
                             onToggleCollapsed,
                         )
                     } else {
                         Action(
                             stringResource(MR.strings.leaf_novel_comments_collapse),
-                            MaterialSymbols.Rounded.ExpandLess,
+                            MaterialSymbols.Rounded.KeyboardArrowUp,
                             onToggleCollapsed,
                         )
                     }
@@ -509,7 +509,7 @@ fun NovelCommentRepliesRow(
             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
         } else {
             Icon(
-                MaterialSymbols.Rounded.ExpandMore,
+                MaterialSymbols.Rounded.KeyboardArrowDown,
                 null,
                 modifier = Modifier.size(18.dp).rotate(if (open) 180f else -90f),
             )
