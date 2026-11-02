@@ -6,11 +6,11 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.view.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlin.math.abs
 
 /**
@@ -24,19 +24,22 @@ import kotlin.math.abs
  * can count again. Without that hysteresis a phone held at an angle turns pages continuously, which
  * is the way every implementation of this gets it wrong.
  *
- * Registered only while enabled, so a reader who has not asked for it is not paying for a sensor.
+ * Registered only while enabled, so a reader who has not asked for it is not paying for a sensor,
+ * and only while the reader is resumed: it stays composed with the screen off, and read-aloud keeps
+ * the app active enough for the sensor to go on reporting, so a phone rocking in a pocket turned
+ * pages nobody could see and saved where they landed.
  */
 @Composable
 fun NovelTiltPageTurns(enabled: Boolean, onTurn: (forward: Boolean) -> Unit) {
     val context = LocalContext.current
     val currentOnTurn by rememberUpdatedState(onTurn)
 
-    DisposableEffect(enabled, context) {
-        if (!enabled) return@DisposableEffect onDispose {}
+    LifecycleResumeEffect(enabled, context) {
+        if (!enabled) return@LifecycleResumeEffect onPauseOrDispose {}
 
         val sensors = ContextCompat.getSystemService(context, SensorManager::class.java)
         val accelerometer = sensors?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-            ?: return@DisposableEffect onDispose {}
+            ?: return@LifecycleResumeEffect onPauseOrDispose {}
         val display = ContextCompat.getDisplayOrDefault(context)
 
         val listener = object : SensorEventListener {
@@ -61,7 +64,7 @@ fun NovelTiltPageTurns(enabled: Boolean, onTurn: (forward: Boolean) -> Unit) {
         }
 
         sensors.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_UI)
-        onDispose { sensors.unregisterListener(listener) }
+        onPauseOrDispose { sensors.unregisterListener(listener) }
     }
 }
 

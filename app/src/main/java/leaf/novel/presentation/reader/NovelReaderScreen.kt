@@ -1080,12 +1080,13 @@ private fun ChapterContent(
                 controller.applyStylesheet(NovelReaderCss.stylesheet(style, colors, publisherFormatting))
             }
 
-            // Only the page's own scrolling moves the window, and the page follows speech only while
-            // the reader is composed. Speech that ran on with the screen off can be chapters past
-            // the window, where the page can never scroll to reach it, so the window goes to it.
+            // While speech owns the location, the window is centred on speech rather than on the
+            // page. The page follows speech only while the reader is composed, so speech that ran on
+            // with the screen off can be chapters past the window, where the page can never scroll
+            // to reach it — and the page, still showing where it was left, reports that chapter
+            // after every command, which used to drag the window straight back before it got there.
             LaunchedEffect(speechChapterId, continuous) {
                 if (!continuous || speechChapterId == null || controller.tracksScrollProgress) return@LaunchedEffect
-                if (loadedPages.any { it.id == speechChapterId }) return@LaunchedEffect
                 val index = viewModel.state.value.chapters.indexOfFirst { it.id == speechChapterId }
                 if (index >= 0) activeIndex = index
             }
@@ -1135,7 +1136,7 @@ private fun ChapterContent(
                 onChapterProgress = { chapterId, percent ->
                     val index = viewModel.state.value.chapters.indexOfFirst { it.id == chapterId }
                     if (index < 0) return@NovelChapterWebView
-                    activeIndex = index
+                    if (controller.tracksScrollProgress || speechChapterId == null) activeIndex = index
                     onChapterChange(index, percent)
                     if (controller.tracksScrollProgress) viewModel.reportProgress(chapterId, percent)
                 },

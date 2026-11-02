@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test
  */
 class NovelSpeechAttachmentTest {
 
+    private val reader = Any()
+
     @Test
     fun `each new engine gets a generation later than the one before it`() {
         val attachment = NovelSpeechAttachment()
@@ -25,7 +27,7 @@ class NovelSpeechAttachmentTest {
     fun `a new generation starts unattached, even if the previous one was attached`() {
         val attachment = NovelSpeechAttachment()
         attachment.newGeneration()
-        attachment.attach()
+        attachment.attach(reader)
 
         attachment.newGeneration()
 
@@ -59,7 +61,7 @@ class NovelSpeechAttachmentTest {
         // itself through its own collector, so tearing the engine down under it would orphan that
         // collector instead of merely being redundant.
         val attachment = NovelSpeechAttachment()
-        attachment.attach()
+        attachment.attach(reader)
 
         attachment.mayResetOn(ended = true) shouldBe false
     }
@@ -74,10 +76,25 @@ class NovelSpeechAttachmentTest {
     @Test
     fun `detaching clears the flag so a later end may reset`() {
         val attachment = NovelSpeechAttachment()
-        attachment.attach()
+        attachment.attach(reader)
 
-        attachment.detach()
+        attachment.detach(reader)
 
         attachment.mayResetOn(ended = true) shouldBe true
+    }
+
+    @Test
+    fun `a reader closing after another has attached leaves the new one attached`() {
+        // A reader reopened before the old one is destroyed attaches first; the old one's detach
+        // arriving late must not let go on its behalf, or speech ending resets the engine under it.
+        val attachment = NovelSpeechAttachment()
+        val reopened = Any()
+        attachment.attach(reader)
+        attachment.attach(reopened)
+
+        attachment.detach(reader)
+
+        attachment.attached shouldBe true
+        attachment.mayResetOn(ended = true) shouldBe false
     }
 }
