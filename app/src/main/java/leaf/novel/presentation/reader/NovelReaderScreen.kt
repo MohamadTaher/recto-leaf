@@ -805,6 +805,7 @@ fun NovelReaderScreen(
             novelTitle = state.manga?.title,
             chapterTitle = chapter?.name,
             navigateUp = onBack,
+            onClickTopAppBar = onOpenEntry,
             bookmarked = chapter?.bookmark == true,
             onToggleBookmarked = viewModel::toggleBookmark,
             searchQuery = state.searchQuery,
