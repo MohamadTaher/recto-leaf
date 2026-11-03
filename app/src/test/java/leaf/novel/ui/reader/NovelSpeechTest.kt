@@ -120,6 +120,24 @@ class NovelSpeechTest {
             listOf("Loose prose.", "Kept.")
     }
 
+    /** A source that left a paragraph untagged between two tagged ones still means a paragraph. */
+    @Test
+    fun `anchors prose loose between paragraphs as a paragraph`() {
+        val html = "<p>One.</p>\nLoose prose.\n<p>Two.</p><div>Also loose.<p>Three.</p></div>"
+
+        val body = Jsoup.parse(NovelSpeech.anchorBlocks(html)).body()
+
+        body.select("p").map { it.text() } shouldBe listOf("One.", "Loose prose.", "Two.", "Also loose.", "Three.")
+    }
+
+    /** Inside a list item the loose words are its first line, not a paragraph of their own. */
+    @Test
+    fun `keeps prose loose in a list item inline`() {
+        val html = "<ul><li>Parent.<ul><li>Child.</li></ul></li></ul>"
+
+        Jsoup.parse(NovelSpeech.anchorBlocks(html)).select("li > span").single().text() shouldBe "Parent."
+    }
+
     @Test
     fun `cuts a paragraph longer than the engine accepts at a space`() {
         val paragraph = (1..1000).joinToString(" ") { "word$it" }
