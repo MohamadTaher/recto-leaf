@@ -214,8 +214,9 @@ the first of its `sorts`, so put the site's default first, and the sheet ranks w
 by likes — the `likes` a `NovelCommentFeedbackSource` gives, or else the comment's `score`.
 Posting is offered only while one feed of one extension is showing.
 
-The novel screen can search these other sources even when the novel's own source has no comments.
-If none has a matching novel, the sheet shows an empty discussion after the search finishes.
+Both the novel screen and the reader search these other sources even when the novel's own source has
+no comments of that kind. If none has a matching novel, the sheet shows an empty discussion after
+the search finishes.
 
 ## Checking one
 

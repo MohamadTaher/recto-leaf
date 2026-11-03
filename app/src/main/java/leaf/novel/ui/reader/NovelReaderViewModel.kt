@@ -21,6 +21,7 @@ import eu.kanade.domain.source.interactor.GetIncognitoState
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
+import eu.kanade.presentation.util.formatChapterNumber
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -30,13 +31,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -69,6 +70,7 @@ import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderTheme
 import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import logcat.LogPriority
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.system.logcat
@@ -85,6 +87,7 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaRemoteUpdate
 import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.i18n.MR
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
@@ -108,8 +111,8 @@ enum class NovelReaderError {
  * and only [load] has to tell the two apart.
  *
  * Positions are not written on every scroll. They accumulate in [pendingProgress] and are flushed
- * on a debounce, and again on pause, on chapter change and on close, so a long chapter that is
- * never left still records where the reader got to.
+ * at most every [PROGRESS_WRITE_INTERVAL_MS], and again on pause, on chapter change and on close,
+ * so a long chapter that is never left still records where the reader got to.
  */
 @AssistedInject
 class NovelReaderViewModel(
@@ -162,7 +165,8 @@ class NovelReaderViewModel(
     val state: StateFlow<State> = mutableState.asStateFlow()
 
     /**
-     * The discussion under whatever chapter is open, for a source that serves one.
+     * The discussion under whatever chapter is open, from its own source and any other installed
+     * source that has the same novel, so a source without comments still gets another site's.
      *
      * Not part of [State]: nothing about a comment changes how the chapter is drawn, and folding a
      * reply has no business recomposing the reader. The chapter's own comments only — the novel's
@@ -172,6 +176,7 @@ class NovelReaderViewModel(
         scope = viewModelScope,
         preferences = novelReaderPreferences,
         matcher = NovelCommentMatcher.installed(sourceManager, sourcePreferences),
+        allowCrossSourceOnly = true,
         cache = NovelCommentCache.shared,
     )
 
@@ -194,9 +199,12 @@ class NovelReaderViewModel(
     private var chapterReadStartTime: Long? = null
 
     /**
-     * Debounce signal for [pendingProgress]. Without it the reader would only write on pause and on
+     * Write signal for [pendingProgress]. Without it the reader would only write on pause and on
      * chapter change, so a crash or a kill part-way through a long chapter would lose the position
      * entirely — and the chapter would not be marked read until the reader was left.
+     *
+     * Throttled rather than debounced: speech reports a unit every fraction of a second when units
+     * are words, and a debounce waiting for a quiet spell then never wrote at all.
      */
     private val progressTicks = MutableSharedFlow<Unit>(
         extraBufferCapacity = 1,
@@ -207,8 +215,11 @@ class NovelReaderViewModel(
         if (hasValidArgs) {
             viewModelScope.launch { load() }
             progressTicks
-                .debounce(PROGRESS_DEBOUNCE_MS)
-                .onEach { flushProgress() }
+                .onEach {
+                    flushProgress()
+                    // Ticks arriving meanwhile wait in the one-slot buffer, so the last is written.
+                    delay(PROGRESS_WRITE_INTERVAL_MS)
+                }
                 .launchIn(viewModelScope)
         }
     }
@@ -217,7 +228,7 @@ class NovelReaderViewModel(
         NovelReaderMediaSession.detachReader()
         // Speech that is still running belongs to NovelSpeechSession now, not to this reader —
         // detach() only tears it down if nothing is left running to fire that later itself.
-        NovelSpeechSession.detach()
+        NovelSpeechSession.detach(owner = this)
         runCatching { provider?.close() }
         provider = null
     }
@@ -432,6 +443,9 @@ class NovelReaderViewModel(
             )
         }
         preloadChapters(index)
+        // Here as well as where the page moves its window: a paged document has no window, and a
+        // continuous one does not move it with the screen off, so hours of speech kept every chapter.
+        trimChapterCache(index)
 
         viewModelScope.launch {
             awaitChapter(chapter).getOrNull()?.let { content ->
@@ -604,7 +618,7 @@ class NovelReaderViewModel(
         val generation = NovelSpeechSession.generation
         if (attachedGeneration == generation) return engine
         attachedGeneration = generation
-        NovelSpeechSession.attach()
+        NovelSpeechSession.attach(owner = this, upsertHistory = upsertHistory)
 
         // Seeded from the engine's current state, not hardcoded false: a `StateFlow` replays its
         // latest value to a new collector, so adopting a session already speaking must not look
@@ -664,7 +678,14 @@ class NovelReaderViewModel(
      * with nothing on screen and nothing declared no reason to keep running.
      */
     private fun holdProcessOpen(speaking: Boolean, paused: Boolean) {
-        val chapter = state.value.currentChapter?.name.orEmpty()
+        // Only the chapter's number, the way the chapter list labels it, falling back to its name.
+        val chapter = state.value.currentChapter?.let {
+            if (it.isRecognizedNumber) {
+                context.stringResource(MR.strings.display_mode_chapter, formatChapterNumber(it.chapterNumber))
+            } else {
+                it.name
+            }
+        }.orEmpty()
         // Speech reports itself on every unit; the notification only says three things, so it is
         // only touched when one of them has actually changed.
         val shown = if (speaking) "$paused/$chapter" else null
@@ -681,7 +702,6 @@ class NovelReaderViewModel(
         NovelSpeechService.controls = NovelSpeechSession
         NovelSpeechService.show(
             context = context,
-            title = state.value.manga?.title.orEmpty(),
             chapter = chapter,
             paused = paused,
         )
@@ -690,11 +710,14 @@ class NovelReaderViewModel(
     /** What the notification currently says, or null while there is none. */
     private var speechNotification: String? = null
 
+    /** When a failed read-ahead may be tried again, so an unreachable chapter is not asked for per unit. */
+    private var speechExtendRetryAt = 0L
+
     /**
      * Carries speech over the end of a chapter.
      *
-     * The paragraphs after the ones queued are added a few pieces before the voice runs out, so it
-     * never stops at a chapter boundary. Nothing here moves the reader: the continuous document
+     * The next chapter's paragraphs are added as soon as the voice is in the last chapter queued, so
+     * it never stops at a chapter boundary. Nothing here moves the reader: the continuous document
      * already holds the chapters on either side of the open one, so the page follows the voice by
      * scrolling to the highlighted text and reports the chapter it lands in for itself. A paged
      * document holds one chapter, so the screen opens the next when the voice reaches it.
@@ -706,12 +729,17 @@ class NovelReaderViewModel(
     private fun extendSpeech(engineIndex: Int) {
         if (speechExtendJob?.isActive == true) return
         val queue = NovelSpeechSession.queue
-        if (queue.positions.size - engineIndex > SPEECH_STAGE_LOOKAHEAD) return
+        if (!queue.inLastChapter(engineIndex)) return
+        if (Clock.System.now().toEpochMilliseconds() < speechExtendRetryAt) return
         val index = queue.chapterIndex + 1
         val chapter = state.value.chapters.getOrNull(index) ?: return
 
         speechExtendJob = viewModelScope.launch {
-            val content = awaitChapter(chapter).getOrNull() ?: return@launch
+            val content = awaitChapter(chapter).getOrNull()
+            if (content == null) {
+                speechExtendRetryAt = Clock.System.now().toEpochMilliseconds() + SPEECH_EXTEND_RETRY_MS
+                return@launch
+            }
             val more = utterancesOf(content.html, chapter.id)
             // Checked again on the way out: the fetch is slow enough for speech to have been
             // stopped, restarted or seeked somewhere else entirely while it ran.
@@ -1186,13 +1214,8 @@ class NovelReaderViewModel(
         /** How far into a chapter the ones after it are downloaded, as `ReaderViewModel` has it. */
         private const val DOWNLOAD_AHEAD_PERCENT = 25
 
-        /**
-         * How many pieces from the end of the queue the next chapter is fetched and added.
-         *
-         * Far enough that the fetch has time to finish, and that the engine is never told about
-         * more to say after it has already decided it reached the last piece.
-         */
-        private const val SPEECH_STAGE_LOOKAHEAD = 3
+        /** How long a next chapter that failed to load waits before speech asks for it again. */
+        private const val SPEECH_EXTEND_RETRY_MS = 30_000L
 
         /** No [NovelSpeechSession.generation] is ever this — real generations start at 1. */
         private const val NO_GENERATION = -1
@@ -1200,8 +1223,8 @@ class NovelReaderViewModel(
         /** The visible chapter plus this many successors are kept ready. */
         const val PRELOAD_CHAPTER_COUNT = 3
 
-        /** How long the reader must sit still before its position is written. */
-        private const val PROGRESS_DEBOUNCE_MS = 400L
+        /** The least time between two writes of the reading position. */
+        private const val PROGRESS_WRITE_INTERVAL_MS = 400L
 
         const val EXTRA_MANGA = "manga"
         const val EXTRA_CHAPTER = "chapter"

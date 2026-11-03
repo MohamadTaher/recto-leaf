@@ -108,7 +108,7 @@ object NovelReaderCss {
 
         return """
         :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
-        html { -webkit-text-size-adjust: 100%; ${if (style.paged) PAGED_HTML else ""} }
+        html { -webkit-text-size-adjust: 100%; background: none !important; ${if (style.paged) PAGED_HTML else ""} }
         ${if (style.paged) pagedBody(style) else ""}
         body {
           background: $background !important;
@@ -150,19 +150,45 @@ object NovelReaderCss {
         }
         .${NovelEpubMarkup.PAGE_CLASS} { color: $muted !important; font-size: 0.7em; vertical-align: super; }
         .$CHAPTER_TITLE_CLASS {
-          color: $muted !important;
-          font-size: 0.8em;
-          font-weight: normal;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
+          text-align: center;
           text-indent: 0;
-          margin: 1.4em 0 1.8em;
-          padding-bottom: 0.6em;
-          border-bottom: 1px solid $muted;
+          hyphens: manual;
+          line-height: 1.3;
+          margin: 2.5em 0 2.2em;
         }
-        ::selection { background: $SPEECH_HIGHLIGHT; }
-        ::search-text { background: $SPEECH_HIGHLIGHT; }
-        ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
+        /* Running chapters together needs the boundary to read as one from a scroll away. */
+        .$CHAPTER_SECTION_CLASS + .$CHAPTER_SECTION_CLASS .$CHAPTER_TITLE_CLASS { margin-top: 5em; }
+        .$CHAPTER_NUMBER_CLASS {
+          display: block;
+          color: $muted !important;
+          font-size: 0.75em;
+          font-weight: normal;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          margin-bottom: 0.7em;
+        }
+        .$CHAPTER_NAME_CLASS {
+          display: block;
+          font-size: 1.35em;
+          font-weight: 600;
+          text-wrap: balance;
+        }
+        /* The ornament: a diamond between two short rules, drawn on one pseudo-element. */
+        .$CHAPTER_TITLE_CLASS::after {
+          content: "\25C6";
+          display: block;
+          width: 10em;
+          margin: 1.6em auto 0;
+          color: $muted !important;
+          font-size: 0.6em;
+          line-height: 1;
+          letter-spacing: 0;
+          background:
+            linear-gradient($muted, $muted) left center / 38% 1px no-repeat,
+            linear-gradient($muted, $muted) right center / 38% 1px no-repeat;
+        }
+        ${highlightRules(colors)}
+        ::search-text { background: ${speechHighlight(colors)}; }
         """.trimIndent()
     }
 
@@ -184,11 +210,16 @@ object NovelReaderCss {
 
         val bookHead = if (style.disableBookCss) "" else content.head
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
+        val heading = chapterTitle?.takeIf { it.isNotBlank() } ?: content.title
         val chapterHtml = content.html
             // First, so a rule matches what the book said rather than what the aids below have
             // since made of it.
             .let { NovelTextReplacements.apply(it, style.textReplacements) }
             .let(NovelSpeech::anchorBlocks)
+            // The heading below already names the chapter, so the text need not say it again.
+            // After anchoring: speech numbers the blocks from the chapter as sent, title included,
+            // and removing it first would leave every highlight one block short of its text.
+            .let { NovelHtmlSanitizer.dropRepeatedTitle(it, listOfNotNull(heading, content.title)) }
             // Trimming the top of a page is the same pass as trimming the chapter — a column break
             // cannot be targeted separately — so the paged setting turns on the one that exists
             // rather than a second doing identical work.
@@ -213,7 +244,7 @@ object NovelReaderCss {
             </style>
             </head>
             <body>
-            ${chapterHeading(chapterTitle ?: content.title)}
+            ${chapterHeading(heading)}
             $chapterHtml
             </body>
             </html>
@@ -231,7 +262,13 @@ object NovelReaderCss {
     private fun chapterHeading(title: String?): String {
         val text = title?.trim().orEmpty()
         if (text.isEmpty()) return ""
-        return """<div class="$CHAPTER_TITLE_CLASS">${escapeHtml(text)}</div>"""
+        val match = CHAPTER_NUMBER.matchEntire(text)?.takeIf { it.groupValues[2].isNotBlank() }
+        val number = match?.groupValues?.get(1)
+            ?.let { """<span class="$CHAPTER_NUMBER_CLASS">${escapeHtml(it)}</span> """ }
+            .orEmpty()
+        val name = escapeHtml(match?.groupValues?.get(2) ?: text)
+        // The space keeps the two apart where the publisher's styles, not ours, lay them out.
+        return """<div class="$CHAPTER_TITLE_CLASS">$number<span class="$CHAPTER_NAME_CLASS">$name</span></div>"""
     }
 
     private fun escapeHtml(text: String): String = text
@@ -331,13 +368,25 @@ object NovelReaderCss {
     private fun publisherStylesheet(colors: NovelReaderColors): String {
         return """
             :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
-            html { -webkit-text-size-adjust: 100%; }
+            html { -webkit-text-size-adjust: 100%; background: none !important; }
             body { background: ${colors.background.toCssColor()} !important; color: ${colors.foreground.toCssColor()}; }
             img, svg, video { max-width: 100%; height: auto; }
-            ::selection { background: $SPEECH_HIGHLIGHT; }
-            ::highlight(recto-leaf-speech) { background: $SPEECH_HIGHLIGHT; }
+            ${highlightRules(colors)}
         """.trimIndent()
     }
+
+    /**
+     * The speech highlight is drawn by the speech script as rounded pills behind the text, so the
+     * CSS highlight itself stays clear; a selection is the fallback where that API is missing.
+     */
+    private fun highlightRules(colors: NovelReaderColors): String {
+        val highlight = speechHighlight(colors)
+        return "::selection { background: $highlight; } .recto-leaf-speech-mark { background: $highlight; }"
+    }
+
+    /** A deep teal under light text on a dark page; a pale blue under dark text on a light one. */
+    private fun speechHighlight(colors: NovelReaderColors): String =
+        if (isDark(colors.background)) SPEECH_HIGHLIGHT_DARK else SPEECH_HIGHLIGHT_LIGHT
 
     /**
      * One line of the page, in CSS pixels — which the viewport meta tag makes equal to dp.
@@ -448,7 +497,19 @@ object NovelReaderCss {
 
     /** Marks the line naming the chapter, so the stylesheet can find it. */
     private const val CHAPTER_TITLE_CLASS = "leaf-chapter-title"
+    private const val CHAPTER_NUMBER_CLASS = "leaf-chapter-number"
+    private const val CHAPTER_NAME_CLASS = "leaf-chapter-name"
 
-    private const val SPEECH_HIGHLIGHT = "#5ac8f5"
+    /**
+     * Splits "Vol. 2 Chapter 12: The Return" into its number and its name, so the number can sit
+     * small above the name. A title it does not recognise is shown whole as the name.
+     */
+    private val CHAPTER_NUMBER = Regex(
+        """((?:(?:vol(?:ume)?|book|part)\.?\s*\d+\s*[,:\-–—]?\s*)?(?:chapter|chap|ch|episode|ep)\.?\s*\d+(?:\.\d+)?)\s*[:\-–—.|]?\s*(.*)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private const val SPEECH_HIGHLIGHT_LIGHT = "#5ac8f5"
+    private const val SPEECH_HIGHLIGHT_DARK = "#08739c"
     private const val DARK_LUMINANCE_THRESHOLD = 128
 }

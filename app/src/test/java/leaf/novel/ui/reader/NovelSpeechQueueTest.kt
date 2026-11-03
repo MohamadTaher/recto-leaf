@@ -132,4 +132,27 @@ class NovelSpeechQueueTest {
         queue.chapterFinished(from = 12, to = 11) shouldBe null
         queue.lastChapterId shouldBe 2L
     }
+
+    /**
+     * An engine that reports no word ranges puts the index at the first unit of each utterance, and
+     * a paragraph-division utterance joins paragraphs up to the input limit — so the last one of a
+     * chapter can start dozens of units from its end. Being in the last chapter is what counts.
+     */
+    @Test
+    fun `wants the next chapter from anywhere in the last one queued`() {
+        val queue = NovelSpeechQueue()
+        val paragraphs = (1..40).joinToString("") { "<p>paragraph</p>" }
+        val first = NovelSpeech.positions(paragraphs, NovelSpeechDivision.PARAGRAPH, chapterId = 1)
+        val second = NovelSpeech.positions(paragraphs, NovelSpeechDivision.PARAGRAPH, chapterId = 2)
+        queue.start(mangaId = 5, positions = first, chapterIndex = 0)
+
+        queue.inLastChapter(0) shouldBe true
+        queue.inLastChapter(20) shouldBe true
+
+        queue.extend(second, chapterIndex = 1)
+
+        queue.inLastChapter(20) shouldBe false
+        queue.inLastChapter(40) shouldBe true
+        queue.inLastChapter(99) shouldBe false
+    }
 }

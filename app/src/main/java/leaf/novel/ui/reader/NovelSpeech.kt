@@ -88,10 +88,14 @@ object NovelSpeech {
             val run = mutableListOf<Node>()
             fun flush() {
                 if (run.any { (it is TextNode && !it.isBlank) || (it is Element && it.text().isNotBlank()) }) {
-                    val span = Element("span")
-                    run.first().before(span)
-                    span.appendChildren(run)
-                    runs.add(span)
+                    // Loose prose among a chapter's paragraphs is one the source forgot to tag, so it
+                    // is given the paragraph's indent and spacing; inside a list item or a cell it
+                    // is that block's first line, and stays inline.
+                    val paragraph = element === body || element.normalName() in PARAGRAPH_HOSTS
+                    val wrapper = Element(if (paragraph) "p" else "span")
+                    run.first().before(wrapper)
+                    wrapper.appendChildren(run)
+                    runs.add(wrapper)
                 }
                 run.clear()
             }
@@ -250,4 +254,7 @@ object NovelSpeech {
 
     /** The attribute [anchorBlocks] stamps a block with, so speech can name one from Kotlin. */
     const val BLOCK_ATTRIBUTE = "data-leaf-speech-block"
+
+    /** Containers whose loose prose is a paragraph of its own rather than a line of theirs. */
+    private val PARAGRAPH_HOSTS = setOf("div", "section", "article", "main")
 }

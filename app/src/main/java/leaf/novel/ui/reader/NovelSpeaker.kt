@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +34,33 @@ class NovelSpeaker(context: Context) {
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private var hasAudioFocus = false
     private var resumeAfterFocusGain = false
+
+    private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * Requeues from the current unit when the engine has nothing queued while this says it plays.
+     *
+     * The engine runs in its own process. When that dies its queue goes with it and no callback
+     * says so, and speech sat "playing" in silence, recording nothing, until paused by hand. Two
+     * misses in a row, so the moment between the engine finishing and its callback is not one.
+     */
+    private val stallCheck = object : Runnable {
+        private var misses = 0
+
+        override fun run() {
+            val current = state.value
+            if (!current.speaking || current.paused) {
+                misses = 0
+                return
+            }
+            misses = if (engine?.isSpeaking == true) 0 else misses + 1
+            if (misses >= STALL_MISSES) {
+                misses = 0
+                queueFrom(current.index)
+            }
+            armStallCheck()
+        }
+    }
 
     private val audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
         .setAudioAttributes(
@@ -159,6 +188,7 @@ class NovelSpeaker(context: Context) {
     fun pause() {
         if (!state.value.speaking || state.value.paused) return
         run.incrementAndGet()
+        handler.removeCallbacks(stallCheck)
         engine?.stop()
         state.update { it.copy(paused = true) }
     }
@@ -195,6 +225,7 @@ class NovelSpeaker(context: Context) {
         run.incrementAndGet()
         pending = null
         resumeAfterFocusGain = false
+        handler.removeCallbacks(stallCheck)
         engine?.stop()
         abandonAudioFocus()
         state.update { it.copy(speaking = false, paused = false, finished = finished) }
@@ -227,9 +258,15 @@ class NovelSpeaker(context: Context) {
         // that never started.
         if (accepted) {
             state.update { it.copy(speaking = true, paused = false, finished = false, index = fromIndex) }
+            armStallCheck()
         } else {
             tts.stop()
         }
+    }
+
+    private fun armStallCheck() {
+        handler.removeCallbacks(stallCheck)
+        handler.postDelayed(stallCheck, STALL_CHECK_MS)
     }
 
     /**
@@ -305,5 +342,9 @@ class NovelSpeaker(context: Context) {
         const val RATE_SCALE = 10f
         const val ID_SEPARATOR = ":"
         const val SILENCE = "silence-"
+
+        /** How often a playing run is checked for an engine that lost its queue. */
+        const val STALL_CHECK_MS = 5_000L
+        const val STALL_MISSES = 2
     }
 }

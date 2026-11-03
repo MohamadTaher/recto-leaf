@@ -9,6 +9,10 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import mihon.app.di.appGraph
 import tachiyomi.domain.chapter.model.ChapterUpdate
+import tachiyomi.domain.history.interactor.UpsertHistory
+import tachiyomi.domain.history.model.HistoryUpdate
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * The read-aloud engine and its queue, held at process scope rather than by the reader's
@@ -54,6 +58,16 @@ object NovelSpeechSession : NovelSpeechService.Controls {
     @Volatile
     private var observerJob: Job? = null
 
+    /**
+     * Handed over by the reader that last attached, which has it injected: the app graph does not
+     * reach it from here, and History is no less the reader's to keep than the chapter position.
+     */
+    @Volatile
+    private var history: UpsertHistory? = null
+
+    /** Which chapter speech has been in since a reader last let go of it. */
+    private val listening = NovelSpeechHistory()
+
     /** Which run of the engine a reader is wired to — see [NovelSpeechAttachment]. */
     val generation: Int get() = attachment.generation
 
@@ -77,18 +91,26 @@ object NovelSpeechSession : NovelSpeechService.Controls {
     /** Whether the engine is currently speaking — the test for whether a session exists to keep. */
     fun isSpeaking(): Boolean = engine?.speech?.value?.speaking == true
 
-    /** Called once a reader has wired a collector to the engine [generation] now names. */
-    fun attach() = attachment.attach()
+    /**
+     * Called once [owner], a reader, has wired a collector to the engine [generation] now names.
+     * From here that reader writes progress and History itself, until it detaches.
+     */
+    fun attach(owner: Any, upsertHistory: UpsertHistory) {
+        history = upsertHistory
+        listening.clear()
+        attachment.attach(owner)
+    }
 
     /**
-     * Called when a reader is no longer watching — destroyed, in [NovelReaderViewModel.onCleared].
+     * Called when [owner] is no longer watching — destroyed, in [NovelReaderViewModel.onCleared].
      * Speech that is still running is left alone; the next [Transition.ENDED][NovelSpeechLifecycle]
      * the observer sees will release it. Speech already stopped has nothing left to fire that edge,
-     * so it is released immediately.
+     * so it is released immediately — unless another reader has attached since, which a reader
+     * reopened before the old one is destroyed does.
      */
-    fun detach() {
-        attachment.detach()
-        if (engine?.speech?.value?.speaking != true) reset()
+    fun detach(owner: Any) {
+        attachment.detach(owner)
+        if (!attachment.attached && engine?.speech?.value?.speaking != true) reset()
     }
 
     override fun togglePlayback() {
@@ -133,7 +155,7 @@ object NovelSpeechSession : NovelSpeechService.Controls {
         observerJob = speaker.speech
             .onEach { state ->
                 val ended = lifecycle.observe(state.speaking) == NovelSpeechLifecycle.Transition.ENDED
-                if (!attachment.attached && queue.records) persistProgress(previous, state)
+                if (!attachment.attached && queue.records) persistProgress(previous, state, ended)
                 previous = state.index
                 if (attachment.mayResetOn(ended)) reset()
             }
@@ -143,12 +165,14 @@ object NovelSpeechSession : NovelSpeechService.Controls {
     /**
      * Writes the chapter position speech has reached, so it is not lost with no reader attached to
      * report it, and marks read a chapter it finishes, since no reader is there to see it end.
+     * History moves with it, as a reader's would on changing chapter: otherwise History's Resume
+     * starts from the chapter the reader was closed on, which speech may have long finished.
      *
      * Pushing that to a tracker stays [NovelReaderViewModel]'s job, which the app graph gives it
      * and this object has no seam for. Trackers keep the highest chapter they are told, so the next
      * chapter a reader marks read carries the tracker past this one.
      */
-    private suspend fun persistProgress(previous: Int, state: NovelSpeaker.State) {
+    private suspend fun persistProgress(previous: Int, state: NovelSpeaker.State, ended: Boolean) {
         val context = appContext ?: return
         val updateChapter = context.appGraph.updateChapter
         val finished = listOfNotNull(
@@ -156,7 +180,8 @@ object NovelSpeechSession : NovelSpeechService.Controls {
             queue.lastChapterId.takeIf { state.finished },
         )
         runCatching {
-            queue.chapterProgress(state.index)?.let { (chapterId, percent) ->
+            val progress = queue.chapterProgress(state.index)
+            progress?.let { (chapterId, percent) ->
                 if (chapterId !in finished) {
                     updateChapter.await(ChapterUpdate(chapterId) { lastPageRead = percent })
                 }
@@ -169,6 +194,7 @@ object NovelSpeechSession : NovelSpeechService.Controls {
                     },
                 )
             }
+            listening.advance(progress?.first, Clock.System.now(), ended)?.let { history?.await(it) }
         }
     }
 
@@ -185,6 +211,7 @@ object NovelSpeechSession : NovelSpeechService.Controls {
         engine = null
         appContext = null
         queue.clear()
+        listening.clear()
         stopTimer.cancel()
         if (context != null) NovelSpeechService.hide(context)
     }
@@ -268,6 +295,18 @@ class NovelSpeechQueue {
     /** The chapter the last queued unit belongs to, which speech finishes by saying that unit. */
     val lastChapterId: Long? get() = positions.lastOrNull()?.chapterId
 
+    /**
+     * Whether unit [index] is in the last chapter queued, which is when the next one is wanted.
+     *
+     * A chapter rather than a count of units from the end: an engine that does not report word
+     * ranges moves the index one utterance at a time, and an utterance can join paragraphs up to
+     * the engine's input limit, so the index jumped past any such count straight to the end.
+     */
+    fun inLastChapter(index: Int): Boolean {
+        val chapterId = positions.getOrNull(index)?.chapterId ?: return false
+        return chapterId == lastChapterId
+    }
+
     /** What a reader attaching now should show, built from the engine's own report. */
     fun snapshot(engine: NovelSpeaker.State) = Snapshot(
         speaking = engine.speaking,
@@ -334,6 +373,9 @@ class NovelSpeechLifecycle(initiallySpeaking: Boolean = false) {
  * makes it safe for the session to release the engine when speech ends with [attached] false, and
  * unsafe when it is true — a reader that is present already hides the notification itself through
  * its own collector, and tearing the engine down under it would orphan that collector instead.
+ *
+ * Which reader is watching, not only whether one is: a reader reopened before the old one is
+ * destroyed attaches first, and the old one's late detach must not let go on the new one's behalf.
  */
 class NovelSpeechAttachment {
     @Volatile
@@ -341,23 +383,55 @@ class NovelSpeechAttachment {
         private set
 
     @Volatile
-    var attached: Boolean = false
-        private set
+    private var owner: Any? = null
+
+    val attached: Boolean get() = owner != null
 
     /** Called whenever a new engine is built. Marks it unattached until a reader claims it. */
     fun newGeneration() {
         generation++
-        attached = false
+        owner = null
     }
 
-    fun attach() {
-        attached = true
+    fun attach(owner: Any) {
+        this.owner = owner
     }
 
-    fun detach() {
-        attached = false
+    /** Lets go only if [owner] is still the reader attached. */
+    fun detach(owner: Any) {
+        if (this.owner === owner) this.owner = null
     }
 
     /** Speech just crossed the given edge — may the session release the engine because of it? */
     fun mayResetOn(ended: Boolean): Boolean = ended && !attached
+}
+
+/**
+ * The chapter speech is in while no reader is attached, and since when, so History can follow it.
+ *
+ * A reader writes History as it changes chapter and as it pauses. Speech left to run without one
+ * moved on through chapters History never heard of, so History's Resume opened one already heard.
+ */
+class NovelSpeechHistory {
+    @Volatile
+    private var entered: Pair<Long, Instant>? = null
+
+    /** A reader is writing History again, or the session is over. */
+    fun clear() {
+        entered = null
+    }
+
+    /**
+     * Speech is in [chapterId] at [now]. Returns the entry for the chapter it was in, once it has
+     * moved on from it or [ended] there, timed from when it was entered; otherwise null.
+     */
+    fun advance(chapterId: Long?, now: Instant, ended: Boolean): HistoryUpdate? {
+        val (previous, since) = entered ?: run {
+            entered = chapterId?.let { it to now }
+            return null
+        }
+        if (previous == chapterId && !ended) return null
+        entered = chapterId?.let { it to now }
+        return HistoryUpdate(previous, now, (now - since).inWholeMilliseconds)
+    }
 }

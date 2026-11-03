@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +68,7 @@ fun NovelReaderAppBars(
     novelTitle: String?,
     chapterTitle: String?,
     navigateUp: () -> Unit,
+    onClickTopAppBar: () -> Unit,
     bookmarked: Boolean,
     onToggleBookmarked: () -> Unit,
     searchQuery: String?,
@@ -99,7 +101,9 @@ fun NovelReaderAppBars(
         ) {
             if (searchQuery == null) {
                 ReaderTopBar(
-                    modifier = Modifier.background(backgroundColor),
+                    modifier = Modifier
+                        .background(backgroundColor)
+                        .clickable(onClick = onClickTopAppBar),
                     mangaTitle = novelTitle,
                     chapterTitle = chapterTitle,
                     navigateUp = navigateUp,

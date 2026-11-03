@@ -1,19 +1,25 @@
 package leaf.novel.ui.reader
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.os.Bundle
 import android.view.KeyEvent
 import androidx.core.content.IntentCompat
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderKey
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import logcat.LogPriority
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.i18n.MR
 
 /**
  * One media session shared by the loaded reader and background speech. Stopping speech leaves
@@ -42,10 +48,34 @@ internal object NovelReaderMediaSession {
         releaseIfUnused()
     }
 
-    fun attachSpeech(context: Context, preferences: NovelReaderPreferences, action: (NovelReaderAction) -> Unit) {
+    fun attachSpeech(
+        context: Context,
+        preferences: NovelReaderPreferences,
+        activity: PendingIntent?,
+        action: (NovelReaderAction) -> Unit,
+    ) {
         speechAction = action
         ensureSession(context, preferences)
+        session?.setSessionActivity(activity)
     }
+
+    /**
+     * What the system's media player, watches and cars show: the chapter over [artwork], and its
+     * estimated length, without which the player's seek bar shows no progress.
+     */
+    fun setMetadata(chapter: String, artwork: Bitmap, duration: Long) {
+        session?.setMetadata(
+            MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, chapter)
+                .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork)
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, duration)
+                .build(),
+        )
+    }
+
+    /** Ties the media notification to this session, which is what makes it the system's player. */
+    val token: MediaSession.Token?
+        get() = session?.sessionToken
 
     fun detachSpeech() {
         speechAction = null
@@ -87,11 +117,19 @@ internal object NovelReaderMediaSession {
         override fun onStop() = performKey(NovelReaderKey.MEDIA_STOP)
         override fun onSkipToNext() = performKey(NovelReaderKey.MEDIA_NEXT)
         override fun onSkipToPrevious() = performKey(NovelReaderKey.MEDIA_PREVIOUS)
+
+        override fun onCustomAction(action: String, extras: Bundle?) {
+            if (action == CUSTOM_ACTION_STOP) performAction(NovelReaderAction.STOP_SPEAKING)
+        }
     }
+
+    private const val CUSTOM_ACTION_STOP = "leaf.novel.SPEECH_STOP"
+    private var stopLabel = ""
 
     private fun ensureSession(context: Context, preferences: NovelReaderPreferences) {
         this.preferences = preferences
         if (session != null) return
+        stopLabel = context.stringResource(MR.strings.leaf_novel_action_stop_speaking)
         session = MediaSession(context.applicationContext, "NovelSpeech").apply {
             setCallback(callback)
             isActive = true
@@ -99,23 +137,46 @@ internal object NovelReaderMediaSession {
         paused = true
     }
 
-    fun update(paused: Boolean) {
+    /**
+     * Reports playing, at no speed and the same position, to restart System UI's countdown for
+     * hiding a paused player (ten minutes, `debug.sysui.media_timeout`), which it restarts only
+     * when playback starts or stops. The caller puts paused back after a moment: the system hands
+     * controllers only the latest state, so two set back to back reach them as one.
+     */
+    fun showPlaying() {
+        val paused = session?.controller?.playbackState ?: return
+        session?.setPlaybackState(
+            PlaybackState.Builder(paused).setState(PlaybackState.STATE_PLAYING, paused.position, 0f).build(),
+        )
+    }
+
+    /** [position] and [speed] drive the player's seek bar, which it moves by itself in between. */
+    fun update(paused: Boolean, position: Long = PlaybackState.PLAYBACK_POSITION_UNKNOWN, speed: Float = 1f) {
         val resuming = this.paused && !paused
         this.paused = paused
-        session?.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(
-                    PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
-                        PlaybackState.ACTION_STOP or PlaybackState.ACTION_SKIP_TO_NEXT or
-                        PlaybackState.ACTION_SKIP_TO_PREVIOUS,
-                )
-                .setState(
-                    if (paused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING,
-                    PlaybackState.PLAYBACK_POSITION_UNKNOWN,
-                    if (paused) 0f else 1f,
-                )
-                .build(),
-        )
+        // No skip actions, so the system's player shows no skip buttons. Hardware skip keys still
+        // arrive through onMediaButtonEvent, which does not consult these.
+        val state = PlaybackState.Builder()
+            .setActions(
+                PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
+                    PlaybackState.ACTION_STOP,
+            )
+            .setState(
+                if (paused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING,
+                position,
+                if (paused) 0f else speed,
+            )
+        // Android 13+ builds the player's buttons from this state, not the notification's actions.
+        if (speechAction != null) {
+            state.addCustomAction(
+                PlaybackState.CustomAction.Builder(
+                    CUSTOM_ACTION_STOP,
+                    stopLabel,
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                ).build(),
+            )
+        }
+        session?.setPlaybackState(state.build())
         if (resuming) registerAudioPlayback()
     }
 
