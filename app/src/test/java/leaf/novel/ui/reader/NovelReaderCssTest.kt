@@ -1,6 +1,8 @@
 package leaf.novel.ui.reader
 
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import leaf.novel.api.NovelChapterContent
 import leaf.novel.ui.reader.setting.NovelImageSize
 import leaf.novel.ui.reader.setting.NovelLinkColor
@@ -601,6 +603,32 @@ class NovelReaderCssTest {
         section.contains("id=\"leaf-42-note\"") shouldBe true
         section.contains("href=\"#leaf-42-note\"") shouldBe true
         section.contains("src=\"https://novel.rectoleaf.invalid/images/a.jpg\"") shouldBe true
+    }
+
+    private fun heading(title: String) = NovelReaderCss.document(content, style(), colors(WHITE), chapterTitle = title)
+
+    @Test
+    fun `chapter heading sets the number apart from the name`() {
+        val document = heading("Vol. 2 Chapter 12: The Return")
+
+        document shouldContain """<span class="leaf-chapter-number">Vol. 2 Chapter 12</span> """ +
+            """<span class="leaf-chapter-name">The Return</span>"""
+    }
+
+    @Test
+    fun `chapter heading with only a number shows it as the name`() {
+        val document = heading("Chapter 12")
+
+        document shouldContain """<span class="leaf-chapter-name">Chapter 12</span>"""
+        document shouldNotContain "leaf-chapter-number\">"
+    }
+
+    @Test
+    fun `chapter heading it cannot split is shown whole`() {
+        val document = heading("The Long Night")
+
+        document shouldContain
+            """<div class="leaf-chapter-title"><span class="leaf-chapter-name">The Long Night</span></div>"""
     }
 
     /** Speech numbers blocks from the chapter as sent; dropping its title must not renumber the page. */
