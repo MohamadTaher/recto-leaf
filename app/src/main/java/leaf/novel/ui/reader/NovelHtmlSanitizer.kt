@@ -106,6 +106,73 @@ object NovelHtmlSanitizer {
         return body.html()
     }
 
+    /**
+     * Drops the chapter's own copies of its title from the top of its text.
+     *
+     * The reader already prints the title above every chapter, and many sources scrape it into the
+     * text as well — sometimes twice, or split as "Chapter 12" then "The Return". Only the leading
+     * blocks are looked at, a wrapper around the whole chapter is looked into, and the first block
+     * that is not the title ends the search, so prose is never touched. A rule left directly under
+     * a removed title goes with it, since the reader's own heading already draws one.
+     */
+    fun dropRepeatedTitle(html: String, titles: List<String>): String {
+        val names = titles.map(::normalized).filter { it.isNotEmpty() }.distinct()
+        if (names.isEmpty()) return html
+
+        val document = Jsoup.parseBodyFragment(html)
+        document.outputSettings().prettyPrint(false)
+        var container: Element = document.body()
+        var removed = 0
+        while (removed < MAX_TITLE_REPEATS) {
+            val first = container.firstSignificant() ?: break
+            val text = normalized(if (first is Element) first.text() else (first as TextNode).text())
+            when {
+                // Looked into before it is matched, or a short chapter would match as "title and more".
+                first is Element && first.normalName() in WRAPPERS && first.childrenSize() > 0 -> container = first
+                names.any { isTitle(text, it, removed > 0) } -> {
+                    first.remove()
+                    removed++
+                }
+                else -> break
+            }
+        }
+        if (removed == 0) return html
+
+        while (true) {
+            val lineBreak = container.childNodes().firstOrNull { !(it is TextNode && it.isBlank) }
+            if (lineBreak is Element && lineBreak.normalName() == "br") lineBreak.remove() else break
+        }
+        container.firstSignificant()?.takeIf { it is Element && it.normalName() == "hr" }?.remove()
+        return document.body().html()
+    }
+
+    /** True for a block that is the title, part of it, or the title with little more. */
+    private fun isTitle(block: String, title: String, afterTitle: Boolean): Boolean = when {
+        block.isEmpty() -> false
+        block == title -> true
+        // "Chapter 12" from "Chapter 12: The Return"; the number keeps a stray word from matching.
+        block.any(Char::isDigit) && title.contains(block) -> true
+        // The rest of a title split across two blocks.
+        afterTitle && title.endsWith(block) -> true
+        // "Chapter 12: The Return" when the chapter is only named "Chapter 12".
+        else -> block.startsWith(title) && block.length <= title.length * 2
+    }
+
+    private fun normalized(text: String): String = text.lowercase().filter(Char::isLetterOrDigit)
+
+    /** The first child that shows anything, looking past whitespace and empty paragraphs. */
+    private fun Element.firstSignificant(): Node? = childNodes().firstOrNull { node ->
+        when (node) {
+            is TextNode -> !node.isBlank
+            is Element -> node.normalName() == "hr" || node.text().isNotBlank() ||
+                node.select("img, svg, video").isNotEmpty()
+            else -> false
+        }
+    }
+
+    private const val MAX_TITLE_REPEATS = 3
+    private val WRAPPERS = setOf("div", "section", "article", "main")
+
     /** The sibling before this one, looking past the whitespace between tags. */
     private fun Node.previousNonBlank(): Node? {
         var previous = previousSibling()

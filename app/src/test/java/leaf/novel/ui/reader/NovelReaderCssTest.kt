@@ -7,6 +7,7 @@ import leaf.novel.ui.reader.setting.NovelLinkColor
 import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderFont
 import leaf.novel.ui.reader.setting.NovelReaderStyle
+import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import org.jsoup.Jsoup
 import org.junit.jupiter.api.Test
 
@@ -600,5 +601,24 @@ class NovelReaderCssTest {
         section.contains("id=\"leaf-42-note\"") shouldBe true
         section.contains("href=\"#leaf-42-note\"") shouldBe true
         section.contains("src=\"https://novel.rectoleaf.invalid/images/a.jpg\"") shouldBe true
+    }
+
+    /** Speech numbers blocks from the chapter as sent; dropping its title must not renumber the page. */
+    @Test
+    fun `dropping a repeated title keeps the page's blocks numbered as speech numbers them`() {
+        val html = "<h1>Chapter 12: The Return</h1><p>One.</p><p>Two.</p>"
+        val document = Jsoup.parse(
+            NovelReaderCss.document(
+                NovelChapterContent(html, "", null),
+                style(),
+                colors(WHITE),
+                chapterTitle = "Chapter 12: The Return",
+            ),
+        )
+
+        document.select("h1").isEmpty() shouldBe true
+        NovelSpeech.positions(html, NovelSpeechDivision.PARAGRAPH, chapterId = 1).drop(1).forEach { position ->
+            document.select("[${NovelSpeech.BLOCK_ATTRIBUTE}=${position.block}]").single().text() shouldBe position.text
+        }
     }
 }

@@ -183,11 +183,16 @@ object NovelReaderCss {
 
         val bookHead = if (style.disableBookCss) "" else content.head
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
+        val heading = chapterTitle?.takeIf { it.isNotBlank() } ?: content.title
         val chapterHtml = content.html
             // First, so a rule matches what the book said rather than what the aids below have
             // since made of it.
             .let { NovelTextReplacements.apply(it, style.textReplacements) }
             .let(NovelSpeech::anchorBlocks)
+            // The heading below already names the chapter, so the text need not say it again.
+            // After anchoring: speech numbers the blocks from the chapter as sent, title included,
+            // and removing it first would leave every highlight one block short of its text.
+            .let { NovelHtmlSanitizer.dropRepeatedTitle(it, listOfNotNull(heading, content.title)) }
             // Trimming the top of a page is the same pass as trimming the chapter — a column break
             // cannot be targeted separately — so the paged setting turns on the one that exists
             // rather than a second doing identical work.
@@ -212,7 +217,7 @@ object NovelReaderCss {
             </style>
             </head>
             <body>
-            ${chapterHeading(chapterTitle ?: content.title)}
+            ${chapterHeading(heading)}
             $chapterHtml
             </body>
             </html>

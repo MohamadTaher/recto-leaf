@@ -150,4 +150,58 @@ class NovelHtmlSanitizerTest {
     fun `keeps a paragraph holding only an image`() {
         NovelHtmlSanitizer.trimBlankLines("<p><img src=\"a.png\"></p>") shouldBe "<p><img src=\"a.png\"></p>"
     }
+
+    private fun dropTitle(html: String, title: String = "Chapter 12: The Return") =
+        NovelHtmlSanitizer.dropRepeatedTitle(html, listOf(title))
+
+    @Test
+    fun `drops a heading that repeats the title`() {
+        dropTitle("<h1>Chapter 12 - The Return</h1><p>Prose.</p>") shouldBe "<p>Prose.</p>"
+    }
+
+    @Test
+    fun `drops every leading copy and the rule under them`() {
+        dropTitle("<h2>Chapter 12: The Return</h2><p>Chapter 12: The Return</p><hr><p>Prose.</p>") shouldBe
+            "<p>Prose.</p>"
+    }
+
+    @Test
+    fun `drops a title split across two blocks`() {
+        dropTitle("<p>Chapter 12</p><p>The Return</p><p>Prose.</p>") shouldBe "<p>Prose.</p>"
+    }
+
+    @Test
+    fun `looks inside a wrapper around the chapter`() {
+        dropTitle("<div><h3>Chapter 12: The Return</h3><p>Prose.</p></div>") shouldBe "<div><p>Prose.</p></div>"
+    }
+
+    @Test
+    fun `drops a plain text title and its line break`() {
+        dropTitle("Chapter 12: The Return<br>Prose.") shouldBe "Prose."
+    }
+
+    @Test
+    fun `drops a fuller title when the chapter is named by number only`() {
+        dropTitle("<h1>Chapter 12: The Return</h1><p>Prose.</p>", title = "Chapter 12") shouldBe "<p>Prose.</p>"
+    }
+
+    /** A first line that only shares a word with the title is prose. */
+    @Test
+    fun `keeps prose that is not the title`() {
+        val html = "<p>Return.</p><p>Chapter 12 was long.</p>"
+        dropTitle(html) shouldBe html
+    }
+
+    @Test
+    fun `keeps a title further down the chapter`() {
+        val html = "<p>Prose.</p><h1>Chapter 12: The Return</h1>"
+        dropTitle(html) shouldBe html
+    }
+
+    /** A scene break that does not sit under a removed title is content. */
+    @Test
+    fun `keeps a leading rule when nothing was dropped`() {
+        val html = "<hr><p>Prose.</p>"
+        dropTitle(html) shouldBe html
+    }
 }
