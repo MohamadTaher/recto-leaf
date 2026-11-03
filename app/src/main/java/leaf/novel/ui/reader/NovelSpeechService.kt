@@ -1,27 +1,44 @@
 package leaf.novel.ui.reader
 
+import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RadialGradient
+import android.graphics.Shader
+import android.graphics.drawable.Icon
 import android.media.AudioManager
+import android.media.session.PlaybackState
+import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
-import eu.kanade.tachiyomi.R
+import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.applyCanvas
+import androidx.core.graphics.createBitmap
 import eu.kanade.tachiyomi.data.notification.Notifications
-import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.notify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import logcat.LogPriority
@@ -29,6 +46,10 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
 
 /**
  * Keeps read-aloud running whenever the reader is merely off screen — backgrounded, or closed
@@ -60,9 +81,20 @@ class NovelSpeechService : Service() {
      * What the notification last showed, so an action intent — which carries none of this — has
      * something to redraw from.
      */
-    private var lastTitle = ""
     private var lastChapter = ""
     private var lastPaused = false
+    private var lastIndex = 0
+
+    /** The media player's background, drawn once per service from the wallpaper's palette. */
+    private val artwork by lazy(::drawArtwork)
+
+    private val clock = NovelSpeechClock(SystemClock::elapsedRealtime)
+
+    /** The chapter and length last put on the session, which is re-sent only when they change. */
+    private var shownMetadata: Pair<String, Long>? = null
+
+    /** Runs while speech is paused; see [keepVisibleWhilePaused]. */
+    private var keepVisible: Job? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val preferences by lazy { NovelReaderPreferences(AndroidPreferenceStore(this)) }
@@ -90,13 +122,16 @@ class NovelSpeechService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        NovelReaderMediaSession.attachSpeech(this, preferences, ::performAction)
+        NovelReaderMediaSession.attachSpeech(this, preferences, readerIntent(), ::performAction)
         // The reader's collector disappears when it closes; hardware playback state must not.
         NovelSpeechSession.speakerOrNull()?.speech
             ?.filter { it.speaking }
-            ?.map { it.paused }
+            ?.map { it.paused to it.index }
             ?.distinctUntilChanged()
-            ?.onEach { update(lastTitle, lastChapter, it) }
+            ?.onEach { (paused, index) ->
+                lastIndex = index
+                if (paused != lastPaused) update(lastChapter, paused) else publish()
+            }
             ?.launchIn(scope)
         ContextCompat.registerReceiver(
             this,
@@ -118,18 +153,17 @@ class NovelSpeechService : Service() {
             }
         }
 
-        if (intent?.hasExtra(EXTRA_TITLE) == true) {
-            lastTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        if (intent?.hasExtra(EXTRA_CHAPTER) == true) {
             lastChapter = intent.getStringExtra(EXTRA_CHAPTER).orEmpty()
             lastPaused = intent.getBooleanExtra(EXTRA_PAUSED, false)
-            NovelReaderMediaSession.update(lastPaused)
+            publish()
         }
 
         // The one call this makes to the system: every later update goes through update(), which
         // just reposts the notification. Calling this again for those would ask the system to
         // start the service afresh each time, which is exactly what a background chapter change
         // is not allowed to do on Android 12+.
-        startForeground(NOTIFICATION_ID, notification(lastTitle, lastChapter, lastPaused))
+        startForeground(NOTIFICATION_ID, notification(lastChapter, lastPaused))
         starting = false
         if (stopOnceStarted) {
             stopOnceStarted = false
@@ -162,31 +196,166 @@ class NovelSpeechService : Service() {
     }
 
     /** Redraws the already-posted notification. Called only while this instance is alive. */
-    private fun update(title: String, chapter: String, paused: Boolean) {
-        lastTitle = title
+    private fun update(chapter: String, paused: Boolean) {
         lastChapter = chapter
         lastPaused = paused
-        NovelReaderMediaSession.update(paused)
-        notify(NOTIFICATION_ID, notification(title, chapter, paused))
+        publish()
+        notify(NOTIFICATION_ID, notification(chapter, paused))
     }
 
-    private fun notification(title: String, chapter: String, paused: Boolean) = notificationBuilder(
-        Notifications.CHANNEL_COMMON,
-    ) {
-        setSmallIcon(R.drawable.ic_mihon)
-        setContentTitle(title.ifBlank { stringResource(MR.strings.leaf_novel_action_speak) })
-        setContentText(chapter)
-        setOngoing(true)
-        setShowWhen(false)
-        setSilent(true)
-        setContentIntent(readerIntent())
-        addAction(
-            0,
+    /**
+     * The player stays for as long as speech does, paused or not, rather than vanishing after a
+     * pause the way a music app's does: speech held paused is still a session being listened to.
+     */
+    private fun keepVisibleWhilePaused() {
+        if (lastPaused == (keepVisible != null)) return
+        keepVisible?.cancel()
+        keepVisible = if (lastPaused) {
+            scope.launch {
+                while (true) {
+                    delay(KEEP_VISIBLE_MS)
+                    NovelReaderMediaSession.showPlaying()
+                    delay(KEEP_VISIBLE_FLIP_MS)
+                    publish()
+                }
+            }
+        } else {
+            null
+        }
+    }
+
+    /** Puts where speech is in its chapter onto the session, for the player's seek bar. */
+    private fun publish() {
+        keepVisibleWhilePaused()
+        val reading = NovelSpeechClock.chapterChars(NovelSpeechSession.queue.positions, lastIndex)?.let {
+            clock.read(it.chapterId, it.before, it.total, playing = !lastPaused)
+        }
+        NovelReaderMediaSession.update(
+            lastPaused,
+            reading?.position ?: PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+            reading?.speed ?: 1f,
+        )
+        val metadata = lastChapter to (reading?.duration ?: 0L)
+        if (metadata != shownMetadata) {
+            shownMetadata = metadata
+            NovelReaderMediaSession.setMetadata(metadata.first, artwork, metadata.second)
+        }
+    }
+
+    /**
+     * The system's media player, as video and music apps use: no app header, and the session's
+     * artwork as its background. The platform builder rather than Mihon's compat one, since only
+     * the platform media style takes the platform session token. Android 13+ draws the buttons
+     * from the session's playback state; these actions serve older versions.
+     */
+    private fun notification(chapter: String, paused: Boolean): Notification {
+        val playPause = Notification.Action.Builder(
+            Icon.createWithResource(
+                this,
+                if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+            ),
             stringResource(if (paused) MR.strings.action_resume else MR.strings.action_pause),
             command(ACTION_PLAY_PAUSE),
+        ).build()
+        val stop = Notification.Action.Builder(
+            Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+            stringResource(MR.strings.leaf_novel_action_stop_speaking),
+            command(ACTION_STOP),
+        ).build()
+        return Notification.Builder(this, Notifications.CHANNEL_COMMON)
+            // Blank: One UI draws the small icon beside the title, which is to read the chapter alone.
+            .setSmallIcon(Icon.createWithBitmap(createBitmap(1, 1)))
+            .setLargeIcon(artwork)
+            .setContentTitle(chapter.ifBlank { stringResource(MR.strings.leaf_novel_action_speak) })
+            .setContentIntent(readerIntent())
+            .setCategory(Notification.CATEGORY_TRANSPORT)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setOnlyAlertOnce(true)
+            .addAction(stop)
+            .addAction(playPause)
+            .setStyle(
+                Notification.MediaStyle()
+                    .setMediaSession(NovelReaderMediaSession.token)
+                    .setShowActionsInCompactView(0, 1),
+            )
+            .build()
+    }
+
+    /**
+     * Material 3 Expressive shapes — scalloped circles — over a soft glow, in tones of the
+     * wallpaper's hue. The player darkens artwork heavily under its white text, which turns pale
+     * Material tones to mud, so only the hue is taken and the tones are drawn saturated. The shapes
+     * keep to the corners, clear of the title and buttons.
+     */
+    private fun drawArtwork(): Bitmap {
+        val hue = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            FloatArray(3).also { Color.colorToHSV(getColor(android.R.color.system_accent1_500), it) }[0]
+        } else {
+            DEFAULT_HUE
+        }
+        fun tone(shift: Float, saturation: Float, value: Float) =
+            Color.HSVToColor(floatArrayOf((hue + shift + 360) % 360, saturation, value))
+        return createBitmap(ARTWORK_WIDTH, ARTWORK_HEIGHT).applyCanvas {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            drawColor(tone(-20f, 0.9f, 0.5f))
+            glow(w * 0.5f, h * 0.5f, w * 0.25f, ColorUtils.setAlphaComponent(tone(0f, 0.85f, 1f), 160))
+            scallop(w * 0.11f, h * 0.07f, w * 0.27f, 12, 0.06f, 0.1f, tone(35f, 0.8f, 1f))
+            scallop(w * 0.92f, h * 0.93f, w * 0.3f, 8, 0.1f, 0.3f, tone(-55f, 0.75f, 0.95f))
+            scallop(w * 0.68f, h * 0.17f, w * 0.09f, 6, 0.12f, 0f, tone(10f, 0.55f, 1f))
+            grain()
+        }
+    }
+
+    /** A blurred disc: solid to the blur's edge, half strength at [radius], gone two blurs out. */
+    private fun Canvas.glow(x: Float, y: Float, radius: Float, color: Int) {
+        val blur = width * 0.13f
+        val outer = radius + 2 * blur
+        val half = ColorUtils.setAlphaComponent(color, Color.alpha(color) / 2)
+        val stops = floatArrayOf(0f, (radius - blur).coerceAtLeast(0f) / outer, radius / outer, 1f)
+        val colors = intArrayOf(color, color, half, Color.TRANSPARENT)
+        drawCircle(
+            x,
+            y,
+            outer,
+            Paint().apply {
+                shader =
+                    RadialGradient(x, y, outer, colors, stops, Shader.TileMode.CLAMP)
+            },
         )
-        addAction(0, stringResource(MR.strings.leaf_novel_action_stop_speaking), command(ACTION_STOP))
-    }.build()
+    }
+
+    /** A circle whose edge swells into [lobes] soft scallops, [depth] of its radius deep. */
+    private fun Canvas.scallop(x: Float, y: Float, radius: Float, lobes: Int, depth: Float, turn: Float, color: Int) {
+        val path = Path()
+        for (step in 0..SHAPE_STEPS) {
+            val angle = 2 * PI * step / SHAPE_STEPS
+            val r = radius * (1 + depth * cos(lobes * (angle + turn)))
+            val px = x + (r * cos(angle)).toFloat()
+            val py = y + (r * sin(angle)).toFloat()
+            if (step == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            maskFilter = BlurMaskFilter(width * 0.005f, BlurMaskFilter.Blur.NORMAL)
+        }
+        drawPath(path, paint)
+    }
+
+    /** Faint noise, so the player's dark scrim does not band the smooth tones into steps. */
+    private fun Canvas.grain() {
+        val random = Random(GRAIN_SEED)
+        val paint = Paint()
+        for (shade in intArrayOf(Color.WHITE, Color.BLACK)) {
+            paint.color = ColorUtils.setAlphaComponent(shade, 10)
+            val points = FloatArray(width * height / 6) {
+                if (it % 2 == 0) random.nextFloat() * width else random.nextFloat() * height
+            }
+            drawPoints(points, paint)
+        }
+    }
 
     /** Tapping the notification returns to the reader rather than opening a second one. */
     private fun readerIntent(): PendingIntent? {
@@ -216,9 +385,21 @@ class NovelSpeechService : Service() {
     companion object {
         private const val ACTION_PLAY_PAUSE = "leaf.novel.SPEECH_PLAY_PAUSE"
         private const val ACTION_STOP = "leaf.novel.SPEECH_STOP"
-        private const val EXTRA_TITLE = "title"
         private const val EXTRA_CHAPTER = "chapter"
         private const val EXTRA_PAUSED = "paused"
+
+        // About the shape of the One UI player card, which crops the artwork to fill it.
+        private const val ARTWORK_WIDTH = 960
+        private const val ARTWORK_HEIGHT = 432
+        private const val DEFAULT_HUE = 330f
+        private const val SHAPE_STEPS = 360
+        private const val GRAIN_SEED = 7
+
+        /** Inside System UI's ten minute timeout for a paused player. */
+        private const val KEEP_VISIBLE_MS = 9 * 60_000L
+
+        /** Long enough for System UI to be handed the playing state before paused replaces it. */
+        private const val KEEP_VISIBLE_FLIP_MS = 500L
 
         /** Outside the block upstream numbers its own notifications in. */
         private const val NOTIFICATION_ID = -801
@@ -248,14 +429,13 @@ class NovelSpeechService : Service() {
         private var stopOnceStarted = false
 
         /** Starts the service, or updates what the notification says when it is already up. */
-        fun show(context: Context, title: String, chapter: String, paused: Boolean) {
+        fun show(context: Context, chapter: String, paused: Boolean) {
             val running = instance
             if (running != null) {
-                running.update(title, chapter, paused)
+                running.update(chapter, paused)
                 return
             }
             val intent = Intent(context, NovelSpeechService::class.java)
-                .putExtra(EXTRA_TITLE, title)
                 .putExtra(EXTRA_CHAPTER, chapter)
                 .putExtra(EXTRA_PAUSED, paused)
             starting = true

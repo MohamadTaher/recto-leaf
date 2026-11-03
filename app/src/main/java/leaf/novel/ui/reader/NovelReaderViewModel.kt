@@ -21,6 +21,7 @@ import eu.kanade.domain.source.interactor.GetIncognitoState
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.track.interactor.TrackChapter
 import eu.kanade.domain.track.service.TrackPreferences
+import eu.kanade.presentation.util.formatChapterNumber
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -69,6 +70,7 @@ import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import leaf.novel.ui.reader.setting.NovelReaderTheme
 import leaf.novel.ui.reader.setting.NovelSpeechDivision
 import logcat.LogPriority
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.system.logcat
@@ -85,6 +87,7 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaRemoteUpdate
 import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.i18n.MR
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
@@ -675,7 +678,14 @@ class NovelReaderViewModel(
      * with nothing on screen and nothing declared no reason to keep running.
      */
     private fun holdProcessOpen(speaking: Boolean, paused: Boolean) {
-        val chapter = state.value.currentChapter?.name.orEmpty()
+        // Only the chapter's number, the way the chapter list labels it, falling back to its name.
+        val chapter = state.value.currentChapter?.let {
+            if (it.isRecognizedNumber) {
+                context.stringResource(MR.strings.display_mode_chapter, formatChapterNumber(it.chapterNumber))
+            } else {
+                it.name
+            }
+        }.orEmpty()
         // Speech reports itself on every unit; the notification only says three things, so it is
         // only touched when one of them has actually changed.
         val shown = if (speaking) "$paused/$chapter" else null
@@ -692,7 +702,6 @@ class NovelReaderViewModel(
         NovelSpeechService.controls = NovelSpeechSession
         NovelSpeechService.show(
             context = context,
-            title = state.value.manga?.title.orEmpty(),
             chapter = chapter,
             paused = paused,
         )
