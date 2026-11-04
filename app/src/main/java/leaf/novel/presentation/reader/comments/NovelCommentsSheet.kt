@@ -651,4 +651,4 @@ private fun NovelCommentComposer(state: NovelCommentsState, comments: NovelComme
 
 private const val COMPOSER_MAX_LINES = 6
 
-private val ListPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+private val ListPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)

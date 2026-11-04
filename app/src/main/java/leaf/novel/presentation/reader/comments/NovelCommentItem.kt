@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -162,10 +163,13 @@ fun NovelCommentItem(
         modifier = modifier.fillMaxWidth()
             // A rule under the comment, except where its thread line carries on below it.
             .rule(ruled && !continues)
-            .padding(top = 10.dp, bottom = if (collapsed) 10.dp else 0.dp),
+            .padding(top = 12.dp, bottom = if (collapsed) 12.dp else 0.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT).clickable(onClick = onToggleCollapsed),
+            // As tall as the avatar, so the text starts right under the name the way YouTube sets it,
+            // and taller only when a large font needs the room.
+            modifier = Modifier.fillMaxWidth().heightIn(min = avatar).height(IntrinsicSize.Min)
+                .clickable(onClick = onToggleCollapsed),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -262,7 +266,7 @@ fun NovelCommentItem(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(top = 2.dp, bottom = if (threaded && !continues) 0.dp else 6.dp),
+                    .padding(bottom = if (threaded && !continues) 0.dp else 8.dp),
             ) {
                 when {
                     comment.deleted -> Unit
@@ -304,10 +308,8 @@ fun NovelCommentItem(
                                             MaterialTheme.colorScheme.primary,
                                             MaterialTheme.colorScheme.onSurfaceVariant,
                                         ),
-                                        // bodyLarge's own leading is set for paragraphs of prose; a
-                                        // comment is a few lines, and reads as one block with the
-                                        // lines closer together.
-                                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.3.em),
+                                        // YouTube's comment size: 14sp on a 20sp line.
+                                        style = MaterialTheme.typography.bodyMedium,
                                         maxLines = maxLines,
                                         overflow = TextOverflow.Ellipsis,
                                         onTextLayout = {
@@ -344,6 +346,7 @@ fun NovelCommentItem(
                     }
                 }
                 if (!comment.deleted) {
+                    Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.weight(1f)) {
                             NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
@@ -493,7 +496,8 @@ private fun HeaderLabel(text: String) {
         text = text,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        style = MaterialTheme.typography.labelSmall,
+        // The name's size, so the name and the date read as one line, as on YouTube.
+        style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
@@ -621,13 +625,12 @@ private fun Modifier.rule(visible: Boolean): Modifier {
 }
 
 /** A top-level comment's avatar, and the smaller one every reply gets, as YouTube does. */
-private fun avatarSize(depth: Int): Dp = if (depth == 0) 32.dp else 24.dp
+private fun avatarSize(depth: Int): Dp = if (depth == 0) 24.dp else 20.dp
 
-private val GAP = 10.dp
+private val GAP = 12.dp
 
 /** How many lines of text a closed comment shows. */
 private const val COLLAPSED_LINES = 4
-private val HEADER_HEIGHT = 40.dp
 private val REPLIES_ROW_HEIGHT = 32.dp
 private val REPLIES_ROW_GAP = 8.dp
 private val LINE = 1.5.dp
