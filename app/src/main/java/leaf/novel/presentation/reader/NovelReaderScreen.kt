@@ -1010,6 +1010,8 @@ private fun ChapterContent(
 ) {
     val assetServer = remember(viewModel) { viewModel.assetServer() }
     val continuous = !paged
+    // Mihon's own setting, read once per viewer the way its webtoon viewer reads it.
+    val hideThreshold = remember(viewModel) { viewModel.readerPreferences.readerHideThreshold.get().threshold }
 
     // Bumped by Retry. Choosing the same chapter again leaves the key alone, so nothing else would
     // fetch a chapter that failed.
@@ -1174,6 +1176,10 @@ private fun ChapterContent(
                 onSwipe = onSwipe,
                 onInternalLink = onInternalLink,
                 onExternalLink = onExternalLink,
+                // A drag past the threshold puts the chrome away, as in Mihon's webtoon viewer.
+                onDrag = { distance ->
+                    if (distance > hideThreshold && viewModel.state.value.menuVisible) viewModel.toggleMenu()
+                },
                 // System insets keep the chapter out of the device bars. Vertical reader margins
                 // live here instead of on the HTML body so they remain visible throughout a
                 // scrolling chapter, not only at its first and last line.

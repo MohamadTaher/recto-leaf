@@ -40,6 +40,7 @@ import leaf.novel.ui.reader.setting.NovelTapGrid
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -331,6 +332,7 @@ fun NovelChapterWebView(
     onInternalLink: (String) -> Unit,
     onExternalLink: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onDrag: (distance: Float) -> Unit = {},
 ) {
     var webView by remember { mutableStateOf<NovelWebView?>(null) }
 
@@ -356,6 +358,7 @@ fun NovelChapterWebView(
     val currentOnPinch by rememberUpdatedState(onPinch)
     val currentOnEdgeDrag by rememberUpdatedState(onEdgeDrag)
     val currentOnPastEdge by rememberUpdatedState(onPastEdge)
+    val currentOnDrag by rememberUpdatedState(onDrag)
     val currentOnInternalLink by rememberUpdatedState(onInternalLink)
     val currentOnExternalLink by rememberUpdatedState(onExternalLink)
 
@@ -397,6 +400,7 @@ fun NovelChapterWebView(
                     onPinch = { currentOnPinch(it) },
                     onEdgeDrag = { edge, steps -> currentOnEdgeDrag(edge, steps) },
                     onPastEdge = { forward -> currentOnPastEdge(forward) },
+                    onDrag = { currentOnDrag(it) },
                 )
                 controller.attach(
                     view = this,
@@ -570,6 +574,7 @@ private fun NovelWebView.attachTapDetector(
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
     onPastEdge: (forward: Boolean) -> Unit,
+    onDrag: (distance: Float) -> Unit,
 ) {
     val density = resources.displayMetrics.density
     val minSwipeDistancePx = NovelReaderSwipe.MIN_DISTANCE_DP * density
@@ -634,6 +639,7 @@ private fun NovelWebView.attachTapDetector(
                 distanceY: Float,
             ): Boolean {
                 if (e1 == null || isSelecting) return false
+                onDrag(max(abs(distanceX), abs(distanceY)))
 
                 // Scrolling on when the page has run out carries on into the next chapter. Nothing
                 // is consumed and nothing resists: it is an ordinary scroll that reached the end,
