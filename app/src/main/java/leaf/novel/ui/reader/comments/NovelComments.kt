@@ -9,13 +9,21 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -142,6 +150,54 @@ class NovelComments(
     /** One entry per thread asked for, keyed by source, by chapter — null for the novel's own — and by feed. */
     private val drains = ConcurrentHashMap<Key, Drain>()
 
+    /** Counted up whenever a thread is started or dropped, so [chapters] knows to look again. */
+    private val drainsChanged = MutableStateFlow(0)
+
+    /** The chapters last fetched ahead, fetched again from each source the search goes on to find. */
+    @Volatile
+    private var prefetched: List<Chapter> = emptyList()
+
+    /**
+     * Every chapter's thread as the sheet would draw it, by chapter id, for the preview under each.
+     *
+     * Read from the same threads the sheet is, so nothing is fetched for it: a chapter is here as
+     * soon as its thread has been started — the open one, or one either side fetched ahead — and
+     * redrawn as each of its pages lands. The open chapter is here even before then, unfetched, so
+     * a reader who turned auto-load off is still offered its comments.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val chapters: Flow<Map<Long, NovelCommentsState>> =
+        combine(
+            drainsChanged,
+            state.map {
+                Triple(it.kind, it.originFilter, it.sort)
+            }.distinctUntilChanged(),
+        ) { _, _ -> }
+            .flatMapLatest {
+                val started = drains.values.toList()
+                if (started.isEmpty()) return@flatMapLatest flowOf(Unit)
+                started.map { it.pages }.merge().map { }.onStart { emit(Unit) }
+            }
+            .map {
+                val current = state.value
+                val byChapter = drains.entries
+                    .filter { (key, _) -> key.chapterId != null && current.shows(key.source) }
+                    .groupBy({ it.key.chapterId!! }, { it.value })
+                val open = listOfNotNull(chapter?.id).associateWith { emptyList<Drain>() }
+                (open + byChapter).mapValues { (id, threads) ->
+                    val base = current.reset(chapterName = null, chapterId = id)
+                    // Unstarted only while auto-load is off, or still about to start: the first asks, the second waits.
+                    if (threads.isEmpty()) return@mapValues base.copy(loading = autoLoad)
+                    val (thread, reviewCount, commentCount) = merge(
+                        threads.map {
+                            it to it.pages.value
+                        },
+                        onSheet = false,
+                    )
+                    base.copy(reviewCount = reviewCount, commentCount = commentCount).withThread(thread)
+                }
+            }
+
     /** The threads the sheet is drawn from: every source and feed the filters let through. */
     @Volatile
     private var shown: List<Drain> = emptyList()
@@ -231,8 +287,11 @@ class NovelComments(
         loadJob?.cancel()
         shown = emptyList()
         generation++
-        mutableState.update { it.reset(chapterName = chapter?.name).copy(draft = "", origins = describe()) }
+        mutableState.update {
+            it.reset(chapterName = chapter?.name, chapterId = chapter?.id).copy(draft = "", origins = describe())
+        }
         if (autoLoad) show()
+        drainsChanged.update { it + 1 }
     }
 
     /**
@@ -243,6 +302,7 @@ class NovelComments(
      */
     fun prefetch(chapters: List<Chapter>) {
         if (commentScope != NovelCommentScope.CHAPTER || !autoLoad) return
+        prefetched = chapters
         val threads = contributors()
         chapters.forEach { chapter -> threads.forEach { (origin, feed) -> drainFor(origin, feed, chapter) } }
     }
@@ -261,6 +321,7 @@ class NovelComments(
                 drains.remove(key)
                 drain.job?.cancel()
             }
+        drainsChanged.update { it + 1 }
     }
 
     /**
@@ -633,7 +694,30 @@ class NovelComments(
         current: Int = generation,
         then: (NovelCommentsState) -> NovelCommentsState = { it },
     ) {
-        val threads = shown.map { it to it.pages.value }
+        val (thread, reviewCount, commentCount) = merge(shown.map { it to it.pages.value })
+        val described = describe()
+        // Asked again now the page has landed: a comments feed only reveals that it is carrying
+        // reviews once some have arrived, and the filter it offers has to appear with them.
+        val kinds = kindsOf(origins.filter { state.value.shows(it.source.id) })
+        mutableState.update {
+            if (current != generation) return@update it
+            val counted = it.copy(
+                origins = described,
+                kinds = kinds,
+                reviewCount = reviewCount,
+                commentCount = commentCount,
+            )
+            then(counted.withThread(thread, collapseNew))
+        }
+    }
+
+    /**
+     * Several threads as one, filtered, ordered and counted as the filters on the sheet say.
+     *
+     * @param onSheet whether these are the threads the sheet shows, whose failure it names and offers
+     * to open; a preview's failure is no business of the sheet's.
+     */
+    private fun merge(threads: List<Pair<Drain, NovelCommentThread>>, onSheet: Boolean = true): Merged {
         val merged = threads.size > 1
         val arrived = threads.any { (_, thread) -> thread.loaded }
         val done = threads.all { (_, thread) -> thread.done }
@@ -669,23 +753,14 @@ class NovelComments(
             hasMore = threads.any { (_, thread) -> thread.hasMore },
             // A thread that failed while the rest are still on their way is not yet the sheet's
             // failure: its error would stand in the place of comments that are about to arrive.
-            failure = failed?.takeIf { arrived || done }?.let { (drain, thread) -> failureOf(drain, thread.failure!!) },
+            failure = failed?.takeIf { arrived || done }?.let { (drain, thread) ->
+                if (onSheet) failureOf(drain, thread.failure!!) else thread.failure
+            },
         )
-        val described = describe()
-        // Asked again now the page has landed: a comments feed only reveals that it is carrying
-        // reviews once some have arrived, and the filter it offers has to appear with them.
-        val kinds = kindsOf(origins.filter { state.value.shows(it.source.id) })
-        mutableState.update {
-            if (current != generation) return@update it
-            val counted = it.copy(
-                origins = described,
-                kinds = kinds,
-                reviewCount = reviewCount,
-                commentCount = commentCount,
-            )
-            then(counted.withThread(thread, collapseNew))
-        }
+        return Merged(thread, reviewCount, commentCount)
     }
+
+    private data class Merged(val thread: NovelCommentThread, val reviewCount: Int, val commentCount: Int)
 
     /**
      * What the filters allow, and what the threads they let through can do.
@@ -808,6 +883,9 @@ class NovelComments(
                     origins = origins.filter { it.own } + found.values
                     mutableState.update { it.configured() }
                     if (loadJob?.isActive == true || shown.isEmpty()) show()
+                    // The chapters either side want this source too, or their previews would be
+                    // missing it until the reader turned to them.
+                    prefetch(prefetched)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -830,6 +908,7 @@ class NovelComments(
         return Drain(origin, feed).also { drain ->
             drains[key] = drain
             drain.job = scope.launch { start(drain, chapter) }
+            drainsChanged.update { it + 1 }
         }
     }
 

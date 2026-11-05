@@ -273,6 +273,10 @@ class NovelReaderPreferences(
     val commentsAutoLoad: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_comments_auto_load", true)
 
+    /** The chapter's top three comments under its last line, as Webnovel sets them. */
+    val commentsPreview: Preference<Boolean> =
+        preferenceStore.getBoolean("leaf_novel_comments_preview", true)
+
     /** Starts every thread folded, which turns a long one into a table of contents. */
     val commentsCollapseReplies: Preference<Boolean> =
         preferenceStore.getBoolean("leaf_novel_comments_collapse_replies", false)

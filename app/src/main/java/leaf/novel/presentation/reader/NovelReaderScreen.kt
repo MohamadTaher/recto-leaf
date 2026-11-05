@@ -52,13 +52,18 @@ import androidx.core.content.getSystemService
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
@@ -79,6 +84,7 @@ import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
 import leaf.novel.ui.reader.NovelReadingTime
 import leaf.novel.ui.reader.NovelTextReplacements
+import leaf.novel.ui.reader.comments.NovelCommentPreview
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderColors
@@ -89,6 +95,7 @@ import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelStatusBarTap
 import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.domain.chapter.model.Chapter
@@ -268,6 +275,7 @@ fun NovelReaderScreen(
             .distinctUntilChanged()
     }.collectAsState(initial = false)
     val commentsOffered = commentsAllowed && commentsSupported
+    val commentsPreview by viewModel.novelReaderPreferences.commentsPreview.collectAsState()
 
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
@@ -619,6 +627,7 @@ fun NovelReaderScreen(
                             publisherFormatting = publisherFormatting,
                             style = style,
                             colors = colors,
+                            commentPreview = commentsOffered && commentsPreview,
                             percentRead = livePercent,
                             onPercentChange = { visiblePercent = it },
                             speechChapterId = state.speechPosition?.chapterId,
@@ -673,7 +682,11 @@ fun NovelReaderScreen(
                             },
                             onLongPress = ::performLongPress,
                             onInternalLink = { entry ->
-                                viewModel.chapterIndexByEntry(entry)?.let(::openChapter)
+                                if (entry == NovelCommentPreview.ENTRY) {
+                                    performAction(NovelReaderAction.COMMENTS)
+                                } else {
+                                    viewModel.chapterIndexByEntry(entry)?.let(::openChapter)
+                                }
                             },
                             onExternalLink = { uriHandler.openUri(it) },
                         )
@@ -983,6 +996,8 @@ private fun ChapterContent(
     publisherFormatting: Boolean,
     style: NovelReaderStyle,
     colors: NovelReaderColors,
+    /** Whether the chapter's top comments go under its last line. */
+    commentPreview: Boolean,
     percentRead: Int,
     onPercentChange: (Int) -> Unit,
     speechChapterId: Long?,
@@ -1056,6 +1071,8 @@ private fun ChapterContent(
                 NovelDocumentChapter(first.chapter.id, first.chapter.name, chapterContent)
             }
             val loadedPages = remember(startIndex) { mutableListOf(firstPage) }
+            // The sections in the document, for the comments written under each.
+            val sections = remember(startIndex) { MutableStateFlow(listOf(firstPage.id)) }
             var activeIndex by remember(startIndex) { mutableIntStateOf(startIndex) }
             // Not keyed on the colours: a theme change is swapped into the open page below,
             // where rebuilding the document would reload it.
@@ -1117,6 +1134,7 @@ private fun ChapterContent(
                     controller.appendChapter(
                         NovelReaderCss.chapterSection(page, style, colors, publisherFormatting),
                     )
+                    sections.value = loadedPages.map { it.id }
                 }
                 // Downwards, so the chapter the reader is about to scroll back into is the first
                 // to arrive. Without one above, reading back off the top has nothing to read.
@@ -1126,14 +1144,62 @@ private fun ChapterContent(
                     controller.prependChapter(
                         NovelReaderCss.chapterSection(page, style, colors, publisherFormatting),
                     )
+                    sections.value = loadedPages.map { it.id }
                 }
 
                 val window = chapters.subList(first, last + 1).mapTo(mutableSetOf()) { it.id }
                 if (loadedPages.any { it.id !in window }) {
                     loadedPages.removeAll { it.id !in window }
                     controller.keepChapters(loadedPages.map { it.id })
+                    sections.value = loadedPages.map { it.id }
                     viewModel.trimChapterCache(activeIndex)
                 }
+            }
+
+            // Each chapter's top comments under its last line, as Webnovel sets them, written in as
+            // soon as that chapter's comments arrive: the same fetch the sheet draws from. Collected
+            // rather than read as state, so a page of comments landing writes into the document and
+            // never recomposes it. Again for every document: a rebuilt one has lost what was written.
+            val context = LocalContext.current
+            val commentLabels = NovelCommentPreview.Labels(
+                title = stringResource(MR.strings.leaf_novel_comments),
+                count = {
+                    val res = if (it ==
+                        1
+                    ) {
+                        MR.strings.leaf_novel_comments_count_one
+                    } else {
+                        MR.strings.leaf_novel_comments_count
+                    }
+                    context.stringResource(res, it)
+                },
+                viewAll = stringResource(MR.strings.leaf_novel_comments_view_all),
+                load = stringResource(MR.strings.leaf_novel_comments_load),
+                spoiler = stringResource(MR.strings.leaf_novel_comments_spoiler),
+            )
+            LaunchedEffect(document, continuous, commentPreview) {
+                if (!continuous) return@LaunchedEffect
+                if (!commentPreview) {
+                    loadedPages.forEach { controller.showComments(it.id, "") }
+                    return@LaunchedEffect
+                }
+                val spoilerGuard = viewModel.novelReaderPreferences.commentsSpoilerGuard
+                // What each section was last given, so a page landing in one chapter rewrites only that one.
+                val written = HashMap<Long, String>()
+                combine(viewModel.comments.chapters, sections) { threads, ids ->
+                    ids to ids.mapNotNull { id ->
+                        threads[id]?.let { NovelCommentPreview.html(it, commentLabels, spoilerGuard.get()) }
+                            ?.let { id to it }
+                    }
+                }
+                    .flowOn(Dispatchers.Default)
+                    .collect { (ids, previews) ->
+                        // A section that left the document took its preview with it.
+                        written.keys.retainAll(ids.toSet())
+                        previews.forEach { (id, html) ->
+                            if (written.put(id, html) != html) controller.showComments(id, html)
+                        }
+                    }
             }
 
             NovelChapterWebView(

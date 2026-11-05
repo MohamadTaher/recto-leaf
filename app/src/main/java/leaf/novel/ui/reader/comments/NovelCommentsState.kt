@@ -199,6 +199,8 @@ data class NovelCommentsState(
     val posted: Int = 0,
 
     val chapterName: String? = null,
+    /** The chapter [roots] belong to, so a view kept beside the chapter can tell whose they are. */
+    val chapterId: Long? = null,
 ) {
 
     val isEmpty: Boolean get() = loaded && roots.isEmpty()
@@ -211,7 +213,7 @@ data class NovelCommentsState(
     }
 
     /** Everything cleared but the configuration, which survives a chapter turn and a re-sort. */
-    fun reset(chapterName: String? = this.chapterName) = copy(
+    fun reset(chapterName: String? = this.chapterName, chapterId: Long? = this.chapterId) = copy(
         roots = emptyList(),
         rows = emptyList(),
         collapsed = emptySet(),
@@ -229,6 +231,7 @@ data class NovelCommentsState(
         loaded = false,
         replyingTo = null,
         chapterName = chapterName,
+        chapterId = chapterId,
     )
 
     /** The thread, and the rows that go with it. Nothing else may set one without the other. */

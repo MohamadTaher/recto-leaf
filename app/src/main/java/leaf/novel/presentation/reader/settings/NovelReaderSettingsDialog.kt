@@ -499,6 +499,11 @@ private fun ColumnScope.MiscellaneousPage(
         )
 
         CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_preview),
+            pref = novelReaderPreferences.commentsPreview,
+        )
+
+        CheckboxItem(
             label = stringResource(MR.strings.leaf_novel_comments_setting_collapse),
             pref = novelReaderPreferences.commentsCollapseReplies,
         )

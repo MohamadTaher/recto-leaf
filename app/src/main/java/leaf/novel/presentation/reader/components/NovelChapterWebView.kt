@@ -183,6 +183,13 @@ private class NovelWebView(context: Context) : WebView(context) {
         chapterCommand(JSONObject().put("type", "speech").put("position", value).put("reveal", reveal).toString())
     }
 
+    /** Puts [html] under a chapter's last line in place of whatever was there; empty takes it away. */
+    fun showComments(chapterId: Long, html: String) {
+        chapterCommand(
+            JSONObject().put("type", "comments").put("id", chapterId.toString()).put("html", html).toString(),
+        )
+    }
+
     fun keepChapters(chapterIds: List<Long>) {
         val ids = JSONArray().apply { chapterIds.forEach { put(it.toString()) } }
         chapterCommand(JSONObject().put("type", "keep").put("ids", ids).toString())
@@ -409,6 +416,7 @@ fun NovelChapterWebView(
                     prependChapter = ::prependChapter,
                     scrollToChapter = ::scrollToChapter,
                     keepChapters = ::keepChapters,
+                    showComments = ::showComments,
                     highlightSpeech = ::highlightSpeech,
                     applyStylesheet = ::applyStylesheet,
                 )
@@ -796,7 +804,7 @@ private const val CHAPTER_SECURITY = """
 
 /**
  * Reports the titled section at the top of the viewport and accepts the commands that move the
- * window of loaded chapters around it: append, prepend, seek and keep. The
+ * window of loaded chapters around it: append, prepend, seek, keep and the comments under each. The
  * generated document's CSP permits this nonce-bearing script and refuses every script from book
  * content, so the bridge stays app-owned without depending on a recent WebView feature.
  */
@@ -826,6 +834,17 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         window.scrollBy(0, anchor.getBoundingClientRect().top - before);
       };
 
+      /**
+       * Where a section's text ends: the next section, or its own comments where it has them. The
+       * comments are not part of reading the chapter, so its progress is measured to just above them.
+       */
+      const endOf = (all, position) => {
+        const chapter = all[position];
+        const comments = chapter.querySelector(':scope > [data-leaf-comments]');
+        if (comments) return comments.offsetTop;
+        return position + 1 < all.length ? all[position + 1].offsetTop : chapter.offsetTop + chapter.offsetHeight;
+      };
+
       const sectionOf = html => {
         const template = document.createElement('template');
         template.innerHTML = html.trim();
@@ -851,9 +870,7 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         const last = atEnd ? all.length - 1 : active;
         for (let position = active; position <= last; position++) {
           const chapter = all[position];
-          const end = position + 1 < all.length
-            ? all[position + 1].offsetTop
-            : chapter.offsetTop + chapter.offsetHeight;
+          const end = endOf(all, position);
           const travel = Math.max(1, end - chapter.offsetTop - window.innerHeight);
           const percent = atEnd ? 100 : Math.max(0, Math.min(100,
             Math.round((window.scrollY - chapter.offsetTop) * 100 / travel)));
@@ -900,11 +917,20 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
             const position = all.findIndex(it => it.dataset.leafChapter === command.id);
             if (position >= 0) {
               const chapter = all[position];
-              const end = position + 1 < all.length
-                ? all[position + 1].offsetTop
-                : chapter.offsetTop + chapter.offsetHeight;
+              const end = endOf(all, position);
               const travel = Math.max(0, end - chapter.offsetTop - window.innerHeight);
               window.scrollTo(0, chapter.offsetTop + travel * command.percent / 100);
+            }
+          } else if (command.type === 'comments') {
+            // Any chapter's, as soon as its comments arrive, so one above the reader can grow: the
+            // words on screen are held where they are, as they are when a chapter is added above.
+            const all = chapters();
+            const chapter = all.find(it => it.dataset.leafChapter === command.id);
+            if (chapter) {
+              keepingPlace(all[activeIn(all)], () => {
+                chapter.querySelector(':scope > [data-leaf-comments]')?.remove();
+                if (command.html) chapter.insertAdjacentHTML('beforeend', command.html);
+              });
             }
           } else if (command.type === 'keep') {
             const all = chapters();

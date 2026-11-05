@@ -41,6 +41,7 @@ class NovelWebViewController {
     private var chapterScroller: ((Long, Int) -> Unit)? = null
     private var chapterKeeper: ((List<Long>) -> Unit)? = null
     private var styleApplier: ((String) -> Unit)? = null
+    private var commentsShower: ((Long, String) -> Unit)? = null
 
     /**
      * Moving by whole screenfuls, which the view supplies because only it knows which axis the
@@ -57,6 +58,7 @@ class NovelWebViewController {
         keepChapters: (List<Long>) -> Unit,
         highlightSpeech: (NovelSpeech.Position?, Boolean) -> Unit,
         applyStylesheet: (String) -> Unit,
+        showComments: (Long, String) -> Unit,
     ) {
         webView = view
         turner = turnPages
@@ -66,6 +68,7 @@ class NovelWebViewController {
         chapterKeeper = keepChapters
         speechHighlighter = highlightSpeech
         styleApplier = applyStylesheet
+        commentsShower = showComments
     }
 
     internal fun detach() {
@@ -77,6 +80,7 @@ class NovelWebViewController {
         chapterKeeper = null
         speechHighlighter = null
         styleApplier = null
+        commentsShower = null
     }
 
     /** Back one page, which in a paged chapter is one column and otherwise one viewport. */
@@ -119,6 +123,11 @@ class NovelWebViewController {
     /** Repaints the open document in [css], which is how a theme change avoids a reload. */
     fun applyStylesheet(css: String) {
         styleApplier?.invoke(css)
+    }
+
+    /** Writes a chapter's top comments under its last line, or with an empty [html] removes them. */
+    fun showComments(chapterId: Long, html: String) {
+        commentsShower?.invoke(chapterId, html)
     }
 
     /** Drops every section outside the window the reader is in, on either side of it. */
