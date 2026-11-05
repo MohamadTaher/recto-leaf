@@ -1256,6 +1256,8 @@
     <string name="leaf_novel_search_previous">Previous result</string>
     <string name="leaf_novel_search_next">Next result</string>
     <string name="leaf_novel_search_skipped">Chapters not downloaded, so not searched: %1$d</string>
+    <string name="leaf_novel_search_download">Download to search</string>
+    <string name="leaf_novel_search_downloading">Downloading, results appear as chapters arrive. Left: %1$d</string>
     <string name="leaf_novel_reader_heading_images">Images</string>
     <string name="leaf_novel_reader_image_size">Image size</string>
     <string name="leaf_novel_image_fit_width">Fit width</string>

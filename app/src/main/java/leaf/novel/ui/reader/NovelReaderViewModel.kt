@@ -24,6 +24,7 @@ import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.presentation.util.formatChapterNumber
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
+import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -35,11 +36,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -89,6 +94,7 @@ import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.i18n.MR
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 
@@ -190,7 +196,38 @@ class NovelReaderViewModel(
         },
         content = ::searchableContent,
         history = novelReaderPreferences.searchHistory,
+        arrivals = downloadManager.statusFlow()
+            .filter { it.manga.id == mangaId && it.status == Download.State.DOWNLOADED }
+            .map { it.chapter.id },
     )
+
+    /** How many of this novel's chapters are still waiting in the download queue. */
+    val searchDownloads: StateFlow<Int> = downloadManager.queueState
+        .map { queue -> queue.count { it.manga.id == mangaId && it.status != Download.State.DOWNLOADED } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /**
+     * Downloads what the search could not read, through the app's own downloader, so the search
+     * fills in as they land and every later one is local.
+     *
+     * The downloader queues a novel from its first chapter; these go to the front of the queue
+     * nearest the reader first, which is where the result being looked for most likely is.
+     */
+    fun downloadForSearch() {
+        val manga = state.value.manga ?: return
+        val skipped = search.skippedChapters()
+        val current = state.value.currentIndex
+        val wanted = state.value.chapters.withIndex()
+            .filter { it.value.id in skipped }
+            .sortedBy { abs(it.index - current) }
+            .map { it.value }
+        if (wanted.isEmpty()) return
+        viewModelScope.launch {
+            downloadManager.downloadChapters(manga, wanted)
+            val queued = downloadManager.queueState.value.associateBy { it.chapter.id }
+            downloadManager.addDownloadsToStartOfQueue(wanted.mapNotNull { queued[it.id] })
+        }
+    }
 
     private var provider: NovelContentProvider? = null
 

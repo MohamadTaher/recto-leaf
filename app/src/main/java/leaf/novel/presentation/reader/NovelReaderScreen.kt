@@ -995,9 +995,12 @@ fun NovelReaderScreen(
     }
 
     if (showSearch) {
+        val downloading by viewModel.searchDownloads.collectAsState()
         NovelSearchSheet(
             search = viewModel.search,
             currentIndex = state.currentIndex,
+            downloading = downloading,
+            onDownload = viewModel::downloadForSearch,
             onSelect = { result ->
                 showSearch = false
                 openResult(result)

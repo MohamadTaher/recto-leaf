@@ -83,6 +83,9 @@ import tachiyomi.presentation.core.util.secondaryItemAlpha
 fun NovelSearchSheet(
     search: NovelSearch,
     currentIndex: Int,
+    /** This novel's chapters still in the download queue. */
+    downloading: Int,
+    onDownload: () -> Unit,
     onSelect: (NovelSearchResult) -> Unit,
     onDismissRequest: () -> Unit,
 ) {
@@ -102,7 +105,7 @@ fun NovelSearchSheet(
             } else {
                 Spacer(Modifier.height(4.dp))
             }
-            Summary(state)
+            Summary(state, downloading, onDownload)
 
             val groups = remember(state.results) { state.results.groupBy { it.chapterIndex } }
             // Reopened, the list comes back on the result the reader went to, under its chapter.
@@ -238,28 +241,46 @@ private fun SearchOptions(state: NovelSearchState, search: NovelSearch) {
 
 /** How far the search has got, what it found, and what it could not look at. */
 @Composable
-private fun Summary(state: NovelSearchState) {
+private fun Summary(state: NovelSearchState, downloading: Int, onDownload: () -> Unit) {
     if (state.query.isBlank()) return
-    val lines = listOfNotNull(
-        when {
-            state.running -> stringResource(MR.strings.leaf_novel_search_progress, state.searched, state.toSearch)
-            state.total > state.results.size ->
-                stringResource(MR.strings.leaf_novel_search_results_capped, state.results.size, state.total)
-            state.total > 0 -> stringResource(MR.strings.leaf_novel_search_results, state.total, state.chapterCount)
-            else -> null
-        },
-        state.skipped.takeIf { it > 0 }?.let { stringResource(MR.strings.leaf_novel_search_skipped, it) },
-    )
-    lines.forEach {
-        Text(
-            text = it,
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier
-                .padding(horizontal = MaterialTheme.padding.medium, vertical = 2.dp)
-                .secondaryItemAlpha(),
-        )
+    val found = when {
+        state.running -> stringResource(MR.strings.leaf_novel_search_progress, state.searched, state.toSearch)
+        state.total > state.results.size ->
+            stringResource(MR.strings.leaf_novel_search_results_capped, state.results.size, state.total)
+        state.total > 0 -> stringResource(MR.strings.leaf_novel_search_results, state.total, state.chapterCount)
+        else -> null
+    }
+    found?.let { SummaryLine(it) }
+    if (state.skipped > 0) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SummaryLine(
+                text = if (downloading > 0) {
+                    stringResource(MR.strings.leaf_novel_search_downloading, downloading)
+                } else {
+                    stringResource(MR.strings.leaf_novel_search_skipped, state.skipped)
+                },
+                modifier = Modifier.weight(1f),
+            )
+            // Offered once the search has finished counting, and only until the download is under way.
+            if (!state.running && downloading == 0) {
+                TextButton(onClick = onDownload, modifier = Modifier.padding(end = MaterialTheme.padding.small)) {
+                    Text(stringResource(MR.strings.leaf_novel_search_download))
+                }
+            }
+        }
     }
     Spacer(Modifier.height(MaterialTheme.padding.extraSmall))
+}
+
+@Composable
+private fun SummaryLine(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        modifier = modifier
+            .padding(horizontal = MaterialTheme.padding.medium, vertical = 2.dp)
+            .secondaryItemAlpha(),
+    )
 }
 
 @Composable

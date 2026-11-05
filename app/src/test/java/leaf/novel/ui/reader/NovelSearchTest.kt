@@ -1,6 +1,7 @@
 package leaf.novel.ui.reader
 
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import leaf.novel.api.NovelChapterContent
@@ -106,6 +107,37 @@ class NovelSearchTest {
         done.results.size shouldBe NovelSearch.MAX_RESULTS
         done.chapterCount shouldBe 3
         done.results.first().position.chapterId shouldBe 1L
+    }
+
+    @Test
+    fun `a chapter that finishes downloading is searched and slots into reading order`() = runTest {
+        val chapters = (1L..3L).map(::chapter)
+        val downloaded = mutableSetOf(1L, 3L)
+        val arrivals = MutableSharedFlow<Long>()
+        val search = NovelSearch(
+            scope = backgroundScope,
+            chapters = { chapters },
+            currentIndex = { 0 },
+            rules = { "" },
+            content = { if (it.id in downloaded) page("<p>dragon in ${it.id}</p>") else null },
+            history = history(),
+            arrivals = arrivals,
+        )
+        search.setQuery("dragon")
+        search.state.first { it.toSearch > 0 && !it.running }.skipped shouldBe 1
+        search.skippedChapters() shouldBe setOf(2L)
+
+        downloaded += 2L
+        arrivals.emit(2L)
+        val after = search.state.first { it.skipped == 0 }
+        after.results.map { it.position.chapterId } shouldBe listOf(1L, 2L, 3L)
+        after.total shouldBe 3
+        after.chapterCount shouldBe 3
+        search.skippedChapters() shouldBe emptySet()
+
+        // Reported twice, it is not counted twice.
+        arrivals.emit(2L)
+        search.state.value.total shouldBe 3
     }
 
     @Test

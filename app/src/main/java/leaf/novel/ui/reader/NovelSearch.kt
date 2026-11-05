@@ -8,14 +8,17 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import leaf.novel.api.NovelChapterContent
 import org.jsoup.Jsoup
 import tachiyomi.core.common.preference.Preference
@@ -27,7 +30,9 @@ import tachiyomi.domain.chapter.model.Chapter
  *
  * Only chapters already on the device are read: an imported book, a download, or one this session
  * has fetched. Fetching the rest would be a request per chapter to a site that may be rate limiting,
- * for an answer the reader expects in seconds, so the state counts what was left out instead.
+ * for an answer the reader expects in seconds, so the state counts what was left out instead, and
+ * the reader can download those through the app's own downloader. Each one that [arrivals] reports
+ * is searched as it lands, and its results slot into place.
  *
  * Each result is a [NovelSpeech.Position] over the blocks speech and the page already number, so
  * the page can mark the very words that matched.
@@ -42,6 +47,8 @@ class NovelSearch(
     private val content: suspend (Chapter) -> NovelChapterContent?,
     /** Recent queries, newest first, one to a line. */
     private val history: Preference<String>,
+    /** Chapters as they finish downloading. */
+    arrivals: Flow<Long> = emptyFlow(),
 ) {
     private val mutableState = MutableStateFlow(NovelSearchState())
     val state: StateFlow<NovelSearchState> = mutableState.asStateFlow()
@@ -52,6 +59,17 @@ class NovelSearch(
         .stateIn(scope, SharingStarted.Eagerly, history.get().lines().filter(String::isNotBlank))
 
     private var job: Job? = null
+
+    /** The search the state holds, so a late arrival is never added to a newer one. */
+    private var generation = 0
+    private var pattern: Regex? = null
+
+    /** Chapters the current search could not read, which a download can still add. */
+    private val skippedIds = mutableSetOf<Long>()
+
+    init {
+        scope.launch { arrivals.collect(::arrived) }
+    }
 
     /** Each chapter's blocks, so typing on searches text already read. Dropped when the rules change. */
     private val blocks = object : LinkedHashMap<Long, List<String>>(16, 0.75f, true) {
@@ -94,6 +112,35 @@ class NovelSearch(
 
     fun clearHistory() = history.delete()
 
+    /** What the current search left out for not being on the device. */
+    fun skippedChapters(): Set<Long> = skippedIds.toSet()
+
+    private fun arrived(chapterId: Long) {
+        if (!skippedIds.remove(chapterId)) return
+        val pattern = pattern ?: return
+        val searching = generation
+        val index = chapters().indexOfFirst { it.id == chapterId }
+        val chapter = chapters().getOrNull(index) ?: return
+        scope.launch {
+            val found = withContext(Dispatchers.Default) {
+                blocksOf(chapter, rules())?.let { search(it, pattern, chapter, index) }
+            }
+            if (searching != generation) return@launch
+            if (found == null) {
+                skippedIds += chapterId
+                return@launch
+            }
+            mutableState.update {
+                it.copy(
+                    results = (it.results + found).sortedWith(READING_ORDER).take(MAX_RESULTS),
+                    total = it.total + found.size,
+                    chapterCount = it.chapterCount + if (found.isEmpty()) 0 else 1,
+                    skipped = it.skipped - 1,
+                )
+            }
+        }
+    }
+
     private fun setOptions(change: (NovelSearchState) -> NovelSearchState) {
         mutableState.update(change)
         restart(debounce = false)
@@ -101,8 +148,11 @@ class NovelSearch(
 
     private fun restart(debounce: Boolean) {
         job?.cancel()
+        generation++
+        skippedIds.clear()
         val request = state.value
         val pattern = patternOf(request.query, request.matchCase, request.wholeWords)
+        this.pattern = pattern
         if (pattern == null) {
             mutableState.update { NovelSearchState(it.query, it.wholeBook, it.matchCase, it.wholeWords) }
             return
@@ -135,10 +185,13 @@ class NovelSearch(
                     async(Dispatchers.Default) { blocksOf(chapter, rules)?.let { search(it, pattern, chapter, index) } }
                 }.awaitAll()
                 ensureActive()
+                chunk.zip(found).forEach { (target, results) -> if (results == null) skippedIds += target.value.id }
                 mutableState.update { state ->
-                    val room = (MAX_RESULTS - state.results.size).coerceAtLeast(0)
                     state.copy(
-                        results = state.results + found.filterNotNull().flatten().take(room),
+                        // Sorted rather than appended: a download may have slotted in a later chapter.
+                        results = (state.results + found.filterNotNull().flatten())
+                            .sortedWith(READING_ORDER)
+                            .take(MAX_RESULTS),
                         total = state.total + found.sumOf { it?.size ?: 0 },
                         chapterCount = state.chapterCount + found.count { !it.isNullOrEmpty() },
                         searched = state.searched + chunk.size,
@@ -173,6 +226,12 @@ class NovelSearch(
     companion object {
         /** Enough for any phrase worth finding; a word on every page is better refined than listed. */
         const val MAX_RESULTS = 2_000
+
+        private val READING_ORDER = compareBy<NovelSearchResult>(
+            { it.chapterIndex },
+            { it.position.block },
+            { it.position.start },
+        )
 
         private const val DEBOUNCE_MS = 250L
         private const val HISTORY_SIZE = 8
