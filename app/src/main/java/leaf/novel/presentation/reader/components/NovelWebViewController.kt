@@ -33,7 +33,8 @@ class NovelWebViewController {
     }
 
     private var webView: WebView? = null
-    private var activeQuery: String? = null
+    private var pendingMatch: NovelSpeech.Position? = null
+    private var matchMarked = false
     private var speechHighlight: NovelSpeech.Position? = null
     private var speechHighlighter: ((NovelSpeech.Position?, Boolean) -> Unit)? = null
     private var chapterAppender: ((String) -> Unit)? = null
@@ -144,45 +145,36 @@ class NovelWebViewController {
     /**
      * Which screenful of the chapter is showing, as the view reports its own scrolling.
      *
-     * Observable state for the same reason [findMatches] is: only the mini status bar displays it,
-     * and threading a second progress callback down through the screen would be plumbing for one
-     * short label.
+     * Observable state because only the mini status bar displays it, and threading a second
+     * progress callback down through the screen would be plumbing for one short label.
      */
     var screens: NovelStatusLine.Screens by mutableStateOf(NovelStatusLine.Screens.NONE)
         internal set
 
     /**
-     * Matches from the last search: which one is showing, and how many there are.
+     * Marks one search result and brings it into view, with the same mark speech uses.
      *
-     * Reported by the view as it counts, so it climbs while a long chapter is scanned.
+     * With [afterLoad] the chapter is about to be opened, so the mark waits for it to load and
+     * settle where its saved position puts it; sent now, it would reach the document being left.
      */
-    var findMatches: FindMatches by mutableStateOf(FindMatches.NONE)
-        internal set
-
-    /**
-     * Searches the chapter for [query], highlighting every match and scrolling to the first.
-     *
-     * Ordinary search uses the view's find-in-page; speech follows its own source locations.
-     */
-    fun find(query: String) {
+    fun showMatch(match: NovelSpeech.Position, afterLoad: Boolean) {
         trackManualProgress()
         speechHighlight = null
-        speechHighlighter?.invoke(null, false)
-        activeQuery = query
-        webView?.findAllAsync(query)
+        matchMarked = true
+        if (afterLoad) {
+            pendingMatch = match
+        } else {
+            pendingMatch = null
+            speechHighlighter?.invoke(match, false)
+        }
     }
 
-    /** Steps to the next match, wrapping at the ends. */
-    fun findNext(forward: Boolean) {
-        trackManualProgress()
-        webView?.findNext(forward)
-    }
-
-    /** Drops the highlighting. A stale highlight outliving its search is the bug to avoid here. */
-    fun clearFind() {
-        activeQuery = null
-        findMatches = FindMatches.NONE
-        if (speechHighlight == null) webView?.clearMatches()
+    /** Takes the mark off again, which the next tap on the page does. */
+    fun clearMatch() {
+        pendingMatch = null
+        if (!matchMarked) return
+        matchMarked = false
+        if (speechHighlight == null) speechHighlighter?.invoke(null, true)
     }
 
     /** Highlights only the chapter and block belonging to the spoken unit. */
@@ -190,9 +182,8 @@ class NovelWebViewController {
         tracksScrollProgress = false
         if (speechHighlight == highlight) return
         speechHighlight = highlight
-        activeQuery = null
-        findMatches = FindMatches.NONE
-        webView?.clearMatches()
+        pendingMatch = null
+        matchMarked = false
         speechHighlighter?.invoke(highlight, false)
     }
 
@@ -202,41 +193,26 @@ class NovelWebViewController {
      * The page follows speech only while the reader is composed, so speech that ended with the
      * screen off left it where the voice started, and the first drag would save that spot over
      * speech's progress. Where the page did follow, the place is already on screen and nothing moves.
+     * With nothing marked and nowhere to go it sends nothing, so a search result's mark is left be.
      */
     fun clearSpeechHighlight(stoppedAt: NovelSpeech.Position? = null) {
+        val marked = speechHighlight != null
         speechHighlight = null
-        speechHighlighter?.invoke(stoppedAt.takeUnless { tracksScrollProgress }, true)
-        webView?.clearMatches()
-        activeQuery?.let { webView?.findAllAsync(it) }
-    }
-
-    /** Search callbacks cannot move the independent speech highlight. */
-    internal fun onFindResult(activeMatchOrdinal: Int, numberOfMatches: Int) {
-        if (speechHighlight != null) return
-        findMatches = FindMatches(activeMatchOrdinal, numberOfMatches)
+        val target = stoppedAt.takeUnless { tracksScrollProgress }
+        if (marked || target != null) speechHighlighter?.invoke(target, true)
     }
 
     /**
-     * Runs the search again after the document has been rebuilt.
+     * Puts the speech highlight back after the document has been rebuilt, or shows the search
+     * result the new chapter was opened for.
      *
-     * Changing a style setting reloads the page, which takes the highlighting and the count with
-     * it. Without this the bar would sit there holding a query with nothing highlighted and no
-     * matches counted, which reads as a search that found nothing.
+     * Changing a style setting reloads the page, which takes the highlighting with it. A search
+     * mark is shown once, on the load it was waiting for; a later reload drops it rather than pull
+     * the reader back to a place they have since read on from.
      */
-    internal fun reapplyFind() {
-        findMatches = FindMatches.NONE
-        val highlight = speechHighlight
-        if (highlight != null) {
-            speechHighlighter?.invoke(highlight, false)
-        } else {
-            activeQuery?.let { webView?.findAllAsync(it) }
-        }
-    }
-}
-
-/** How many matches a search found and which of them is showing, both as the view reports them. */
-data class FindMatches(val activeOrdinal: Int, val total: Int) {
-    companion object {
-        val NONE = FindMatches(activeOrdinal = 0, total = 0)
+    internal fun reapplyHighlight() {
+        val highlight = speechHighlight ?: pendingMatch
+        pendingMatch = null
+        if (highlight != null) speechHighlighter?.invoke(highlight, false) else matchMarked = false
     }
 }

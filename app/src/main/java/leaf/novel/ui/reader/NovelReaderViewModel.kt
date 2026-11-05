@@ -180,6 +180,18 @@ class NovelReaderViewModel(
         cache = NovelCommentCache.shared,
     )
 
+    /** The book search, which reads only what is already on the device; see [searchableContent]. */
+    val search = NovelSearch(
+        scope = viewModelScope,
+        chapters = { state.value.chapters },
+        currentIndex = { state.value.currentIndex },
+        rules = {
+            NovelTextReplacements.combine(novelReaderPreferences.textReplacements.get(), novelTextReplacements())
+        },
+        content = ::searchableContent,
+        history = novelReaderPreferences.searchHistory,
+    )
+
     private var provider: NovelContentProvider? = null
 
     /** Chapter bodies already fetched for the open chapter and its three-chapter lookahead. */
@@ -380,6 +392,17 @@ class NovelReaderViewModel(
         val content: Result<NovelChapterContent>,
     )
 
+    /**
+     * A chapter for [search] when it can be had without the network: the whole of an imported
+     * book, a download, or a chapter already fetched this session.
+     */
+    private suspend fun searchableContent(chapter: Chapter): NovelChapterContent? {
+        chapterLoads[chapter.id]?.takeIf { it.isCompleted }?.await()?.getOrNull()?.let { return it }
+        val manga = state.value.manga ?: return null
+        if (provider is SourceContentProvider && !chapter.isDownloaded(manga)) return null
+        return loadChapter(chapter).getOrNull()
+    }
+
     /** Fetches one more chapter as a continuous document rolls its preload window forward. */
     suspend fun loadedChapter(index: Int): LoadedChapter? {
         val chapter = state.value.chapters.getOrNull(index) ?: return null
@@ -427,10 +450,10 @@ class NovelReaderViewModel(
         restoredChapterId = chapter.id
         restartReadTimer()
         // Comments belong to the chapter they are under, so crossing a boundary invalidates them
-        // exactly as it invalidates the search and the auto scroll below.
+        // exactly as it invalidates the auto scroll below.
         comments.setChapter(chapter)
-        // Neither auto scroll nor a search carries across a chapter boundary. Speech does, and a
-        // continuous document is one the reader crosses by scrolling, so neither stops there.
+        // Auto scroll does not carry across a chapter boundary. Speech does, and a continuous
+        // document is one the reader crosses by scrolling, so neither stops there.
         if (!continuous) stopSpeaking()
         stopSpeedReading()
         mutableState.update {
@@ -439,9 +462,9 @@ class NovelReaderViewModel(
                 chapters = if (continuous) it.chapters else it.chapters.openedAt(index),
                 currentIndex = index,
                 autoScrolling = it.autoScrolling && continuous,
-                searchQuery = it.searchQuery.takeIf { continuous },
             )
         }
+        search.chapterChanged()
         preloadChapters(index)
         // Here as well as where the page moves its window: a paged document has no window, and a
         // continuous one does not move it with the screen off, so hours of speech kept every chapter.
@@ -581,7 +604,6 @@ class NovelReaderViewModel(
         mutableState.update {
             it.copy(
                 autoScrolling = false,
-                searchQuery = null,
                 speechPosition = utterances[fromIndex],
                 speechIndex = fromIndex,
                 speechCount = utterances.size,
@@ -964,14 +986,6 @@ class NovelReaderViewModel(
     }
 
     /**
-     * A null query means the search bar is closed.
-     *
-     * The activity reads this before deciding whether to claim a key: a reader typing into the
-     * search field must not have their letters turned into page turns.
-     */
-    fun setSearchQuery(query: String?) = mutableState.update { it.copy(searchQuery = query) }
-
-    /**
      * Actions raised outside the composition — from the key handler — for the screen to perform.
      *
      * The dispatcher lives in the screen because most of what it does is Compose state. Keys are
@@ -1175,7 +1189,6 @@ class NovelReaderViewModel(
         val error: NovelReaderError? = null,
         val brightnessOverlayValue: Int = 0,
         val autoScrolling: Boolean = false,
-        val searchQuery: String? = null,
         val chapterWords: Int = 0,
         val speaking: Boolean = false,
         val speechPaused: Boolean = false,

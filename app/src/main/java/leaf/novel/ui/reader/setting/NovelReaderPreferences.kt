@@ -167,6 +167,10 @@ class NovelReaderPreferences(
     val textReplacements: Preference<String> =
         preferenceStore.getString("leaf_novel_text_replacements", "")
 
+    /** Recent book searches, newest first, one to a line. Private: not a setting to export. */
+    val searchHistory: Preference<String> =
+        preferenceStore.getString(Preference.privateKey("leaf_novel_search_history"), "")
+
     // region Format specific
 
     /**

@@ -83,6 +83,7 @@ import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
 import leaf.novel.ui.reader.NovelReadingTime
+import leaf.novel.ui.reader.NovelSearchResult
 import leaf.novel.ui.reader.NovelTextReplacements
 import leaf.novel.ui.reader.comments.NovelCommentPreview
 import leaf.novel.ui.reader.setting.NovelCustomTheme
@@ -142,6 +143,9 @@ fun NovelReaderScreen(
 
     var additionalOptionsExpanded by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
+    // The result last jumped to, while the reader can still step from it to the next.
+    var searchResult by remember { mutableStateOf<NovelSearchResult?>(null) }
     var showComments by rememberSaveable { mutableStateOf(false) }
     // A look, not a mode: it lasts until it is turned off again and stores nothing.
     var publisherFormatting by remember { mutableStateOf(false) }
@@ -207,6 +211,20 @@ fun NovelReaderScreen(
     fun closeSpeechControls() {
         viewModel.stopSpeaking()
         hideSpeechControls()
+    }
+
+    fun openResult(result: NovelSearchResult) {
+        val index = state.chapters.indexOfFirst { it.id == result.position.chapterId }
+        if (index < 0) return
+        searchResult = result
+        viewModel.search.select(result)
+        // Speech would take the page straight back to the line it is saying.
+        closeSpeechControls()
+        if (state.menuVisible) viewModel.toggleMenu()
+        // Opening another chapter rebuilds the document unless it already starts there.
+        val reload = index != state.currentIndex && result.position.chapterId != documentStartChapterId
+        if (index != state.currentIndex) openChapter(index)
+        webViewController.showMatch(result.position, afterLoad = reload)
     }
 
     // Manual reading and TTS both update the chapter's single tracked position in the ViewModel.
@@ -303,11 +321,7 @@ fun NovelReaderScreen(
                 showComments = true
             }
             NovelReaderAction.BOOK_INFORMATION -> onOpenEntry()
-            NovelReaderAction.SEARCH -> {
-                closeSpeechControls()
-                viewModel.showMenu()
-                viewModel.setSearchQuery("")
-            }
+            NovelReaderAction.SEARCH -> showSearch = true
             NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
             NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
             NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
@@ -411,13 +425,15 @@ fun NovelReaderScreen(
         viewModel.actions.collect { currentAction(it) }
     }
 
-    // Both of these hang off the chrome, so when it goes they go with it. An expanded menu left
-    // set would pop open on its own the next time the bar came back, and a search left open would
-    // go on swallowing the key bindings with nothing on screen to explain why.
+    // The expanded menu hangs off the chrome, so when it goes it goes with it; left set it would pop
+    // open on its own the next time the bar came back. The tap that brings the bar back is also the
+    // reader being done with the search result they jumped to.
     LaunchedEffect(state.menuVisible) {
-        if (!state.menuVisible) {
+        if (state.menuVisible) {
+            webViewController.clearMatch()
+            searchResult = null
+        } else {
             additionalOptionsExpanded = false
-            viewModel.setSearchQuery(null)
         }
     }
 
@@ -434,22 +450,8 @@ fun NovelReaderScreen(
         if (!state.speaking) hideSpeechControls()
     }
 
-    // Back closes the search rather than the book, which is what the gesture means everywhere else.
-    BackHandler(enabled = state.searchQuery != null) {
-        viewModel.setSearchQuery(null)
-    }
-
-    BackHandler(
-        enabled = showSpeechControls && state.searchQuery == null,
-    ) {
+    BackHandler(enabled = showSpeechControls) {
         closeSpeechControls()
-    }
-
-    // Live find-in-page: every keystroke re-searches, and closing the bar drops the highlighting.
-    // A stale highlight outliving its search is the characteristic bug here.
-    LaunchedEffect(state.searchQuery) {
-        val query = state.searchQuery
-        if (query.isNullOrBlank()) webViewController.clearFind() else webViewController.find(query)
     }
 
     val autoScrollSpeed by viewModel.novelReaderPreferences.autoScrollSpeed.collectAsState()
@@ -821,10 +823,6 @@ fun NovelReaderScreen(
             onClickTopAppBar = onOpenEntry,
             bookmarked = chapter?.bookmark == true,
             onToggleBookmarked = viewModel::toggleBookmark,
-            searchQuery = state.searchQuery,
-            onChangeSearchQuery = viewModel::setSearchQuery,
-            findMatches = webViewController.findMatches,
-            onFindNext = { webViewController.findNext(it) },
             onPreviousChapter = { openChapter(state.currentIndex - 1) },
             enabledPrevious = state.currentIndex > 0,
             onNextChapter = { openChapter(state.currentIndex + 1) },
@@ -862,6 +860,24 @@ fun NovelReaderScreen(
                 )
             },
         )
+
+        searchResult?.let { shown ->
+            val results by viewModel.search.state.collectAsState()
+            NovelSearchNavigator(
+                results = results.results,
+                current = shown,
+                onOpen = ::openResult,
+                onShowList = { showSearch = true },
+                onClose = {
+                    searchResult = null
+                    webViewController.clearMatch()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = bottomPanelHeight + NovelStatusBarHeight + 12.dp)
+                    .navigationBarsPadding(),
+            )
+        }
 
         SnackbarHost(
             hostState = snackbarHostState,
@@ -975,6 +991,18 @@ fun NovelReaderScreen(
             comments = viewModel.comments,
             preferences = viewModel.novelReaderPreferences,
             onDismissRequest = { showComments = false },
+        )
+    }
+
+    if (showSearch) {
+        NovelSearchSheet(
+            search = viewModel.search,
+            currentIndex = state.currentIndex,
+            onSelect = { result ->
+                showSearch = false
+                openResult(result)
+            },
+            onDismissRequest = { showSearch = false },
         )
     }
 

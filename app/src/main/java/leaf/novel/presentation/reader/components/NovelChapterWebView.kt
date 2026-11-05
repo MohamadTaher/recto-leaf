@@ -420,9 +420,6 @@ fun NovelChapterWebView(
                     highlightSpeech = ::highlightSpeech,
                     applyStylesheet = ::applyStylesheet,
                 )
-                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
-                    controller.onFindResult(activeMatchOrdinal, numberOfMatches)
-                }
                 onScroll = { offset, range ->
                     if (!continuous) {
                         controller.screens = NovelStatusLine.screens(offset, range, viewportExtent)
@@ -476,9 +473,8 @@ fun NovelChapterWebView(
         // onScrollChanged only fires on a change, so a chapter opened at the top would leave the
         // status bar reading 1/1 until the first drag. Seed it from the settled measurement.
         controller.screens = NovelStatusLine.screens(view.scrollOffset, view.scrollRange, view.viewportExtent)
-        // The reload dropped any highlighting, so a search still open is run again over the
-        // rebuilt document rather than left showing nothing.
-        controller.reapplyFind()
+        // The reload dropped any highlighting, and a search result may be waiting for this chapter.
+        controller.reapplyHighlight()
 
         // A chapter shorter than the viewport can never be scrolled, so it is complete on sight.
         if (maxScroll <= 0 && !continuous) currentOnProgress(100)
