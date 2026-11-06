@@ -6,7 +6,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.text.format.DateFormat
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -29,9 +34,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import leaf.novel.ui.reader.NovelStatusLine
@@ -86,7 +95,8 @@ fun NovelStatusBar(
         NovelStatusItem.BATTERY to battery?.let { "$it%" },
         NovelStatusItem.CLOCK to clock,
         NovelStatusItem.REMAINING_TIME to stringResource(MR.strings.leaf_novel_reader_minutes_left, minutesRemaining),
-        NovelStatusItem.CHAPTER_NAME to chapterName,
+        // The bar has little room, and "Chapter" in front of the number says nothing it does not.
+        NovelStatusItem.CHAPTER_NAME to chapterName.replace(CHAPTER_PREFIX, ""),
         NovelStatusItem.POSITION_IN_CHAPTER to "(${screens.current}/${screens.total})",
         NovelStatusItem.CHAPTER_NUMBER to "$chapterNumber/$chapterCount",
         NovelStatusItem.CHAPTER_PERCENT to "$chapterPercent%",
@@ -102,18 +112,12 @@ fun NovelStatusBar(
             .background(Color(colors.background))
             .navigationBarsPadding(),
     ) {
-        // Enough to separate the bar from the last line of text without reading as a rule.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(DIVIDER_HEIGHT)
-                .background(foreground.copy(alpha = DIVIDER_ALPHA)),
-        )
+        ChapterProgress(fraction = chapterPercent / 100f, chapter = chapterNumber, color = foreground)
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(NovelStatusBarHeight - DIVIDER_HEIGHT)
+                .height(NovelStatusBarHeight - PROGRESS_HEIGHT)
                 .padding(horizontal = MaterialTheme.padding.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -146,6 +150,39 @@ fun NovelStatusBar(
             )
         }
     }
+}
+
+/**
+ * The edge between the page and the bar, filled as far as the reader has got through the chapter.
+ *
+ * Both the track and the fill are the page's text colour, so it is ink on every theme rather than
+ * an accent that suits one page and vanishes on another. It glides between positions so a page turn
+ * reads as filling rather than stepping — a spring, so a scroll that keeps moving the target is
+ * chased smoothly rather than restarted every frame — and snaps on a new chapter rather than draining back
+ * across the screen. The fill is read in the draw phase, so animating it never recomposes the bar.
+ */
+@Composable
+private fun ChapterProgress(fraction: Float, chapter: Int, color: Color) {
+    val progress = remember(chapter) { Animatable(fraction) }
+    LaunchedEffect(progress, fraction) {
+        progress.animateTo(fraction, spring(stiffness = Spring.StiffnessMediumLow))
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(PROGRESS_HEIGHT)
+            .drawBehind {
+                drawRect(color.copy(alpha = TRACK_ALPHA))
+                val filled = size.width * progress.value.coerceIn(0f, 1f)
+                val start = if (layoutDirection == LayoutDirection.Rtl) size.width - filled else 0f
+                drawRect(
+                    color = color.copy(alpha = CONTENT_ALPHA),
+                    topLeft = Offset(start, 0f),
+                    size = Size(filled, size.height),
+                )
+            },
+    )
 }
 
 /**
@@ -182,6 +219,8 @@ private fun RowScope.NovelStatusBarSection(
             color = color,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            // Scrolls when it does not fit, the way the comments sheet shows the chapter title.
+            modifier = Modifier.basicMarquee(repeatDelayMillis = 2_000),
         )
     }
 }
@@ -260,11 +299,16 @@ private fun clockText(): String {
     return text
 }
 
-private val DIVIDER_HEIGHT = 1.dp
+/** Thick enough to read as a fill at a glance, thin enough to still be the bar's edge. */
+private val PROGRESS_HEIGHT = 2.dp
 
-/** Legible without competing with the page: the bar is furniture, not text. */
+private val CHAPTER_PREFIX = Regex("""^\s*(chapter|ch\.?)\s*(?=\d)""", RegexOption.IGNORE_CASE)
+
+/** Legible without competing with the page: the bar is furniture, not text. The fill shares it. */
 private const val CONTENT_ALPHA = 0.6f
-private const val DIVIDER_ALPHA = 0.15f
+
+/** Enough to separate the bar from the last line of text without reading as a rule. */
+private const val TRACK_ALPHA = 0.12f
 
 /**
  * The middle gets half the bar because it carries the chapter name, which is the only item long

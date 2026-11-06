@@ -2,6 +2,7 @@ package leaf.novel.presentation.reader.comments
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,13 +13,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,7 +41,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -76,12 +76,8 @@ import leaf.novel.ui.reader.comments.NovelCommentReview
 import leaf.novel.ui.reader.comments.NovelCommentSpan
 import leaf.novel.ui.reader.comments.NovelCommentTree
 import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.automirroredrounded.ArrowForward
 import mihon.icons.materialsymbols.automirroredrounded.OpenInNew
-import mihon.icons.materialsymbols.rounded.ContentCopy
 import mihon.icons.materialsymbols.rounded.KeyboardArrowDown
-import mihon.icons.materialsymbols.rounded.KeyboardArrowUp
-import mihon.icons.materialsymbols.rounded.MoreVert
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
@@ -89,10 +85,10 @@ import tachiyomi.presentation.core.i18n.stringResource
  * One comment: a header row, the body beneath it, and the line that ties it to its replies — the
  * same shape whichever extension the comment came from.
  *
- * The header is one row, everything in it centred on the avatar: the name over the date on the
- * left, the rating over the extension on the right (the extension alone, in the rating's place,
- * when there is no rating), and the menu at the end. Whatever a site adds of its own to a user — a
- * tier, a title, a tagline — is left out, because no two sites mean the same thing by one.
+ * The header is one line centred on the avatar: the name and the date on the left, the rating and
+ * the extension on the right. Whatever a site adds of its own to a user — a tier, a title, a
+ * tagline — is left out, because no two sites mean the same thing by one. The site's page opens from
+ * the end of the vote row, and a long press on the text copies it.
  *
  * A tap anywhere on the header folds the comment down to that header alone, the way Reddit does, and
  * another opens it; a tap on the avatar's picture opens the picture instead.
@@ -124,7 +120,6 @@ fun NovelCommentItem(
     onToggleCollapsed: () -> Unit,
     onVote: (NovelCommentVote) -> Unit,
     onToggleReplies: () -> Unit,
-    onFocus: () -> Unit,
     /** The comment's page on its site, or its thread's when the source gives it none. */
     page: String?,
     onOpenPage: () -> Unit,
@@ -138,6 +133,7 @@ fun NovelCommentItem(
         expanded = !expanded
         if (!expanded) onShrink()
     }
+    val copy = { context.copyToClipboard(comment.author, NovelCommentMarkup.plainText(comment.body)) }
     val review = remember(comment.body) { NovelCommentReview.parse(comment.body) }
     val spans = remember(review.body, page) { NovelCommentMarkup.parse(review.body, page) }
     val hasSpoilers = remember(spans) { spans.any { it.spoiler } }
@@ -145,7 +141,6 @@ fun NovelCommentItem(
     // Per text block, as last laid out closed: its line count, and whether it ran past its share.
     val layouts = remember(comment.body) { mutableStateMapOf<Int, Pair<Int, Boolean>>() }
     var revealed by remember(comment.id) { mutableStateOf(false) }
-    var menuExpanded by remember { mutableStateOf(false) }
     var viewingAvatar by remember { mutableStateOf<String?>(null) }
     val hidden = (spoilerGuard || hasSpoilers) && !revealed
     val rating = (feedback.rating ?: review.rating).takeUnless { comment.deleted || hidden }
@@ -168,10 +163,13 @@ fun NovelCommentItem(
         modifier = modifier.fillMaxWidth()
             // A rule under the comment, except where its thread line carries on below it.
             .rule(ruled && !continues)
-            .padding(top = 10.dp, bottom = if (collapsed) 10.dp else 0.dp),
+            .padding(top = 12.dp, bottom = if (collapsed) 12.dp else 0.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(HEADER_HEIGHT).clickable(onClick = onToggleCollapsed),
+            // As tall as the avatar, so the text starts right under the name the way YouTube sets it,
+            // and taller only when a large font needs the room.
+            modifier = Modifier.fillMaxWidth().heightIn(min = avatar).height(IntrinsicSize.Min)
+                .clickable(onClick = onToggleCollapsed),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -203,102 +201,48 @@ fun NovelCommentItem(
                 stringResource(MR.strings.leaf_novel_comments_pinned).takeIf { comment.pinned },
                 "+$hiddenCount".takeIf { collapsed && hiddenCount > 0 },
             )
-            val source: (@Composable () -> Unit)? = sourceName?.let { { HeaderLabel(it) } }
-            HeaderGrid(
+            // One line, level with the avatar the way Reddit sets it: the name and the date on the
+            // left, the rating (or the site's verdict) and the extension on the right.
+            HeaderRow(
                 modifier = Modifier.weight(1f),
-                topStart = {
-                    Text(
-                        text = if (comment.deleted) {
-                            stringResource(MR.strings.leaf_novel_comments_deleted)
-                        } else {
-                            comment.author
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (comment.byUploader) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                },
-                // The rating's place: the stars, else the site's verdict, else the extension.
-                topEnd = rating?.let { { NovelCommentRatingRow(it) } }
-                    ?: verdict?.let { { NovelCommentReactionRow(it) } }
-                    ?: source,
-                bottomStart = details.takeIf { it.isNotEmpty() }?.let { { HeaderLabel(it.joinToString(" · ")) } },
-                bottomEnd = source.takeIf { rating != null || verdict != null },
-            )
-            Box {
-                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        MaterialSymbols.Rounded.MoreVert,
-                        stringResource(MR.strings.action_menu_overflow_description),
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-                // A narrow column of small icons: the platform menu rather than the app's, which is
-                // fixed at the width of a menu of words.
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                    shape = RoundedCornerShape(20.dp),
-                ) {
-                    @Composable
-                    fun Action(title: String, icon: ImageVector, onClick: () -> Unit) {
-                        IconButton(
-                            onClick = {
-                                menuExpanded = false
-                                onClick()
+                start = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (comment.deleted) {
+                                stringResource(MR.strings.leaf_novel_comments_deleted)
+                            } else {
+                                comment.author
                             },
-                            modifier = Modifier.padding(horizontal = 4.dp).size(MENU_BUTTON),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (comment.byUploader) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (details.isNotEmpty()) HeaderLabel(details.joinToString(" · ", prefix = " · "))
+                    }
+                },
+                end = if (rating != null || verdict != null || sourceName != null) {
+                    {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Icon(
-                                icon,
-                                title,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(MENU_ICON),
-                            )
+                            when {
+                                rating != null -> NovelCommentRatingRow(rating)
+                                verdict != null -> NovelCommentReactionRow(verdict)
+                            }
+                            sourceName?.let { HeaderLabel(it) }
                         }
                     }
-                    if (collapsed) {
-                        Action(
-                            stringResource(MR.strings.leaf_novel_comments_expand),
-                            MaterialSymbols.Rounded.KeyboardArrowDown,
-                            onToggleCollapsed,
-                        )
-                    } else {
-                        Action(
-                            stringResource(MR.strings.leaf_novel_comments_collapse),
-                            MaterialSymbols.Rounded.KeyboardArrowUp,
-                            onToggleCollapsed,
-                        )
-                    }
-                    if (comment.replies.isNotEmpty() || comment.replyCount > 0) {
-                        Action(
-                            stringResource(MR.strings.leaf_novel_comments_focus),
-                            MaterialSymbols.AutoMirroredRounded.ArrowForward,
-                            onFocus,
-                        )
-                    }
-                    if (!comment.deleted) {
-                        Action(
-                            stringResource(MR.strings.action_copy_to_clipboard),
-                            MaterialSymbols.Rounded.ContentCopy,
-                        ) {
-                            context.copyToClipboard(comment.author, NovelCommentMarkup.plainText(comment.body))
-                        }
-                    }
-                    if (page != null) {
-                        Action(
-                            stringResource(MR.strings.action_open_in_web_view),
-                            MaterialSymbols.AutoMirroredRounded.OpenInNew,
-                            onOpenPage,
-                        )
-                    }
-                }
-            }
+                } else {
+                    null
+                },
+            )
         }
 
         viewingAvatar?.let { url ->
@@ -322,7 +266,7 @@ fun NovelCommentItem(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(top = 2.dp, bottom = if (threaded && !continues) 0.dp else 6.dp),
+                    .padding(bottom = if (threaded && !continues) 0.dp else 8.dp),
             ) {
                 when {
                     comment.deleted -> Unit
@@ -364,21 +308,20 @@ fun NovelCommentItem(
                                             MaterialTheme.colorScheme.primary,
                                             MaterialTheme.colorScheme.onSurfaceVariant,
                                         ),
-                                        // bodyLarge's own leading is set for paragraphs of prose; a
-                                        // comment is a few lines, and reads as one block with the
-                                        // lines closer together.
-                                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.3.em),
+                                        // YouTube's comment size: 14sp on a 20sp line.
+                                        style = MaterialTheme.typography.bodyMedium,
                                         maxLines = maxLines,
                                         overflow = TextOverflow.Ellipsis,
                                         onTextLayout = {
                                             val layout = it.lineCount to it.hasVisualOverflow
                                             if (!expanded && layouts[index] != layout) layouts[index] = layout
                                         },
-                                        modifier = Modifier.clickable(
-                                            enabled = expanded || long,
+                                        // A long press copies the whole comment.
+                                        modifier = Modifier.combinedClickable(
                                             interactionSource = null,
                                             indication = null,
-                                            onClick = toggleBody,
+                                            onLongClick = copy,
+                                            onClick = { if (expanded || long) toggleBody() },
                                         ),
                                     )
                                 }
@@ -403,7 +346,22 @@ fun NovelCommentItem(
                     }
                 }
                 if (!comment.deleted) {
-                    NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            NovelCommentFeedbackRow(comment, feedback, capabilities, voting, onVote)
+                        }
+                        if (page != null) {
+                            IconButton(onClick = onOpenPage, modifier = Modifier.size(32.dp)) {
+                                Icon(
+                                    MaterialSymbols.AutoMirroredRounded.OpenInNew,
+                                    stringResource(MR.strings.action_open_in_web_view),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
                     // Whatever was promoted to the header is not repeated down here.
                     val remaining = feedback.reactions.filter { it !== verdict }
                     if (remaining.isNotEmpty()) {
@@ -517,30 +475,6 @@ fun NovelCommentRepliesRow(
     }
 }
 
-/**
- * The header beside the avatar, as two rows: the name with the rating across the top, the date with
- * the extension across the bottom.
- *
- * Rows rather than two side-by-side columns, because what has to line up is across: the date and
- * the extension are one line and are centred on it together, whatever either side is set in. Each
- * row takes half the height; with nothing for the bottom row, the top one takes the whole height
- * and sits level with the avatar.
- */
-@Composable
-private fun HeaderGrid(
-    topStart: @Composable () -> Unit,
-    topEnd: (@Composable () -> Unit)?,
-    bottomStart: (@Composable () -> Unit)?,
-    bottomEnd: (@Composable () -> Unit)?,
-    modifier: Modifier = Modifier,
-) {
-    val twoRows = bottomStart != null || bottomEnd != null
-    Column(modifier = modifier.fillMaxHeight()) {
-        HeaderRow(topStart, topEnd, Modifier.weight(1f))
-        if (twoRows) HeaderRow(bottomStart, bottomEnd, Modifier.weight(1f))
-    }
-}
-
 @Composable
 private fun HeaderRow(
     start: (@Composable () -> Unit)?,
@@ -562,7 +496,8 @@ private fun HeaderLabel(text: String) {
         text = text,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        style = MaterialTheme.typography.labelSmall,
+        // The name's size, so the name and the date read as one line, as on YouTube.
+        style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
@@ -690,19 +625,16 @@ private fun Modifier.rule(visible: Boolean): Modifier {
 }
 
 /** A top-level comment's avatar, and the smaller one every reply gets, as YouTube does. */
-private fun avatarSize(depth: Int): Dp = if (depth == 0) 32.dp else 24.dp
+private fun avatarSize(depth: Int): Dp = if (depth == 0) 24.dp else 20.dp
 
-private val GAP = 10.dp
+private val GAP = 12.dp
 
 /** How many lines of text a closed comment shows. */
 private const val COLLAPSED_LINES = 4
-private val HEADER_HEIGHT = 40.dp
 private val REPLIES_ROW_HEIGHT = 32.dp
 private val REPLIES_ROW_GAP = 8.dp
 private val LINE = 1.5.dp
 private val ELBOW = 10.dp
-private val MENU_BUTTON = 32.dp
-private val MENU_ICON = 16.dp
 private const val DIVIDER_ALPHA = 0.7f
 private const val DIVIDER_FADE = 0.18f
 

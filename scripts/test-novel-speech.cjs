@@ -169,6 +169,38 @@ const script = source.split('internal const val NOVEL_SPEECH_SCRIPT = """')[1].s
       type: 'speech', reveal: true, position: { chapterId: '21', block: 0, start: 0, text: 'Yes.' },
     })));
     assert.equal(await bridgePage.evaluate(() => CSS.highlights.has('recto-leaf-speech')), false);
+
+    // A chapter's comments go under its text, replace one another, and are not part of its progress.
+    const comments = await bridgePage.evaluate(() => {
+      const command = value => window.rectoLeafChapters.command(JSON.stringify(value));
+      const chapter = document.querySelector('[data-leaf-chapter="20"]');
+      chapter.firstElementChild.style.height = '3000px';
+      const block = height => `<a data-leaf-comments style="display:block;height:${height}px">Top</a>`;
+      command({ type: 'comments', id: '20', html: block(500) });
+      command({ type: 'comments', id: '20', html: block(2000) });
+      const count = chapter.querySelectorAll('[data-leaf-comments]').length;
+      const last = chapter.lastElementChild.hasAttribute('data-leaf-comments');
+      command({ type: 'scroll', id: '20', percent: 100 });
+      const end = chapter.querySelector('[data-leaf-comments]').offsetTop - window.innerHeight;
+      const landed = Math.round(window.scrollY) === Math.round(end);
+      command({ type: 'comments', id: '20', html: '' });
+      return { count, last, landed, removed: chapter.querySelector('[data-leaf-comments]') === null };
+    });
+    assert.deepEqual(comments, { count: 1, last: true, landed: true, removed: true });
+
+    // Comments arriving under a chapter above the reader do not move the words they are reading.
+    const held = await bridgePage.evaluate(() => {
+      const command = value => window.rectoLeafChapters.command(JSON.stringify(value));
+      // The browser's own scroll anchoring would hide a missing correction, so it is off here.
+      document.documentElement.style.overflowAnchor = 'none';
+      const below = document.querySelector('[data-leaf-chapter="21"]');
+      below.firstElementChild.style.height = '3000px';
+      window.scrollTo(0, below.offsetTop + 500);
+      const before = below.getBoundingClientRect().top;
+      command({ type: 'comments', id: '20', html: '<a data-leaf-comments style="display:block;height:700px">Top</a>' });
+      return Math.round(below.getBoundingClientRect().top - before);
+    });
+    assert.equal(held, 0);
     assert.deepEqual(errors, []);
     console.log('PASS: repeated text, chapter scope, backward seeks, read-ahead, cancellation, stopped-position reveal, inline markup, mismatches, pagination, selection fallback and chapter bridge');
   } finally {

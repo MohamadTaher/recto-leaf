@@ -40,6 +40,7 @@ import leaf.novel.ui.reader.setting.NovelTapGrid
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -180,6 +181,13 @@ private class NovelWebView(context: Context) : WebView(context) {
         } ?: JSONObject.NULL
         pendingChapterCommands.removeAll { JSONObject(it).optString("type") == "speech" }
         chapterCommand(JSONObject().put("type", "speech").put("position", value).put("reveal", reveal).toString())
+    }
+
+    /** Puts [html] under a chapter's last line in place of whatever was there; empty takes it away. */
+    fun showComments(chapterId: Long, html: String) {
+        chapterCommand(
+            JSONObject().put("type", "comments").put("id", chapterId.toString()).put("html", html).toString(),
+        )
     }
 
     fun keepChapters(chapterIds: List<Long>) {
@@ -331,6 +339,7 @@ fun NovelChapterWebView(
     onInternalLink: (String) -> Unit,
     onExternalLink: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onDrag: (distance: Float) -> Unit = {},
 ) {
     var webView by remember { mutableStateOf<NovelWebView?>(null) }
 
@@ -356,6 +365,7 @@ fun NovelChapterWebView(
     val currentOnPinch by rememberUpdatedState(onPinch)
     val currentOnEdgeDrag by rememberUpdatedState(onEdgeDrag)
     val currentOnPastEdge by rememberUpdatedState(onPastEdge)
+    val currentOnDrag by rememberUpdatedState(onDrag)
     val currentOnInternalLink by rememberUpdatedState(onInternalLink)
     val currentOnExternalLink by rememberUpdatedState(onExternalLink)
 
@@ -397,6 +407,7 @@ fun NovelChapterWebView(
                     onPinch = { currentOnPinch(it) },
                     onEdgeDrag = { edge, steps -> currentOnEdgeDrag(edge, steps) },
                     onPastEdge = { forward -> currentOnPastEdge(forward) },
+                    onDrag = { currentOnDrag(it) },
                 )
                 controller.attach(
                     view = this,
@@ -405,12 +416,10 @@ fun NovelChapterWebView(
                     prependChapter = ::prependChapter,
                     scrollToChapter = ::scrollToChapter,
                     keepChapters = ::keepChapters,
+                    showComments = ::showComments,
                     highlightSpeech = ::highlightSpeech,
                     applyStylesheet = ::applyStylesheet,
                 )
-                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
-                    controller.onFindResult(activeMatchOrdinal, numberOfMatches)
-                }
                 onScroll = { offset, range ->
                     if (!continuous) {
                         controller.screens = NovelStatusLine.screens(offset, range, viewportExtent)
@@ -464,9 +473,8 @@ fun NovelChapterWebView(
         // onScrollChanged only fires on a change, so a chapter opened at the top would leave the
         // status bar reading 1/1 until the first drag. Seed it from the settled measurement.
         controller.screens = NovelStatusLine.screens(view.scrollOffset, view.scrollRange, view.viewportExtent)
-        // The reload dropped any highlighting, so a search still open is run again over the
-        // rebuilt document rather than left showing nothing.
-        controller.reapplyFind()
+        // The reload dropped any highlighting, and a search result may be waiting for this chapter.
+        controller.reapplyHighlight()
 
         // A chapter shorter than the viewport can never be scrolled, so it is complete on sight.
         if (maxScroll <= 0 && !continuous) currentOnProgress(100)
@@ -570,6 +578,7 @@ private fun NovelWebView.attachTapDetector(
     onPinch: (Float) -> Unit,
     onEdgeDrag: (NovelTapGrid.Edge, Int) -> Boolean,
     onPastEdge: (forward: Boolean) -> Unit,
+    onDrag: (distance: Float) -> Unit,
 ) {
     val density = resources.displayMetrics.density
     val minSwipeDistancePx = NovelReaderSwipe.MIN_DISTANCE_DP * density
@@ -634,6 +643,7 @@ private fun NovelWebView.attachTapDetector(
                 distanceY: Float,
             ): Boolean {
                 if (e1 == null || isSelecting) return false
+                onDrag(max(abs(distanceX), abs(distanceY)))
 
                 // Scrolling on when the page has run out carries on into the next chapter. Nothing
                 // is consumed and nothing resists: it is an ordinary scroll that reached the end,
@@ -790,7 +800,7 @@ private const val CHAPTER_SECURITY = """
 
 /**
  * Reports the titled section at the top of the viewport and accepts the commands that move the
- * window of loaded chapters around it: append, prepend, seek and keep. The
+ * window of loaded chapters around it: append, prepend, seek, keep and the comments under each. The
  * generated document's CSP permits this nonce-bearing script and refuses every script from book
  * content, so the bridge stays app-owned without depending on a recent WebView feature.
  */
@@ -820,6 +830,17 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         window.scrollBy(0, anchor.getBoundingClientRect().top - before);
       };
 
+      /**
+       * Where a section's text ends: the next section, or its own comments where it has them. The
+       * comments are not part of reading the chapter, so its progress is measured to just above them.
+       */
+      const endOf = (all, position) => {
+        const chapter = all[position];
+        const comments = chapter.querySelector(':scope > [data-leaf-comments]');
+        if (comments) return comments.offsetTop;
+        return position + 1 < all.length ? all[position + 1].offsetTop : chapter.offsetTop + chapter.offsetHeight;
+      };
+
       const sectionOf = html => {
         const template = document.createElement('template');
         template.innerHTML = html.trim();
@@ -845,9 +866,7 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
         const last = atEnd ? all.length - 1 : active;
         for (let position = active; position <= last; position++) {
           const chapter = all[position];
-          const end = position + 1 < all.length
-            ? all[position + 1].offsetTop
-            : chapter.offsetTop + chapter.offsetHeight;
+          const end = endOf(all, position);
           const travel = Math.max(1, end - chapter.offsetTop - window.innerHeight);
           const percent = atEnd ? 100 : Math.max(0, Math.min(100,
             Math.round((window.scrollY - chapter.offsetTop) * 100 / travel)));
@@ -894,11 +913,20 @@ private const val CHAPTER_OBSERVER_SCRIPT = """
             const position = all.findIndex(it => it.dataset.leafChapter === command.id);
             if (position >= 0) {
               const chapter = all[position];
-              const end = position + 1 < all.length
-                ? all[position + 1].offsetTop
-                : chapter.offsetTop + chapter.offsetHeight;
+              const end = endOf(all, position);
               const travel = Math.max(0, end - chapter.offsetTop - window.innerHeight);
               window.scrollTo(0, chapter.offsetTop + travel * command.percent / 100);
+            }
+          } else if (command.type === 'comments') {
+            // Any chapter's, as soon as its comments arrive, so one above the reader can grow: the
+            // words on screen are held where they are, as they are when a chapter is added above.
+            const all = chapters();
+            const chapter = all.find(it => it.dataset.leafChapter === command.id);
+            if (chapter) {
+              keepingPlace(all[activeIn(all)], () => {
+                chapter.querySelector(':scope > [data-leaf-comments]')?.remove();
+                if (command.html) chapter.insertAdjacentHTML('beforeend', command.html);
+              });
             }
           } else if (command.type === 'keep') {
             const all = chapters();

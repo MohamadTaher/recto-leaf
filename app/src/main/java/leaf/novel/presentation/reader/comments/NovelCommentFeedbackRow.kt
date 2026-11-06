@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -182,8 +183,10 @@ fun NovelCommentFeedbackRow(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 ),
-                // Shorter than a button's usual 40dp, so the row does not open a gap under the text.
-                modifier = Modifier.height(VOTE_HEIGHT).semantics {
+                // Shorter than a button's usual 40dp, so the row does not open a gap under the text,
+                // and as narrow as its content: a set minimum width stops Material's own 58dp from
+                // centring the thumb away from the text it sits under.
+                modifier = Modifier.height(VOTE_HEIGHT).widthIn(min = 1.dp).semantics {
                     contentDescription = description
                     selected = active
                 },

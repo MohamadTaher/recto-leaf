@@ -2,6 +2,7 @@ package leaf.novel.ui.reader
 
 import androidx.annotation.ColorInt
 import leaf.novel.api.NovelChapterContent
+import leaf.novel.ui.reader.comments.NovelCommentPreview
 import leaf.novel.ui.reader.setting.NovelReaderColors
 import leaf.novel.ui.reader.setting.NovelReaderStyle
 import org.jsoup.Jsoup
@@ -78,7 +79,7 @@ object NovelReaderCss {
         colors: NovelReaderColors,
         publisherFormatting: Boolean = false,
     ): String {
-        if (publisherFormatting) return publisherStylesheet(colors)
+        if (publisherFormatting) return publisherStylesheet(colors, style.paged)
 
         val background = colors.background.toCssColor()
         val foreground = colors.foreground.toCssColor()
@@ -189,6 +190,7 @@ object NovelReaderCss {
         }
         ${highlightRules(colors)}
         ::search-text { background: ${speechHighlight(colors)}; }
+        ${commentRules(colors, style.paged)}
         """.trimIndent()
     }
 
@@ -206,7 +208,7 @@ object NovelReaderCss {
         publisherFormatting: Boolean = false,
         chapterTitle: String? = null,
     ): String {
-        if (publisherFormatting) return publisherDocument(content, colors)
+        if (publisherFormatting) return publisherDocument(content, colors, style.paged)
 
         val bookHead = if (style.disableBookCss) "" else content.head
         // The reading aids rewrite the book's own markup, so they run before it is embedded.
@@ -346,7 +348,7 @@ object NovelReaderCss {
      * against the reader's background. The text colour is deliberately *not* `!important` here,
      * where everywhere else it is: a book that sets its own colours is showing them.
      */
-    private fun publisherDocument(content: NovelChapterContent, colors: NovelReaderColors): String {
+    private fun publisherDocument(content: NovelChapterContent, colors: NovelReaderColors, paged: Boolean): String {
         return """
             <!DOCTYPE html>
             <html>
@@ -355,7 +357,7 @@ object NovelReaderCss {
             <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
             ${content.head}
             <style id="$STYLE_ID">
-            ${publisherStylesheet(colors)}
+            ${publisherStylesheet(colors, paged)}
             </style>
             </head>
             <body>
@@ -365,13 +367,77 @@ object NovelReaderCss {
         """.trimIndent()
     }
 
-    private fun publisherStylesheet(colors: NovelReaderColors): String {
+    private fun publisherStylesheet(colors: NovelReaderColors, paged: Boolean): String {
         return """
             :root { color-scheme: ${if (isDark(colors.background)) "dark" else "light"}; }
             html { -webkit-text-size-adjust: 100%; background: none !important; }
             body { background: ${colors.background.toCssColor()} !important; color: ${colors.foreground.toCssColor()}; }
             img, svg, video { max-width: 100%; height: auto; }
             ${highlightRules(colors)}
+            ${commentRules(colors, paged)}
+        """.trimIndent()
+    }
+
+    /**
+     * The chapter's top comments under its last line, drawn at the sheet's sizes in the page's colours.
+     *
+     * Every declaration is `!important` and scoped under the preview's own class: the rules above
+     * restyle every descendant of the body, and a book's head can style anything, but none of either
+     * was written for this. Nothing while paged, where the preview is never written: its clipped
+     * text is the one thing in the stylesheet that hides overflow, and a page turn scrolls overflow.
+     */
+    private fun commentRules(colors: NovelReaderColors, paged: Boolean): String {
+        if (paged) return ""
+        val foreground = colors.foreground.toCssColor()
+        val muted = colors.foreground.withAlpha(ACCENT_ALPHA).toCssColor()
+        val faint = colors.foreground.withAlpha(FAINT_ALPHA).toCssColor()
+        val card = colors.foreground.withAlpha(CARD_ALPHA).toCssColor()
+        // The sheet's rule between comments: a hairline that fades out before either edge.
+        val rule = "linear-gradient(to right, transparent, $faint 18%, $faint 82%, transparent) " +
+            "top / 100% 1px no-repeat"
+        val root = ".${NovelCommentPreview.ROOT}"
+        return """
+        $root {
+          display: block !important; margin: 32px 0 8px !important; padding: 4px 12px !important;
+          border-radius: 12px; background-color: $card !important; color: $foreground !important;
+          font: normal normal 400 14px/20px sans-serif !important; letter-spacing: normal !important;
+          text-align: start !important; text-indent: 0 !important; text-decoration: none !important;
+          text-shadow: none !important; hyphens: manual !important;
+        }
+        $root * { color: $foreground !important; text-decoration: none !important; }
+        $root .${NovelCommentPreview.HEAD} {
+          display: flex !important; justify-content: space-between; align-items: center; gap: 12px;
+          padding: 8px 0 0; font-weight: 500 !important;
+        }
+        $root .${NovelCommentPreview.ITEM} { display: flex !important; gap: 12px; padding: 12px 0 8px; }
+        $root .${NovelCommentPreview.ITEM} + .${NovelCommentPreview.ITEM} { background: $rule; }
+        $root .${NovelCommentPreview.AVATAR} {
+          flex: none; width: 24px; height: 24px; border-radius: 50%; background-color: $faint !important;
+          font-size: 11px !important; line-height: 24px !important; font-weight: 500 !important; text-align: center !important;
+        }
+        $root .${NovelCommentPreview.MAIN} { flex: 1; min-width: 0; }
+        $root .${NovelCommentPreview.META} {
+          font-size: 12px !important; line-height: 24px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        $root .${NovelCommentPreview.META} *, $root .${NovelCommentPreview.META}, $root .${NovelCommentPreview.LIKES},
+        $root .${NovelCommentPreview.SPOILER} { color: $muted !important; }
+        $root .${NovelCommentPreview.TEXT} {
+          white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4;
+        }
+        $root .${NovelCommentPreview.SPOILER} { font-style: italic !important; }
+        $root .${NovelCommentPreview.LIKES} {
+          display: flex !important; align-items: center; gap: 6px; height: 32px; font-size: 12px !important; font-weight: 500 !important;
+        }
+        $root svg {
+          width: 18px !important; height: 18px !important; max-width: none !important; margin: 0 !important;
+          color: inherit !important;
+          fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+        }
+        $root .${NovelCommentPreview.ACTION} {
+          display: flex !important; align-items: center; gap: 2px; flex: none;
+          color: $muted !important; font-size: 12px !important; font-weight: 500 !important;
+        }
+        $root .${NovelCommentPreview.ACTION} svg { width: 16px !important; height: 16px !important; stroke-width: 2; }
         """.trimIndent()
     }
 
@@ -484,6 +550,12 @@ object NovelReaderCss {
     private const val PER_MILLE = 1000
 
     private const val ACCENT_ALPHA = 168
+
+    /** A rule or a fill behind text: there, without being read as part of it. */
+    private const val FAINT_ALPHA = 48
+
+    /** A card on the page rather than a hole in it: a tint of the text, too light to read as a colour. */
+    private const val CARD_ALPHA = 14
 
     /** What [stylesheet] is written into, so a theme change can find it in the open document. */
     const val STYLE_ID = "recto-leaf-style"

@@ -20,7 +20,7 @@ class NovelCustomTheme(
     /**
      * Whether the slot has ever been given colours.
      *
-     * A fully transparent background is the sentinel: the editor only ever writes opaque colours,
+     * A fully transparent black background is the sentinel: the editor steps around that one value,
      * so no choice a reader can make collides with it, and it needs no fourth preference to say so.
      */
     val isSet: Boolean get() = background.get() != UNSET

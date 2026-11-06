@@ -25,7 +25,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -35,16 +34,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.components.RadioMenuItem
-import eu.kanade.presentation.components.SearchToolbar
 import eu.kanade.presentation.reader.appbars.ReaderTopBar
 import eu.kanade.presentation.reader.components.ChapterNavigator
 import eu.kanade.presentation.reader.components.ChapterNavigatorType
-import leaf.novel.presentation.reader.components.FindMatches
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.Sort
-import mihon.icons.materialsymbols.rounded.KeyboardArrowDown
-import mihon.icons.materialsymbols.rounded.KeyboardArrowUp
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -71,10 +66,6 @@ fun NovelReaderAppBars(
     onClickTopAppBar: () -> Unit,
     bookmarked: Boolean,
     onToggleBookmarked: () -> Unit,
-    searchQuery: String?,
-    onChangeSearchQuery: (String?) -> Unit,
-    findMatches: FindMatches,
-    onFindNext: (Boolean) -> Unit,
 
     onPreviousChapter: () -> Unit,
     enabledPrevious: Boolean,
@@ -99,31 +90,20 @@ fun NovelReaderAppBars(
             enter = slideInVertically(readerBarsSlideAnimationSpec) { -it } + fadeIn(readerBarsFadeAnimationSpec),
             exit = slideOutVertically(readerBarsSlideAnimationSpec) { -it } + fadeOut(readerBarsFadeAnimationSpec),
         ) {
-            if (searchQuery == null) {
-                ReaderTopBar(
-                    modifier = Modifier
-                        .background(backgroundColor)
-                        .clickable(onClick = onClickTopAppBar),
-                    mangaTitle = novelTitle,
-                    chapterTitle = chapterTitle,
-                    navigateUp = navigateUp,
-                    bookmarked = bookmarked,
-                    onToggleBookmarked = onToggleBookmarked,
-                    // A novel has no page to open, share or view on the web; the entry screen owns those.
-                    onOpenInWebView = null,
-                    onOpenInBrowser = null,
-                    onShare = null,
-                )
-            } else {
-                NovelReaderSearchBar(
-                    modifier = Modifier.background(backgroundColor),
-                    query = searchQuery,
-                    onQueryChange = onChangeSearchQuery,
-                    onClose = { onChangeSearchQuery(null) },
-                    matches = findMatches,
-                    onFindNext = onFindNext,
-                )
-            }
+            ReaderTopBar(
+                modifier = Modifier
+                    .background(backgroundColor)
+                    .clickable(onClick = onClickTopAppBar),
+                mangaTitle = novelTitle,
+                chapterTitle = chapterTitle,
+                navigateUp = navigateUp,
+                bookmarked = bookmarked,
+                onToggleBookmarked = onToggleBookmarked,
+                // A novel has no page to open, share or view on the web; the entry screen owns those.
+                onOpenInWebView = null,
+                onOpenInBrowser = null,
+                onShare = null,
+            )
         }
 
         Spacer(Modifier.weight(1f))
@@ -256,51 +236,3 @@ private fun AdditionalOptionsMenu(
  */
 private const val MIN_PERCENT = 1
 private const val MAX_PERCENT = 100
-
-/**
- * The top bar while a search is running, on Mihon's own search toolbar so the field, the close
- * button and the keyboard behave as they do everywhere else in the app.
- *
- * Its search and reset actions are turned off: this bar is only ever in search, and the room they
- * would take is where the match count and the step buttons go.
- */
-@Composable
-private fun NovelReaderSearchBar(
-    query: String,
-    onQueryChange: (String?) -> Unit,
-    onClose: () -> Unit,
-    matches: FindMatches,
-    onFindNext: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    SearchToolbar(
-        modifier = modifier,
-        searchQuery = query,
-        onChangeSearchQuery = onQueryChange,
-        onClickCloseSearch = onClose,
-        searchEnabled = false,
-        actions = {
-            if (matches.total > 0) {
-                Text(
-                    // The view counts matches from zero; a reader counts them from one.
-                    text = "${matches.activeOrdinal + 1}/${matches.total}",
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
-
-            IconButton(onClick = { onFindNext(false) }, enabled = matches.total > 0) {
-                Icon(
-                    imageVector = MaterialSymbols.Rounded.KeyboardArrowUp,
-                    contentDescription = stringResource(MR.strings.leaf_novel_reader_find_previous),
-                )
-            }
-
-            IconButton(onClick = { onFindNext(true) }, enabled = matches.total > 0) {
-                Icon(
-                    imageVector = MaterialSymbols.Rounded.KeyboardArrowDown,
-                    contentDescription = stringResource(MR.strings.leaf_novel_reader_find_next),
-                )
-            }
-        },
-    )
-}

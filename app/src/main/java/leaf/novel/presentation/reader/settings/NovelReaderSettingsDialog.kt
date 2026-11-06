@@ -414,10 +414,10 @@ private fun ColumnScope.VisualPage(
         )
 
         SectionHeading(MR.strings.leaf_novel_reader_custom_background)
-        ChannelSliders(custom.background)
+        ThemeColorPicker(custom.background)
 
         SectionHeading(MR.strings.leaf_novel_reader_custom_text)
-        ChannelSliders(custom.foreground)
+        ThemeColorPicker(custom.foreground)
     }
 
     // Day/night flips between these two.
@@ -496,6 +496,11 @@ private fun ColumnScope.MiscellaneousPage(
         CheckboxItem(
             label = stringResource(MR.strings.leaf_novel_comments_setting_auto_load),
             pref = novelReaderPreferences.commentsAutoLoad,
+        )
+
+        CheckboxItem(
+            label = stringResource(MR.strings.leaf_novel_comments_setting_preview),
+            pref = novelReaderPreferences.commentsPreview,
         )
 
         CheckboxItem(
@@ -926,43 +931,21 @@ private fun TapZoneCell(preference: Preference<NovelReaderAction>, modifier: Mod
 }
 
 /**
- * One opaque colour as three sliders, the way the image reader's colour filter page edits its own.
+ * One colour of a custom theme, picked rather than dialled in channel by channel.
  *
- * Alpha is not offered: a page you can see through is not a theme, and the fully transparent value
- * is what [NovelCustomTheme] reads as an empty slot.
+ * Fully transparent black is what [NovelCustomTheme] reads as an empty slot, so the one value that
+ * would collide is nudged off it.
  */
 @Composable
-private fun ChannelSliders(preference: Preference<Int>) {
+private fun ThemeColorPicker(preference: Preference<Int>) {
     val color by preference.collectAsState()
-
-    CHANNELS.forEach { (labelRes, shift) ->
-        SliderItem(
-            label = stringResource(labelRes),
-            value = (color shr shift) and CHANNEL_MAX,
-            valueRange = 0..CHANNEL_MAX,
-            steps = 0,
-            onChange = { value ->
-                preference.set(
-                    (color and (CHANNEL_MAX shl shift).inv()) or
-                        (value shl shift) or
-                        OPAQUE,
-                )
-            },
-            pillColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        )
-    }
+    NovelColorPicker(
+        // An empty slot opens on opaque black, so the first drag shows on the page.
+        color = if (color == NovelCustomTheme.UNSET) android.graphics.Color.BLACK else color,
+        onColorChange = { preference.set(if (it == NovelCustomTheme.UNSET) 1 else it) },
+        modifier = Modifier.padding(horizontal = SettingsItemsPaddings.Horizontal, vertical = 8.dp),
+    )
 }
-
-private val CHANNELS = listOf(
-    MR.strings.color_filter_r_value to 16,
-    MR.strings.color_filter_g_value to 8,
-    MR.strings.color_filter_b_value to 0,
-)
-
-private const val CHANNEL_MAX = 0xFF
-
-/** Every colour the editor writes is opaque, which is also what marks the slot as used. */
-private const val OPAQUE = 0xFF shl 24
 
 /** An action binding, which is what most of these rows are. */
 @Composable

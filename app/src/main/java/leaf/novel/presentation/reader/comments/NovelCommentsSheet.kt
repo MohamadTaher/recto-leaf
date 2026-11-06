@@ -47,14 +47,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.DropdownMenu
-import eu.kanade.presentation.components.TabbedDialog
-import eu.kanade.presentation.components.TabbedDialogPaddings
+import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import kotlinx.coroutines.launch
 import leaf.novel.api.NovelComment
@@ -68,16 +66,14 @@ import leaf.novel.ui.reader.comments.NovelComments
 import leaf.novel.ui.reader.comments.NovelCommentsState
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.rounded.Check
+import mihon.icons.materialsymbols.automirroredrounded.Sort
 import mihon.icons.materialsymbols.rounded.Close
-import mihon.icons.materialsymbols.rounded.FilterList
 import mihon.icons.materialsymbols.rounded.KeyboardArrowDown
 import mihon.icons.materialsymbols.rounded.KeyboardArrowUp
-import mihon.icons.materialsymbols.rounded.MoreVert
+import mihon.icons.materialsymbols.rounded.Refresh
+import mihon.icons.materialsymbols.roundedfilled.Extension
 import tachiyomi.core.common.preference.TriState
 import tachiyomi.i18n.MR
-import tachiyomi.presentation.core.components.BaseSortItem
-import tachiyomi.presentation.core.components.HeadingItem
 import tachiyomi.presentation.core.components.TriStateItem
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -229,7 +225,6 @@ fun NovelCommentsSheet(
                                             onToggleCollapsed = { comments.toggleCollapsed(row.comment.id) },
                                             onVote = { vote -> comments.vote(row.comment, vote) },
                                             onToggleReplies = { toggleReplies(row.comment) },
-                                            onFocus = { comments.focus(row.comment.id) },
                                             page = page?.url,
                                             onOpenPage = { page?.let(::openInWebView) },
                                             onShrink = { scrollBackTo(row.comment.id) },
@@ -299,11 +294,11 @@ fun NovelCommentsSheet(
 }
 
 /**
- * The title, then the review star, the filter and sort settings, the thread actions, and close.
+ * One row of controls: the count, then the review star, the extension filter, the order, refresh,
+ * expand or collapse every thread, and close.
  *
- * The extension filter and the order live behind one button in the library's own settings dialog,
- * laid out the way the library lays them out, so the row stays uncrowded however many extensions
- * have the novel.
+ * Each control is its own button rather than a page of a settings dialog or a line of an overflow
+ * menu, so every one of them is a single tap from the sheet.
  */
 @Composable
 private fun NovelCommentsHeader(
@@ -320,7 +315,6 @@ private fun NovelCommentsHeader(
 ) {
     if (state.capabilities == null) return
     val enabled = !state.posting && state.voting.isEmpty() && state.draft.isBlank()
-    var settingsOpen by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.padding(start = MaterialTheme.padding.medium, end = MaterialTheme.padding.extraSmall)) {
         Row(
@@ -329,49 +323,25 @@ private fun NovelCommentsHeader(
                 .padding(top = MaterialTheme.padding.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Named for what is showing: a discussion while reviews and comments are shown together,
-            // and otherwise whichever of the two it is.
+            // Reviews and comments are counted apart while both are showing, else whichever it is.
             val mixed = state.kind == NovelCommentKind.ALL &&
                 NovelCommentKind.REVIEWS in state.kinds && NovelCommentKind.COMMENTS in state.kinds
             val reviews = !mixed &&
                 (state.kind == NovelCommentKind.REVIEWS || state.kinds == setOf(NovelCommentKind.REVIEWS))
-            val count = if (state.loaded) {
-                val reviewCount = stringResource(MR.strings.leaf_novel_comments_review_count, state.reviewCount)
-                val commentCount = stringResource(MR.strings.leaf_novel_comments_count, state.commentCount)
-                when {
+            val reviewCount = stringResource(MR.strings.leaf_novel_comments_review_count, state.reviewCount)
+            val commentCount = stringResource(MR.strings.leaf_novel_comments_count, state.commentCount)
+            Text(
+                text = when {
+                    !state.loaded -> ""
                     mixed -> "$reviewCount · $commentCount"
                     reviews -> reviewCount
                     else -> commentCount
-                }
-            } else {
-                null
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(
-                        when {
-                            mixed -> MR.strings.leaf_novel_comments_discussion
-                            reviews -> MR.strings.leaf_novel_comments_reviews
-                            else -> MR.strings.leaf_novel_comments
-                        },
-                    ),
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                // The chapter and the count on one line, scrolling when it does not fit, the way
-                // Mihon's app bar scrolls the reader's chapter title.
-                listOfNotNull(state.chapterName, count).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.basicMarquee(repeatDelayMillis = 2_000),
-                    )
-                }
-            }
+                },
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).basicMarquee(repeatDelayMillis = 2_000),
+            )
 
             if (state.searching) {
                 val searching = stringResource(MR.strings.leaf_novel_comments_searching)
@@ -386,19 +356,24 @@ private fun NovelCommentsHeader(
             if (NovelCommentKind.REVIEWS in state.kinds && NovelCommentKind.COMMENTS in state.kinds) {
                 NovelCommentKindToggle(state.kind, enabled) { onSetKind(state.kind.next) }
             }
-            // Tinted while an extension is filtered, as the library's own filter button is.
-            IconButton(onClick = { settingsOpen = true }, enabled = enabled) {
-                Icon(
-                    MaterialSymbols.Rounded.FilterList,
-                    stringResource(MR.strings.action_filter),
-                    tint = if (state.originFilter.isNotEmpty()) {
-                        MaterialTheme.colorScheme.active
-                    } else {
-                        LocalContentColor.current
-                    },
-                )
+            // With one extension there is nothing to choose between.
+            if (state.origins.size > 1) {
+                NovelCommentsSourceButton(state, enabled, onSetOriginFilter, onClearOriginFilter)
             }
-            NovelCommentsMenu(state, onRefresh, onCollapseAll, onExpandAll)
+            NovelCommentsSortButton(state, enabled, onSetSort)
+            IconButton(onClick = onRefresh, enabled = !state.loading && !state.posting && state.voting.isEmpty()) {
+                Icon(MaterialSymbols.Rounded.Refresh, stringResource(MR.strings.action_webview_refresh))
+            }
+            // Nothing folded offers to fold everything; anything folded offers to open everything.
+            if (state.collapsed.isEmpty()) {
+                IconButton(onClick = onCollapseAll, enabled = state.roots.isNotEmpty()) {
+                    Icon(NovelCommentGlyphs.CollapseAll, stringResource(MR.strings.leaf_novel_comments_collapse_all))
+                }
+            } else {
+                IconButton(onClick = onExpandAll) {
+                    Icon(NovelCommentGlyphs.ExpandAll, stringResource(MR.strings.leaf_novel_comments_expand_all))
+                }
+            }
             IconButton(onClick = onDismiss) {
                 Icon(MaterialSymbols.Rounded.Close, contentDescription = stringResource(MR.strings.action_close))
             }
@@ -419,121 +394,77 @@ private fun NovelCommentsHeader(
             }
         }
     }
-
-    if (settingsOpen) {
-        NovelCommentsSettingsDialog(
-            state = state,
-            onSetOriginFilter = onSetOriginFilter,
-            onClearOriginFilter = onClearOriginFilter,
-            onSetSort = onSetSort,
-            onDismissRequest = { settingsOpen = false },
-        )
-    }
 }
 
 /**
- * Filter and sort, in the dialog the library uses for its own: each extension a tri-state row,
- * shown only or hidden, exactly as the library filters by tracker.
+ * The extensions the comments came from, each a tri-state row, shown only or hidden, exactly as the
+ * library filters by tracker. Tinted while one is filtered, as the library's own filter button is.
  */
 @Composable
-private fun NovelCommentsSettingsDialog(
+private fun NovelCommentsSourceButton(
     state: NovelCommentsState,
+    enabled: Boolean,
     onSetOriginFilter: (Long, TriState) -> Unit,
     onClearOriginFilter: () -> Unit,
-    onSetSort: (NovelCommentLocalSort) -> Unit,
-    onDismissRequest: () -> Unit,
-) {
-    TabbedDialog(
-        onDismissRequest = onDismissRequest,
-        tabTitles = listOf(stringResource(MR.strings.action_filter), stringResource(MR.strings.action_sort)),
-    ) { page ->
-        Column(
-            modifier = Modifier
-                .padding(vertical = TabbedDialogPaddings.Vertical)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            when (page) {
-                0 -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) { HeadingItem(MR.strings.label_extensions) }
-                        TextButton(
-                            onClick = onClearOriginFilter,
-                            enabled = state.originFilter.isNotEmpty(),
-                            modifier = Modifier.padding(end = 8.dp),
-                        ) {
-                            Text(stringResource(MR.strings.action_reset))
-                        }
-                    }
-                    // With one extension there is nothing to choose between.
-                    val choosable = state.origins.size > 1
-                    state.origins.forEach { origin ->
-                        TriStateItem(
-                            label = origin.count?.let {
-                                stringResource(MR.strings.leaf_novel_comments_feed_count, origin.name, it)
-                            } ?: origin.name,
-                            state = state.originFilter[origin.id] ?: TriState.DISABLED,
-                            onClick = { next: TriState -> onSetOriginFilter(origin.id, next) }.takeIf { choosable },
-                        )
-                    }
-                }
-                1 -> NovelCommentLocalSort.entries.forEach { sort ->
-                    BaseSortItem(
-                        label = stringResource(sort.titleRes),
-                        icon = MaterialSymbols.Rounded.Check.takeIf { sort == state.sort },
-                        onClick = { onSetSort(sort) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * The overflow menu, as Mihon's app bars draw theirs: words only, a little shorter per row since the
- * sheet is smaller than a screen.
- */
-@Composable
-private fun NovelCommentsMenu(
-    state: NovelCommentsState,
-    onRefresh: () -> Unit,
-    onCollapseAll: () -> Unit,
-    onExpandAll: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(MaterialSymbols.Rounded.MoreVert, stringResource(MR.strings.action_menu_overflow_description))
+        IconButton(onClick = { expanded = true }, enabled = enabled) {
+            Icon(
+                MaterialSymbols.RoundedFilled.Extension,
+                stringResource(MR.strings.label_extensions),
+                tint = if (state.originFilter.isNotEmpty()) {
+                    MaterialTheme.colorScheme.active
+                } else {
+                    LocalContentColor.current
+                },
+            )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            listOf(
-                MR.strings.action_webview_refresh to onRefresh,
-                MR.strings.leaf_novel_comments_collapse_all to onCollapseAll,
-                MR.strings.leaf_novel_comments_expand_all to onExpandAll,
-            ).forEach { (title, action) ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(title),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Normal,
-                        )
-                    },
-                    enabled = when (title) {
-                        MR.strings.action_webview_refresh -> !state.loading && !state.posting && state.voting.isEmpty()
-                        else -> true
-                    },
-                    modifier = Modifier.height(MENU_ITEM_HEIGHT),
+            state.origins.forEach { origin ->
+                TriStateItem(
+                    label = origin.count?.let {
+                        stringResource(MR.strings.leaf_novel_comments_feed_count, origin.name, it)
+                    } ?: origin.name,
+                    state = state.originFilter[origin.id] ?: TriState.DISABLED,
+                    onClick = { next: TriState -> onSetOriginFilter(origin.id, next) },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text(stringResource(MR.strings.action_reset)) },
+                enabled = state.originFilter.isNotEmpty(),
+                onClick = onClearOriginFilter,
+            )
+        }
+    }
+}
+
+/** The order, as a menu of radio rows the way Mihon's app bars offer a choice of one. */
+@Composable
+private fun NovelCommentsSortButton(
+    state: NovelCommentsState,
+    enabled: Boolean,
+    onSetSort: (NovelCommentLocalSort) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }, enabled = enabled) {
+            Icon(MaterialSymbols.AutoMirroredRounded.Sort, stringResource(MR.strings.action_sort))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            NovelCommentLocalSort.entries.forEach { sort ->
+                RadioMenuItem(
+                    text = { Text(stringResource(sort.titleRes)) },
+                    isChecked = sort == state.sort,
                     onClick = {
                         expanded = false
-                        action()
+                        onSetSort(sort)
                     },
                 )
             }
         }
     }
 }
-
-private val MENU_ITEM_HEIGHT = 40.dp
 
 /**
  * The review filter as one chip that cycles: grey for everything, green for reviews alone, red for
@@ -720,4 +651,4 @@ private fun NovelCommentComposer(state: NovelCommentsState, comments: NovelComme
 
 private const val COMPOSER_MAX_LINES = 6
 
-private val ListPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+private val ListPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)

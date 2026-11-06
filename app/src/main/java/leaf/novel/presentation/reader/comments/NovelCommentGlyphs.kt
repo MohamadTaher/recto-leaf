@@ -25,7 +25,8 @@ import androidx.compose.ui.unit.dp
  * are stroked rather than traced as a filled outline because a stroke is a dozen path commands
  * where an outline is fifty, and nothing downstream can tell the difference.
  *
- * Stars and likes use the same outline weight; the upstream set does not contain those glyphs.
+ * Stars, likes and the expand/collapse chevrons use the same outline weight; the upstream set does
+ * not contain those glyphs.
  */
 object NovelCommentGlyphs {
 
@@ -128,6 +129,30 @@ object NovelCommentGlyphs {
             lineTo(11f, 16.5f)
             arcTo(2f, 2f, 0f, false, true, 9f, 14.5f)
             lineTo(9f, 12.5f)
+        }
+    }
+
+    /** Two chevrons pointing apart: open every thread. */
+    val ExpandAll: ImageVector by lazy {
+        glyph("CommentExpandAll") {
+            moveTo(8f, 9f)
+            lineTo(12f, 5f)
+            lineTo(16f, 9f)
+            moveTo(8f, 15f)
+            lineTo(12f, 19f)
+            lineTo(16f, 15f)
+        }
+    }
+
+    /** Two chevrons pointing together: fold every thread. */
+    val CollapseAll: ImageVector by lazy {
+        glyph("CommentCollapseAll") {
+            moveTo(8f, 5f)
+            lineTo(12f, 9f)
+            lineTo(16f, 5f)
+            moveTo(8f, 19f)
+            lineTo(12f, 15f)
+            lineTo(16f, 19f)
         }
     }
 

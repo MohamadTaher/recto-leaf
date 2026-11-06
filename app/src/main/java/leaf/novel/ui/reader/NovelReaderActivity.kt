@@ -136,9 +136,6 @@ class NovelReaderActivity : BaseActivity() {
      * swallow the volume keys for the whole device while the reader is open.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // A reader typing into the search field is not issuing reader commands.
-        if (viewModel.state.value.searchQuery != null) return super.dispatchKeyEvent(event)
-
         return dispatchNovelReaderKey(
             keyCode = event.keyCode,
             eventAction = event.action,

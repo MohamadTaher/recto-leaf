@@ -52,13 +52,18 @@ import androidx.core.content.getSystemService
 import eu.kanade.presentation.components.RadioMenuItem
 import eu.kanade.presentation.reader.ReaderContentOverlay
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
@@ -78,7 +83,9 @@ import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelReaderError
 import leaf.novel.ui.reader.NovelReaderViewModel
 import leaf.novel.ui.reader.NovelReadingTime
+import leaf.novel.ui.reader.NovelSearchResult
 import leaf.novel.ui.reader.NovelTextReplacements
+import leaf.novel.ui.reader.comments.NovelCommentPreview
 import leaf.novel.ui.reader.setting.NovelCustomTheme
 import leaf.novel.ui.reader.setting.NovelReaderAction
 import leaf.novel.ui.reader.setting.NovelReaderColors
@@ -89,6 +96,7 @@ import leaf.novel.ui.reader.setting.NovelReaderSwipe
 import leaf.novel.ui.reader.setting.NovelStatusBarTap
 import leaf.novel.ui.reader.setting.NovelStatusPlacement
 import leaf.novel.ui.reader.setting.NovelTapGrid
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.domain.chapter.model.Chapter
@@ -135,6 +143,9 @@ fun NovelReaderScreen(
 
     var additionalOptionsExpanded by remember { mutableStateOf(false) }
     var showChapters by remember { mutableStateOf(false) }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
+    // The result last jumped to, while the reader can still step from it to the next.
+    var searchResult by remember { mutableStateOf<NovelSearchResult?>(null) }
     var showComments by rememberSaveable { mutableStateOf(false) }
     // A look, not a mode: it lasts until it is turned off again and stores nothing.
     var publisherFormatting by remember { mutableStateOf(false) }
@@ -200,6 +211,20 @@ fun NovelReaderScreen(
     fun closeSpeechControls() {
         viewModel.stopSpeaking()
         hideSpeechControls()
+    }
+
+    fun openResult(result: NovelSearchResult) {
+        val index = state.chapters.indexOfFirst { it.id == result.position.chapterId }
+        if (index < 0) return
+        searchResult = result
+        viewModel.search.select(result)
+        // Speech would take the page straight back to the line it is saying.
+        closeSpeechControls()
+        if (state.menuVisible) viewModel.toggleMenu()
+        // Opening another chapter rebuilds the document unless it already starts there.
+        val reload = index != state.currentIndex && result.position.chapterId != documentStartChapterId
+        if (index != state.currentIndex) openChapter(index)
+        webViewController.showMatch(result.position, afterLoad = reload)
     }
 
     // Manual reading and TTS both update the chapter's single tracked position in the ViewModel.
@@ -268,6 +293,7 @@ fun NovelReaderScreen(
             .distinctUntilChanged()
     }.collectAsState(initial = false)
     val commentsOffered = commentsAllowed && commentsSupported
+    val commentsPreview by viewModel.novelReaderPreferences.commentsPreview.collectAsState()
 
     // The one place an action becomes an effect. Taps bind to it here; keys and swipes follow.
     fun performAction(action: NovelReaderAction) {
@@ -295,11 +321,7 @@ fun NovelReaderScreen(
                 showComments = true
             }
             NovelReaderAction.BOOK_INFORMATION -> onOpenEntry()
-            NovelReaderAction.SEARCH -> {
-                closeSpeechControls()
-                viewModel.showMenu()
-                viewModel.setSearchQuery("")
-            }
+            NovelReaderAction.SEARCH -> showSearch = true
             NovelReaderAction.DAY_NIGHT_MODE -> viewModel.toggleDayNightMode()
             NovelReaderAction.SCREEN_ORIENTATION -> viewModel.cycleOrientation()
             NovelReaderAction.CHANGE_THEME -> viewModel.cycleTheme()
@@ -403,13 +425,15 @@ fun NovelReaderScreen(
         viewModel.actions.collect { currentAction(it) }
     }
 
-    // Both of these hang off the chrome, so when it goes they go with it. An expanded menu left
-    // set would pop open on its own the next time the bar came back, and a search left open would
-    // go on swallowing the key bindings with nothing on screen to explain why.
+    // The expanded menu hangs off the chrome, so when it goes it goes with it; left set it would pop
+    // open on its own the next time the bar came back. The tap that brings the bar back is also the
+    // reader being done with the search result they jumped to.
     LaunchedEffect(state.menuVisible) {
-        if (!state.menuVisible) {
+        if (state.menuVisible) {
+            webViewController.clearMatch()
+            searchResult = null
+        } else {
             additionalOptionsExpanded = false
-            viewModel.setSearchQuery(null)
         }
     }
 
@@ -426,22 +450,8 @@ fun NovelReaderScreen(
         if (!state.speaking) hideSpeechControls()
     }
 
-    // Back closes the search rather than the book, which is what the gesture means everywhere else.
-    BackHandler(enabled = state.searchQuery != null) {
-        viewModel.setSearchQuery(null)
-    }
-
-    BackHandler(
-        enabled = showSpeechControls && state.searchQuery == null,
-    ) {
+    BackHandler(enabled = showSpeechControls) {
         closeSpeechControls()
-    }
-
-    // Live find-in-page: every keystroke re-searches, and closing the bar drops the highlighting.
-    // A stale highlight outliving its search is the characteristic bug here.
-    LaunchedEffect(state.searchQuery) {
-        val query = state.searchQuery
-        if (query.isNullOrBlank()) webViewController.clearFind() else webViewController.find(query)
     }
 
     val autoScrollSpeed by viewModel.novelReaderPreferences.autoScrollSpeed.collectAsState()
@@ -619,6 +629,7 @@ fun NovelReaderScreen(
                             publisherFormatting = publisherFormatting,
                             style = style,
                             colors = colors,
+                            commentPreview = commentsOffered && commentsPreview,
                             percentRead = livePercent,
                             onPercentChange = { visiblePercent = it },
                             speechChapterId = state.speechPosition?.chapterId,
@@ -673,7 +684,11 @@ fun NovelReaderScreen(
                             },
                             onLongPress = ::performLongPress,
                             onInternalLink = { entry ->
-                                viewModel.chapterIndexByEntry(entry)?.let(::openChapter)
+                                if (entry == NovelCommentPreview.ENTRY) {
+                                    performAction(NovelReaderAction.COMMENTS)
+                                } else {
+                                    viewModel.chapterIndexByEntry(entry)?.let(::openChapter)
+                                }
                             },
                             onExternalLink = { uriHandler.openUri(it) },
                         )
@@ -808,10 +823,6 @@ fun NovelReaderScreen(
             onClickTopAppBar = onOpenEntry,
             bookmarked = chapter?.bookmark == true,
             onToggleBookmarked = viewModel::toggleBookmark,
-            searchQuery = state.searchQuery,
-            onChangeSearchQuery = viewModel::setSearchQuery,
-            findMatches = webViewController.findMatches,
-            onFindNext = { webViewController.findNext(it) },
             onPreviousChapter = { openChapter(state.currentIndex - 1) },
             enabledPrevious = state.currentIndex > 0,
             onNextChapter = { openChapter(state.currentIndex + 1) },
@@ -849,6 +860,24 @@ fun NovelReaderScreen(
                 )
             },
         )
+
+        searchResult?.let { shown ->
+            val results by viewModel.search.state.collectAsState()
+            NovelSearchNavigator(
+                results = results.results,
+                current = shown,
+                onOpen = ::openResult,
+                onShowList = { showSearch = true },
+                onClose = {
+                    searchResult = null
+                    webViewController.clearMatch()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = bottomPanelHeight + NovelStatusBarHeight + 12.dp)
+                    .navigationBarsPadding(),
+            )
+        }
 
         SnackbarHost(
             hostState = snackbarHostState,
@@ -965,6 +994,21 @@ fun NovelReaderScreen(
         )
     }
 
+    if (showSearch) {
+        val downloading by viewModel.searchDownloads.collectAsState()
+        NovelSearchSheet(
+            search = viewModel.search,
+            currentIndex = state.currentIndex,
+            downloading = downloading,
+            onDownload = viewModel::downloadForSearch,
+            onSelect = { result ->
+                showSearch = false
+                openResult(result)
+            },
+            onDismissRequest = { showSearch = false },
+        )
+    }
+
     if (showChapters) {
         NovelChapterSheet(
             chapters = state.chapters,
@@ -983,6 +1027,8 @@ private fun ChapterContent(
     publisherFormatting: Boolean,
     style: NovelReaderStyle,
     colors: NovelReaderColors,
+    /** Whether the chapter's top comments go under its last line. */
+    commentPreview: Boolean,
     percentRead: Int,
     onPercentChange: (Int) -> Unit,
     speechChapterId: Long?,
@@ -1010,6 +1056,8 @@ private fun ChapterContent(
 ) {
     val assetServer = remember(viewModel) { viewModel.assetServer() }
     val continuous = !paged
+    // Mihon's own setting, read once per viewer the way its webtoon viewer reads it.
+    val hideThreshold = remember(viewModel) { viewModel.readerPreferences.readerHideThreshold.get().threshold }
 
     // Bumped by Retry. Choosing the same chapter again leaves the key alone, so nothing else would
     // fetch a chapter that failed.
@@ -1054,6 +1102,8 @@ private fun ChapterContent(
                 NovelDocumentChapter(first.chapter.id, first.chapter.name, chapterContent)
             }
             val loadedPages = remember(startIndex) { mutableListOf(firstPage) }
+            // The sections in the document, for the comments written under each.
+            val sections = remember(startIndex) { MutableStateFlow(listOf(firstPage.id)) }
             var activeIndex by remember(startIndex) { mutableIntStateOf(startIndex) }
             // Not keyed on the colours: a theme change is swapped into the open page below,
             // where rebuilding the document would reload it.
@@ -1115,6 +1165,7 @@ private fun ChapterContent(
                     controller.appendChapter(
                         NovelReaderCss.chapterSection(page, style, colors, publisherFormatting),
                     )
+                    sections.value = loadedPages.map { it.id }
                 }
                 // Downwards, so the chapter the reader is about to scroll back into is the first
                 // to arrive. Without one above, reading back off the top has nothing to read.
@@ -1124,14 +1175,62 @@ private fun ChapterContent(
                     controller.prependChapter(
                         NovelReaderCss.chapterSection(page, style, colors, publisherFormatting),
                     )
+                    sections.value = loadedPages.map { it.id }
                 }
 
                 val window = chapters.subList(first, last + 1).mapTo(mutableSetOf()) { it.id }
                 if (loadedPages.any { it.id !in window }) {
                     loadedPages.removeAll { it.id !in window }
                     controller.keepChapters(loadedPages.map { it.id })
+                    sections.value = loadedPages.map { it.id }
                     viewModel.trimChapterCache(activeIndex)
                 }
+            }
+
+            // Each chapter's top comments under its last line, as Webnovel sets them, written in as
+            // soon as that chapter's comments arrive: the same fetch the sheet draws from. Collected
+            // rather than read as state, so a page of comments landing writes into the document and
+            // never recomposes it. Again for every document: a rebuilt one has lost what was written.
+            val context = LocalContext.current
+            val commentLabels = NovelCommentPreview.Labels(
+                title = stringResource(MR.strings.leaf_novel_comments),
+                count = {
+                    val res = if (it ==
+                        1
+                    ) {
+                        MR.strings.leaf_novel_comments_count_one
+                    } else {
+                        MR.strings.leaf_novel_comments_count
+                    }
+                    context.stringResource(res, it)
+                },
+                viewAll = stringResource(MR.strings.leaf_novel_comments_view_all),
+                load = stringResource(MR.strings.leaf_novel_comments_load),
+                spoiler = stringResource(MR.strings.leaf_novel_comments_spoiler),
+            )
+            LaunchedEffect(document, continuous, commentPreview) {
+                if (!continuous) return@LaunchedEffect
+                if (!commentPreview) {
+                    loadedPages.forEach { controller.showComments(it.id, "") }
+                    return@LaunchedEffect
+                }
+                val spoilerGuard = viewModel.novelReaderPreferences.commentsSpoilerGuard
+                // What each section was last given, so a page landing in one chapter rewrites only that one.
+                val written = HashMap<Long, String>()
+                combine(viewModel.comments.chapters, sections) { threads, ids ->
+                    ids to ids.mapNotNull { id ->
+                        threads[id]?.let { NovelCommentPreview.html(it, commentLabels, spoilerGuard.get()) }
+                            ?.let { id to it }
+                    }
+                }
+                    .flowOn(Dispatchers.Default)
+                    .collect { (ids, previews) ->
+                        // A section that left the document took its preview with it.
+                        written.keys.retainAll(ids.toSet())
+                        previews.forEach { (id, html) ->
+                            if (written.put(id, html) != html) controller.showComments(id, html)
+                        }
+                    }
             }
 
             NovelChapterWebView(
@@ -1174,6 +1273,10 @@ private fun ChapterContent(
                 onSwipe = onSwipe,
                 onInternalLink = onInternalLink,
                 onExternalLink = onExternalLink,
+                // A drag past the threshold puts the chrome away, as in Mihon's webtoon viewer.
+                onDrag = { distance ->
+                    if (distance > hideThreshold && viewModel.state.value.menuVisible) viewModel.toggleMenu()
+                },
                 // System insets keep the chapter out of the device bars. Vertical reader margins
                 // live here instead of on the HTML body so they remain visible throughout a
                 // scrolling chapter, not only at its first and last line.
