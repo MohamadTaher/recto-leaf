@@ -48,6 +48,7 @@ import leaf.novel.api.NovelCommentTarget
 import leaf.novel.api.NovelCommentVote
 import leaf.novel.ui.reader.setting.NovelReaderPreferences
 import logcat.LogPriority
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tachiyomi.core.common.preference.TriState
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
@@ -1062,6 +1063,20 @@ class NovelComments(
             ?: runCatching { source.getMangaUrl(target?.novel ?: drain.origin.novel) }.getOrNull()
             ?: source.baseUrl
         return NovelCommentVerification(sourceId = source.id, name = source.name, url = url)
+    }
+
+    /**
+     * The origin of the site a comment came from, which its pictures are asked for with as their
+     * Referer. Read off the id's tag rather than [drainOf], because a chapter ahead is not on screen.
+     */
+    fun referer(comment: NovelComment): String? {
+        val origin = if (comment.id.startsWith(TAG)) {
+            origins.firstOrNull { comment.id.startsWith("$TAG${it.source.id}$TAG") }
+        } else {
+            origins.firstOrNull { it.own }
+        }
+        val url = (origin?.source as? HttpSource)?.baseUrl?.toHttpUrlOrNull() ?: return null
+        return "${url.scheme}://${url.host}/"
     }
 
     /** The thread on screen a comment belongs to, read off its id's tag. */

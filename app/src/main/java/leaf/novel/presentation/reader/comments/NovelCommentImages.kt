@@ -1,7 +1,9 @@
 package leaf.novel.presentation.reader.comments
 
 import android.content.Context
+import android.net.Uri
 import android.os.Build
+import android.webkit.WebResourceResponse
 import android.widget.VideoView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,13 +48,24 @@ import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
+import leaf.novel.api.NovelComment
+import leaf.novel.ui.reader.comments.NovelCommentMarkup
+import leaf.novel.ui.reader.comments.NovelCommentPreview
+import leaf.novel.ui.reader.comments.NovelCommentReview
+import leaf.novel.ui.reader.loader.NovelEpubAssetServer
+import leaf.novel.ui.reader.loader.VIRTUAL_ORIGIN
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Close
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.clickableNoIndication
+import java.io.ByteArrayInputStream
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Pictures in a comment, drawn where they stood among its words, with GIFs moving.
@@ -146,7 +159,7 @@ private fun CommentMedia(
     /** Set to size the picture as a browser would, within these bounds; null leaves it to [modifier]. */
     bounds: DpSize? = null,
 ) {
-    if (VIDEO.containsMatchIn(url.substringBefore('?'))) {
+    if (NovelCommentPreview.VIDEO.containsMatchIn(url.substringBefore('?'))) {
         AndroidView(
             factory = { context ->
                 VideoView(context).apply {
@@ -167,12 +180,7 @@ private fun CommentMedia(
         val context = LocalContext.current
         var size by remember(url) { mutableStateOf<DpSize?>(null) }
         AsyncImage(
-            model = remember(url, referer) {
-                ImageRequest.Builder(context)
-                    .data(url)
-                    .apply { referer?.let { httpHeaders(NetworkHeaders.Builder().set("Referer", it).build()) } }
-                    .build()
-            },
+            model = remember(url, referer) { commentImageRequest(context, url, referer).build() },
             imageLoader = commentImageLoader(context),
             contentDescription = null,
             contentScale = contentScale,
@@ -190,8 +198,6 @@ private fun CommentMedia(
 }
 
 private val MAX_SIZE = DpSize(320.dp, 240.dp)
-
-private val VIDEO = Regex("""\.(mp4|webm)$""", RegexOption.IGNORE_CASE)
 
 /** Dark enough that the sheet behind stops competing, as the chapter's own image viewer is. */
 private val SCRIM = Color(0xE6000000)
@@ -213,3 +219,80 @@ private fun commentImageLoader(context: Context): ImageLoader {
         .build()
         .also { commentLoader = it }
 }
+
+/** What the sheet, the chapter's preview and [prefetchCommentMedia] all ask for, so a picture is one fetch for all three. */
+private fun commentImageRequest(context: Context, url: String, referer: String?) = ImageRequest.Builder(context)
+    .data(url)
+    .apply { referer?.let { httpHeaders(NetworkHeaders.Builder().set("Referer", it).build()) } }
+
+/**
+ * Into the disk cache and nowhere else: decoded at a pixel, which is all a download costs Coil, and
+ * kept out of memory, where a bitmap that size would only be a miss for the sheet's real one.
+ */
+private fun downloadRequest(
+    context: Context,
+    url: String,
+    referer: String?,
+) = commentImageRequest(context, url, referer)
+    .size(1, 1)
+    .memoryCachePolicy(CachePolicy.DISABLED)
+    .build()
+
+/**
+ * Fetches the pictures and avatars of [comments] and their replies as they arrive, so the sheet and
+ * the preview under the chapter draw them at once rather than when they come on screen. A video GIF
+ * is not an image Coil reads, so it still waits for the sheet.
+ */
+internal fun prefetchCommentMedia(
+    context: Context,
+    comments: List<NovelComment>,
+    avatars: Boolean,
+    referer: (NovelComment) -> String?,
+    seen: MutableSet<String>,
+) {
+    val loader = SingletonImageLoader.get(context)
+    fun visit(comment: NovelComment) {
+        if (!comment.deleted) {
+            val urls = NovelCommentMarkup.parse(NovelCommentReview.parse(comment.body).body).mapNotNull { it.image } +
+                listOfNotNull(comment.avatarUrl?.takeIf { avatars })
+            urls.filter { !NovelCommentPreview.VIDEO.containsMatchIn(it.substringBefore('?')) && seen.add(it) }
+                .forEach { loader.enqueue(downloadRequest(context, it, referer(comment))) }
+        }
+        comment.replies.forEach(::visit)
+    }
+    comments.forEach(::visit)
+}
+
+/**
+ * Answers the chapter page's request for a comment's picture out of the image cache the sheet draws
+ * from, fetching it there first if it has not landed yet; null for every other request.
+ *
+ * Blocking, as `shouldInterceptRequest` is, and bounded for the same reason the chapter's own
+ * pictures are: the WebView waits on its own thread, and a missing picture is the better failure.
+ */
+internal fun commentMediaResponse(context: Context, url: Uri): WebResourceResponse? {
+    if (!url.toString().startsWith(VIRTUAL_ORIGIN + NovelCommentPreview.MEDIA)) return null
+    val image = url.lastPathSegment ?: return null
+    val loader = SingletonImageLoader.get(context)
+    val cache = loader.diskCache
+    fun cached() = cache?.openSnapshot(image)?.use { cache.fileSystem.read(it.data) { readByteArray() } }
+    val bytes = runCatching {
+        cached() ?: run {
+            val referer = url.getQueryParameter(NovelCommentPreview.REFERER)
+            runBlocking {
+                withTimeoutOrNull(MEDIA_TIMEOUT) { loader.execute(downloadRequest(context, image, referer)) }
+            }
+            cached()
+        }
+    }.getOrNull()
+    return WebResourceResponse(
+        NovelEpubAssetServer.mimeTypeOf(image.substringBefore('?')),
+        null,
+        if (bytes != null) 200 else 404,
+        if (bytes != null) "OK" else "Not Found",
+        emptyMap(),
+        ByteArrayInputStream(bytes ?: ByteArray(0)),
+    )
+}
+
+private val MEDIA_TIMEOUT = 15.seconds

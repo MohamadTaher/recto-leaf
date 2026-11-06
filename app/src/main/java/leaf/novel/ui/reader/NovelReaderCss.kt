@@ -414,6 +414,16 @@ object NovelReaderCss {
         $root .${NovelCommentPreview.AVATAR} {
           flex: none; width: 24px; height: 24px; border-radius: 50%; background-color: $faint !important;
           font-size: 11px !important; line-height: 24px !important; font-weight: 500 !important; text-align: center !important;
+          position: relative; overflow: hidden;
+        }
+        $root .${NovelCommentPreview.AVATAR} img {
+          position: absolute; inset: 0; width: 100% !important; height: 100% !important; max-width: none !important;
+          margin: 0 !important; object-fit: cover;
+        }
+        $root .${NovelCommentPreview.IMAGES} { display: flex !important; flex-direction: column; gap: 8px; padding-top: 8px; }
+        $root .${NovelCommentPreview.IMAGE} {
+          display: block !important; width: auto !important; height: auto !important; margin: 0 !important;
+          max-width: min(100%, 320px) !important; max-height: 240px !important; border-radius: 8px; object-fit: contain;
         }
         $root .${NovelCommentPreview.MAIN} { flex: 1; min-width: 0; }
         $root .${NovelCommentPreview.META} {

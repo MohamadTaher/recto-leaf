@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import leaf.novel.presentation.reader.comments.commentMediaResponse
 import leaf.novel.ui.reader.NovelReaderCss
 import leaf.novel.ui.reader.NovelSpeech
 import leaf.novel.ui.reader.NovelStatusLine
@@ -748,7 +749,7 @@ private fun novelWebViewClient(
 ) = object : WebViewClient() {
 
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-        return assetServer()?.handle(request.url)
+        return commentMediaResponse(view.context, request.url) ?: assetServer()?.handle(request.url)
     }
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {

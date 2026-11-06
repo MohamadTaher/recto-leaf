@@ -69,6 +69,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import leaf.novel.presentation.reader.appbars.NovelBarButtons
 import leaf.novel.presentation.reader.appbars.NovelReaderAppBars
 import leaf.novel.presentation.reader.comments.NovelCommentsSheet
+import leaf.novel.presentation.reader.comments.prefetchCommentMedia
 import leaf.novel.presentation.reader.components.NovelChapterWebView
 import leaf.novel.presentation.reader.components.NovelImageDialog
 import leaf.novel.presentation.reader.components.NovelStatusBar
@@ -1208,7 +1209,18 @@ private fun ChapterContent(
                 load = stringResource(MR.strings.leaf_novel_comments_load),
                 spoiler = stringResource(MR.strings.leaf_novel_comments_spoiler),
             )
-            LaunchedEffect(document, continuous, commentPreview) {
+            val showAvatars by viewModel.novelReaderPreferences.commentsShowAvatars.collectAsState()
+            // Every picture and avatar fetched as its page of comments lands, preview or not, so the
+            // sheet and the preview draw from the cache rather than each starting its own fetch.
+            LaunchedEffect(showAvatars) {
+                val seen = HashSet<String>()
+                viewModel.comments.chapters.collect { threads ->
+                    threads.values.forEach {
+                        prefetchCommentMedia(context, it.roots, showAvatars, viewModel.comments::referer, seen)
+                    }
+                }
+            }
+            LaunchedEffect(document, continuous, commentPreview, showAvatars) {
                 if (!continuous) return@LaunchedEffect
                 if (!commentPreview) {
                     loadedPages.forEach { controller.showComments(it.id, "") }
@@ -1219,7 +1231,15 @@ private fun ChapterContent(
                 val written = HashMap<Long, String>()
                 combine(viewModel.comments.chapters, sections) { threads, ids ->
                     ids to ids.mapNotNull { id ->
-                        threads[id]?.let { NovelCommentPreview.html(it, commentLabels, spoilerGuard.get()) }
+                        threads[id]?.let {
+                            NovelCommentPreview.html(
+                                it,
+                                commentLabels,
+                                spoilerGuard.get(),
+                                showAvatars,
+                                viewModel.comments::referer,
+                            )
+                        }
                             ?.let { id to it }
                     }
                 }
