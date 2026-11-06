@@ -39,6 +39,7 @@ import tachiyomi.core.common.preference.TriState
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -58,7 +59,7 @@ class NovelCommentsTest {
         val source = FakeCommentSource(NovelCommentCapabilities(lazyReplies = true)) { request ->
             if (request.parent == null) NovelCommentPage(listOf(parent)) else response.await()
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences())
             comments.bind(source, Manga.create())
@@ -96,7 +97,7 @@ class NovelCommentsTest {
                     response.await()
                 }
             }
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val scope = confinedScope()
             try {
                 val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
                 comments.bind(source, Manga.create())
@@ -146,7 +147,7 @@ class NovelCommentsTest {
                 hasNextPage = feed == discussion && request.page == 1,
             )
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
             comments.bind(source, Manga.create())
@@ -196,7 +197,7 @@ class NovelCommentsTest {
         val source = FakeCommentSource(NovelCommentCapabilities(posting = true, maxDepth = 2)) {
             NovelCommentPage(listOf(parent))
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences())
             comments.bind(source, Manga.create())
@@ -230,7 +231,7 @@ class NovelCommentsTest {
             NovelCommentPage(listOf(original))
         }
         source.voteResponse = { _, _ -> result.await() }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences())
             comments.bind(source, Manga.create())
@@ -261,7 +262,7 @@ class NovelCommentsTest {
             NovelCommentPage(listOf(original))
         }
         source.voteResponse = { _, _ -> result.await() }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences())
             comments.bind(source, Manga.create())
@@ -295,7 +296,7 @@ class NovelCommentsTest {
             NovelCommentPage(emptyList())
         }
         source.postResponse = { result.await() }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences())
             comments.bind(source, Manga.create())
@@ -335,7 +336,7 @@ class NovelCommentsTest {
             NovelCommentPage(listOf(comment("1").copy(body = "theirs")))
         }
         other.search = { listOf(novel("Shadow Slave")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = shared(scope, own, other)
             comments.open()
@@ -390,7 +391,7 @@ class NovelCommentsTest {
             }
         }
         other.search = { listOf(novel("Shadow Slave")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = shared(scope, own, other)
             comments.open()
@@ -435,7 +436,7 @@ class NovelCommentsTest {
             reviewer.commentFeeds = listOf(NovelCommentFeed("reviews", "Their reviews", capabilities))
             reviewer.feedResponse = { _, _ -> NovelCommentPage(listOf(comment("their-review"))) }
             listOf(plain, reviewer).forEach { it.search = { listOf(novel("Shadow Slave")) } }
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val scope = confinedScope()
             try {
                 val comments = shared(scope, own, plain, reviewer)
                 comments.open()
@@ -475,7 +476,7 @@ class NovelCommentsTest {
         }
         other.search = { listOf(novel("Shadow Slave")) }
         other.chapters = { listOf(sourceChapter(12f, "/theirs/12"), sourceChapter(11f, "/theirs/11")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = shared(scope, own, other, commentScope = NovelCommentScope.CHAPTER)
             comments.setChapter(chapter(1).copy(chapterNumber = 11.0))
@@ -503,7 +504,7 @@ class NovelCommentsTest {
         val own = FakeCommentSource(capabilities, id = 1L, name = "Own") { NovelCommentPage(listOf(comment("1"))) }
         val other = FakeCommentSource(capabilities, id = 2L, name = "Other") { error("offline") }
         other.search = { listOf(novel("Shadow Slave")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = shared(scope, own, other)
             comments.open()
@@ -541,7 +542,7 @@ class NovelCommentsTest {
             NovelCommentPage(listOf(comment("theirs").copy(score = 5)))
         }
         other.search = { listOf(novel("Shadow Slave")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = shared(scope, own, other)
             comments.open()
@@ -565,7 +566,7 @@ class NovelCommentsTest {
                 ),
             )
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
             comments.bind(source, Manga.create())
@@ -590,7 +591,7 @@ class NovelCommentsTest {
             NovelCommentPage(listOf(comment("1")))
         }
         val cache = NovelCommentCache()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val first = NovelComments(scope, preferences(), NovelCommentScope.NOVEL, cache = cache)
             first.bind(source, Manga.create())
@@ -626,7 +627,7 @@ class NovelCommentsTest {
         }
         var offline = true
         other.search = { if (offline) error("offline") else listOf(novel("Shadow Slave")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = shared(scope, own, other)
             comments.open()
@@ -658,7 +659,7 @@ class NovelCommentsTest {
         val own = FakeCommentSource(capabilities, id = 1L, name = "Own") { NovelCommentPage(listOf(comment("1"))) }
         val silent = FakeCommentSource(capabilities, id = 2L, name = "Silent") { awaitCancellation() }
         silent.search = { listOf(novel("Shadow Slave")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = shared(scope, own, silent, timeout = 200.milliseconds)
             comments.open()
@@ -692,7 +693,7 @@ class NovelCommentsTest {
             delay(700)
             NovelCommentPage(listOf(comment(feed.key)))
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL, timeout = 1000.milliseconds)
             comments.bind(source, Manga.create())
@@ -708,7 +709,7 @@ class NovelCommentsTest {
     @Test
     fun `turning comments off stops the fetching, not only the button`() = runBlocking<Unit> {
         val source = FakeCommentSource { NovelCommentPage(listOf(comment("1"))) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences("leaf_novel_comments_enabled" to false))
             comments.bind(source, Manga.create())
@@ -728,7 +729,7 @@ class NovelCommentsTest {
     @Test
     fun `without auto-load, loading a chapter again shows what was already fetched`() = runBlocking<Unit> {
         val source = FakeCommentSource { NovelCommentPage(listOf(comment("1"))) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences("leaf_novel_comments_auto_load" to false))
             comments.bind(source, Manga.create())
@@ -760,7 +761,7 @@ class NovelCommentsTest {
         }
         other.search = { listOf(novel("Shadow Slave")) }
         other.chapters = { listOf(sourceChapter(11f, "/theirs/11")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = shared(scope, own, other, commentScope = NovelCommentScope.CHAPTER)
             comments.setChapter(chapter(1).copy(chapterNumber = 12.0))
@@ -804,7 +805,7 @@ class NovelCommentsTest {
                 byId["1"] = NovelCommentFeedback(likes = if (feed.key == NovelCommentFeed.REVIEWS) 99 else 3)
                 NovelCommentPage(listOf(comment("1").copy(body = feed.key)))
             }
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val scope = confinedScope()
             try {
                 val comments = shared(scope, source)
                 comments.open()
@@ -833,7 +834,7 @@ class NovelCommentsTest {
                 ),
             )
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
             comments.bind(source, Manga.create())
@@ -866,7 +867,7 @@ class NovelCommentsTest {
             override fun getCommentFeedback(comment: NovelComment) =
                 NovelCommentFeedback(rating = NovelCommentRating(4.5).takeIf { comment.id == "rated" })
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(scope, preferences(), NovelCommentScope.NOVEL)
             comments.bind(source, Manga.create())
@@ -908,7 +909,7 @@ class NovelCommentsTest {
             id = 2L,
         ) { NovelCommentPage(listOf(comment("elsewhere"))) }
         other.search = { listOf(novel("Shadow Slave")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         try {
             val comments = NovelComments(
                 scope = scope,
@@ -976,6 +977,17 @@ class NovelCommentsTest {
 
     private fun chapter(id: Long) = Chapter.create().copy(id = id, url = "/chapter/$id", name = "chapter $id")
 
+    /**
+     * The scope [NovelComments] runs in, on the test's own thread.
+     *
+     * The app gives it `viewModelScope`, which is the main thread, so its state is only ever touched
+     * from one thread and only its network calls go elsewhere. A scope on `Dispatchers.Default` let
+     * the cross-site search and the test's own calls race over that state, which no device can do,
+     * and a busy CI runner lost those races often enough to time a test out now and then.
+     */
+    private fun CoroutineScope.confinedScope() =
+        CoroutineScope(SupervisorJob() + coroutineContext[ContinuationInterceptor]!!)
+
     /** Polls rather than sleeps, so a slow machine waits and a wrong result still fails. */
     private suspend fun waitFor(what: String, condition: () -> Boolean) {
         val met = withTimeoutOrNull(WAIT_MS) {
@@ -992,7 +1004,7 @@ class NovelCommentsTest {
     @Test
     fun `says nothing went wrong when a fetch is cancelled out from under it`() = runBlocking {
         val source = FakeCommentSource { awaitCancellation() }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         val comments = NovelComments(scope, preferences())
 
         comments.bind(source, Manga.create())
@@ -1016,7 +1028,7 @@ class NovelCommentsTest {
     @Test
     fun `does not abandon a fetch the reader has already paid for`() = runBlocking {
         val source = FakeCommentSource { awaitCancellation() }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         val comments = NovelComments(scope, preferences())
 
         comments.bind(source, Manga.create())
@@ -1040,7 +1052,7 @@ class NovelCommentsTest {
                 else -> NovelCommentPage(listOf(comment("reply-page-${request.page}")), hasNextPage = true)
             }
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         val comments = NovelComments(scope, preferences())
 
         comments.bind(source, Manga.create())
@@ -1064,7 +1076,7 @@ class NovelCommentsTest {
     @Test
     fun `starts fetching as the chapter opens rather than waiting for the sheet`() = runBlocking {
         val source = FakeCommentSource { NovelCommentPage(listOf(comment("1"))) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         val comments = NovelComments(scope, preferences())
 
         comments.bind(source, Manga.create())
@@ -1085,7 +1097,7 @@ class NovelCommentsTest {
                 hasNextPage = request.page < 3,
             )
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         val comments = NovelComments(scope, preferences())
 
         comments.bind(source, Manga.create())
@@ -1107,7 +1119,7 @@ class NovelCommentsTest {
     @Test
     fun `stops asking when a page repeats what is already here`() = runBlocking {
         val source = FakeCommentSource { NovelCommentPage(listOf(comment("1")), hasNextPage = true) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         val comments = NovelComments(scope, preferences())
 
         comments.bind(source, Manga.create())
@@ -1125,7 +1137,7 @@ class NovelCommentsTest {
         val source = FakeCommentSource { request ->
             NovelCommentPage(listOf(comment("for-${request.target.chapter?.url}")))
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         val comments = NovelComments(scope, preferences())
 
         comments.bind(source, Manga.create())
@@ -1152,7 +1164,7 @@ class NovelCommentsTest {
         val source = FakeCommentSource(NovelCommentCapabilities(lazyReplies = true)) { request ->
             if (request.parent == null) NovelCommentPage(listOf(parent)) else NovelCommentPage(emptyList())
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = confinedScope()
         val comments = NovelComments(scope, preferences())
 
         comments.bind(source, Manga.create())
